@@ -1,0 +1,14 @@
+{
+  "NotFoundException": "عذراً، العنصر المطلوب غير موجود.",
+  "BadRequestException": "البيانات المرسلة غير صالحة، يرجى التحقق والمحاولة مرة أخرى.",
+  "UnauthorizedException": "غير مسموح لك بالوصول، يرجى تسجيل الدخول أولاً.",
+  "ForbiddenException": "ليس لديك الصلاحيات الكافية لتنفيذ هذا الإجراء.",
+  "NotAcceptableException": "الطلب غير مقبول.",
+  "RequestTimeoutException": "انتهت مهلة الطلب، يرجى المحاولة لاحقاً.",
+  "ConflictException": "حدث تعارض في البيانات، ربما هذا العنصر موجود مسبقاً.",
+  "InternalServerErrorException": "حدث خطأ داخلي في الخادم، نحن نعمل على إصلاحه.",
+  "ServiceUnavailableException": "الخدمة غير متوفرة حالياً، يرجى المحاولة لاحقاً.",
+  "PayloadTooLargeException": "حجم البيانات المرسلة كبير جداً.",
+  "ValidationException": "فشل التحقق من البيانات.",
+  "CATEGORY_HAS_PRODUCTS": "لا يمكن حذف هذا القسم لأنه يحتوي على منتجات مرتبطة به."
+}

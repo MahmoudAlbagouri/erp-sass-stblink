@@ -1,0 +1,14 @@
+{
+  "NotFoundException": "Sorry, the requested resource was not found.",
+  "BadRequestException": "The submitted data is invalid, please check and try again.",
+  "UnauthorizedException": "Unauthorized access, please log in first.",
+  "ForbiddenException": "You do not have sufficient permissions to perform this action.",
+  "NotAcceptableException": "The request is not acceptable.",
+  "RequestTimeoutException": "Request timeout, please try again later.",
+  "ConflictException": "Data conflict occurred, this item might already exist.",
+  "InternalServerErrorException": "Internal server error occurred, we are working on it.",
+  "ServiceUnavailableException": "Service is currently unavailable, please try again later.",
+  "PayloadTooLargeException": "The submitted payload is too large.",
+  "ValidationException": "Data validation failed.",
+  "CATEGORY_HAS_PRODUCTS": "This category cannot be deleted because it has linked products."
+}

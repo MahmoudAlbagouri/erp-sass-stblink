@@ -1,0 +1,17 @@
+{
+  "NAME_REQUIRED": "Name is required",
+  "NAME_TOO_SHORT": "Name must be at least 3 characters",
+  "NAME_MUST_BE_STRING": "Name must be a string",
+  "EMAIL_INVALID": "Please enter a valid email",
+  "EMAIL_REQUIRED": "Email is required",
+  "PHONE_REQUIRED": "Phone number is required",
+  "PHONE_INVALID": "Phone number is invalid (Must be Egyptian number)",
+  "PASSWORD_REQUIRED": "Password is required",
+  "PASSWORD_SHORT": "Password is too short (min 6 characters)",
+  "ROLE_INVALID": "The selected role is invalid",
+  "NOT_FOUND": "User not found",
+  "ALREADY_EXISTS": "This user already exists",
+  "EMAIL_ALREADY_EXISTS": "This email is already in use",
+  "PHONE_ALREADY_EXISTS": "This phone number is already in use",
+  "SUCCESS_OPERATION": "Operation accomplished successfully"
+}
