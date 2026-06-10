@@ -1,3 +1,4 @@
+// src/modules/attendance/attendance.service.ts
 import { Injectable, NotFoundException, Inject, Scope } from '@nestjs/common';
 import { REQUEST } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -5,7 +6,7 @@ import { Repository, Between, FindOptionsWhere, DataSource } from 'typeorm';
 import { Request } from 'express';
 import { BiometricDevice } from './entities/biometric-device.entity';
 import { AttendanceLog, PunchType } from './entities/attendance-log.entity';
-import { DeviceCommand } from './entities/device-command.entity'; // تأكد من استيراد الـ Entity الجديد
+import { DeviceCommand } from './entities/device-command.entity';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { AttendanceQueryDto } from './dto/attendance-query.dto';
@@ -21,9 +22,8 @@ export class AttendanceService {
     private readonly deviceRepo: Repository<BiometricDevice>,
     @InjectRepository(AttendanceLog)
     private readonly logRepo: Repository<AttendanceLog>,
-    @Inject(REQUEST)
-    private readonly request: RequestWithUser,
-    private readonly dataSource: DataSource, // تم حقن الـ DataSource هنا
+    @Inject(REQUEST) private readonly request: RequestWithUser,
+    private readonly dataSource: DataSource,
   ) {}
 
   private getTenantId(): string {
@@ -32,17 +32,15 @@ export class AttendanceService {
     return tid;
   }
 
-  // ──────────────────── إضافة موظف للجهاز ────────────────────
-
   async pushUserToDevice(
     deviceId: string,
     employeeData: { pin: string; name: string },
   ) {
     const tenantId = this.getTenantId();
-
     const device = await this.deviceRepo.findOne({
       where: { id: deviceId, tenantId },
     });
+
     if (!device)
       throw new NotFoundException(
         'الجهاز غير موجود أو لا تملك صلاحية الوصول إليه',
@@ -57,8 +55,6 @@ export class AttendanceService {
       tenantId: tenantId,
     });
   }
-
-  // ──────────────────── الأجهزة ────────────────────
 
   async createDevice(dto: CreateDeviceDto): Promise<BiometricDevice> {
     const tenantId = this.getTenantId();
@@ -94,8 +90,6 @@ export class AttendanceService {
     const device = await this.findOneDevice(id);
     await this.deviceRepo.remove(device);
   }
-
-  // ──────────────────── سجلات الحضور ────────────────────
 
   async findLogs(
     query: AttendanceQueryDto,

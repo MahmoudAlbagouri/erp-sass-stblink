@@ -13,27 +13,12 @@ import type { RawBodyRequest } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AdmsService } from './adms.service';
 
-/**
- * ✅ بروتوكول ADMS الخاص بـ ZKTeco
- *
- * الجهاز بيتصل بالسيرفر بنفسه عبر HTTP push:
- * 1. GET  /iclock/cdata?SN=xxx            → تسجيل الجهاز وجلب الوقت
- * 2. POST /iclock/cdata?SN=xxx&table=ATTLOG → رفع سجلات البصمات
- * 3. GET  /iclock/getrequest?SN=xxx       → الجهاز يطلب أوامر pending
- * 4. POST /iclock/devicecmd?SN=xxx        → الجهاز يرسل نتيجة تنفيذ أمر
- */
 @Controller('iclock')
 export class AdmsController {
   private readonly logger = new Logger(AdmsController.name);
 
   constructor(private readonly admsService: AdmsService) {}
 
-  /**
-   * ✅ STEP 1: الجهاز يتصل لأول مرة أو بعد كل فترة
-   * GET /iclock/cdata?SN=JHG3255001087&options=all&pushver=2.4.1&language=69
-   *
-   * الرد المطلوب: نص plain text بصيغة معينة يفهمها الجهاز
-   */
   @Get('cdata')
   async handleInitialRequest(
     @Query('SN') sn: string,
@@ -50,13 +35,18 @@ export class AdmsController {
     }
 
     try {
-      const responseBody = await this.admsService.handleDeviceInit(sn, {
+      const payload: {
+        options?: string;
+        pushver?: string;
+        ip?: string;
+      } = {
         options,
         pushver,
-        ip: req.ip ?? req.socket.remoteAddress ?? 'unknown',
-      });
+        ip: req.ip ?? (req.socket && req.socket.remoteAddress) ?? 'unknown',
+      };
 
-      // ✅ الجهاز يتوقع Content-Type: text/plain
+      const responseBody = await this.admsService.handleDeviceInit(sn, payload);
+
       res.setHeader('Content-Type', 'text/plain');
       res.status(200).send(responseBody);
     } catch (err) {
@@ -65,14 +55,6 @@ export class AdmsController {
     }
   }
 
-  /**
-   * ✅ STEP 2: الجهاز يرسل سجلات البصمات
-   * POST /iclock/cdata?SN=xxx&table=ATTLOG&Stamp=xxx
-   *
-   * Body (plain text, كل سطر سجل واحد):
-   * PIN\tDate Time\tStatus\tVerify\tWorkCode\tReserved
-   * مثال: 1\t2026-06-08 09:00:00\t0\t1\t0\t0
-   */
   @Post('cdata')
   async handleAttendanceData(
     @Query('SN') sn: string,
@@ -86,7 +68,6 @@ export class AdmsController {
       return;
     }
 
-    // ✅ نقرأ الـ body كـ text عشان بروتوكول ZKTeco مش JSON
     const rawBody = req.body as string | Buffer;
     const bodyText =
       typeof rawBody === 'string'
@@ -107,7 +88,6 @@ export class AdmsController {
           stamp,
         );
         this.logger.log(`✅ Saved ${count} attendance records from SN=${sn}`);
-        // ✅ الرد المطلوب من الجهاز بالضبط
         res.setHeader('Content-Type', 'text/plain');
         res.status(200).send(`OK: ${count}`);
       } catch (err) {
@@ -115,7 +95,6 @@ export class AdmsController {
         res.status(500).send('ERROR: Failed to process logs');
       }
     } else if (table === 'OPERLOG') {
-      // سجلات العمليات (فتح باب، تغيير إعداد..)
       this.logger.debug(`OPERLOG from SN=${sn} - ignored for now`);
       res.setHeader('Content-Type', 'text/plain');
       res.status(200).send('OK: 0');
@@ -126,12 +105,6 @@ export class AdmsController {
     }
   }
 
-  /**
-   * ✅ STEP 3: الجهاز يسأل إذا في أوامر جديدة
-   * GET /iclock/getrequest?SN=xxx
-   *
-   * الرد: أمر واحد في كل مرة أو "OK" لو مافيش
-   */
   @Get('getrequest')
   async handleGetRequest(
     @Query('SN') sn: string,
@@ -144,9 +117,7 @@ export class AdmsController {
 
     try {
       const command = await this.admsService.getPendingCommand(sn);
-
       res.setHeader('Content-Type', 'text/plain');
-      // لو مافيش أوامر، الجهاز يتوقع "OK" بالضبط
       res.status(200).send(command ?? 'OK');
     } catch (err) {
       this.logger.error(`Failed to get command for SN=${sn}`, err);
@@ -154,10 +125,6 @@ export class AdmsController {
     }
   }
 
-  /**
-   * ✅ STEP 4: الجهاز يرسل نتيجة تنفيذ الأمر
-   * POST /iclock/devicecmd?SN=xxx
-   */
   @Post('devicecmd')
   async handleDeviceCommandResult(
     @Query('SN') sn: string,
@@ -172,8 +139,6 @@ export class AdmsController {
           ? rawBody.toString('utf-8')
           : '';
 
-    // الصيغة المتوقعة من الجهاز: C:ID:RETURN_CODE
-    // مثال: C:123:0 (0 يعني نجاح)
     const parts = bodyText.split(':');
     if (parts.length >= 2) {
       const commandId = parts[1];
