@@ -1,41 +1,31 @@
-// src/modules/permissions/permissions.service.ts
 import {
   Injectable,
   NotFoundException,
   ForbiddenException,
-  Inject,
-  Scope,
 } from '@nestjs/common';
-import { REQUEST } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindOptionsWhere, IsNull } from 'typeorm';
-import { Request } from 'express';
+import { Repository, IsNull, FindOptionsWhere } from 'typeorm';
 import { Permission, PermissionScope } from './entities/permission.entity';
 import { CreatePermissionDto } from './dto/create-permission.dto';
 import { UpdatePermissionDto } from './dto/update-permission.dto';
+import { CurrentUserData } from '../../common/decorators/current-user.decorator';
 
-interface RequestUser {
-  tenantId?: string;
-  isSystemAdmin?: boolean;
-}
-
-interface RequestWithUser extends Request {
-  user?: RequestUser;
-}
-
-@Injectable({ scope: Scope.REQUEST })
+@Injectable() // ✅ أصبح Singleton
 export class PermissionsService {
   constructor(
     @InjectRepository(Permission)
     private readonly repo: Repository<Permission>,
-    @Inject(REQUEST)
-    private readonly request: RequestWithUser,
   ) {}
 
-  async create(dto: CreatePermissionDto): Promise<Permission> {
+  async create(
+    dto: CreatePermissionDto,
+    user: CurrentUserData,
+    tenantId: string,
+  ): Promise<Permission> {
     const isSystem = dto.scope === PermissionScope.SYSTEM;
 
-    if (isSystem && !this.request.user?.isSystemAdmin) {
+    // التحقق من أن System Admin فقط يمكنه إنشاء صلاحيات System
+    if (isSystem && !user.isSystemAdmin) {
       throw new ForbiddenException(
         'Only System Admin can create system permissions',
       );
@@ -43,30 +33,28 @@ export class PermissionsService {
 
     const permission = this.repo.create({
       ...dto,
-      tenantId: isSystem ? null : (this.request.user?.tenantId ?? null),
+      tenantId: isSystem ? null : tenantId,
     });
 
     return this.repo.save(permission);
   }
 
-  // src/modules/permissions/permissions.service.ts
-  async findAll(): Promise<Permission[]> {
-    const user = this.request.user;
-
-    if (user?.isSystemAdmin) {
-      return this.repo.find(); // المالك يرى كل شيء
+  async findAll(
+    user: CurrentUserData,
+    tenantId: string,
+  ): Promise<Permission[]> {
+    if (user.isSystemAdmin) {
+      return this.repo.find();
     }
 
-    if (user?.tenantId) {
-      // ✅ الشركات ترى الصلاحيات العامة فقط (تستبعد التي تبدأ بـ system:)
+    if (tenantId) {
       const allPerms = await this.repo.find({
         where: [
           { tenantId: IsNull(), scope: PermissionScope.SYSTEM },
-          { tenantId: user.tenantId },
+          { tenantId: tenantId },
         ] as FindOptionsWhere<Permission>[],
       });
 
-      // ✅ تصفية الصلاحيات الخاصة بالسيستم والتي تبدأ بـ system:
       return allPerms.filter((p) => !p.name.startsWith('system:'));
     }
 
@@ -75,9 +63,8 @@ export class PermissionsService {
 
   async findOne(id: string): Promise<Permission> {
     const permission = await this.repo.findOneBy({ id });
-    if (!permission) {
+    if (!permission)
       throw new NotFoundException(`Permission with ID "${id}" not found`);
-    }
     return permission;
   }
 

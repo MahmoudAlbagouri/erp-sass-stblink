@@ -71,7 +71,7 @@ async function bootstrap() {
     logger.error('Failed to execute system owner seed:', error);
   }
 
-  const port = process.env.PORT || 3000;
+  const port = process.env.PORT || 3002;
   await app.listen(port, '0.0.0.0');
   logger.log(`Application is running on: http://localhost:${port}`);
 }

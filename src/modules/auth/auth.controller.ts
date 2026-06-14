@@ -1,15 +1,16 @@
-// src/modules/auth/auth.controller.ts
-import { Controller, Post, Body, UseGuards, Req } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { RefreshTokenGuard } from './guards/refresh-token.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { CurrentTenantId } from 'src/common/decorators/current-tenant-id.decorator';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private authService: AuthService) {}
+  constructor(private readonly authService: AuthService) {}
 
   @Post('register')
   register(@Body() dto: RegisterDto) {
@@ -23,9 +24,11 @@ export class AuthController {
 
   @UseGuards(RefreshTokenGuard)
   @Post('refresh')
-  refreshTokens(@Req() req: { user: { sub: string; refreshToken: string } }) {
-    const { sub: userId, refreshToken } = req.user;
-    return this.authService.refreshTokens(userId, refreshToken);
+  refreshTokens(
+    @CurrentUser('id') userId: string,
+    @CurrentTenantId() tenantId: string, // ✅ الآن سيعمل هذا الديكوريتور لأن الـ Strategy ترجعه
+  ) {
+    return this.authService.refreshTokens(userId, tenantId);
   }
 
   @Post('forgot-password')

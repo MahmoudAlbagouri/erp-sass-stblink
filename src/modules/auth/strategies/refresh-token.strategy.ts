@@ -3,6 +3,8 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { Request } from 'express';
 
+// src/modules/auth/strategies/refresh-token.strategy.ts
+
 @Injectable()
 export class RefreshTokenStrategy extends PassportStrategy(
   Strategy,
@@ -16,11 +18,18 @@ export class RefreshTokenStrategy extends PassportStrategy(
     });
   }
 
+  // ✅ التعديل هنا لضمان إرجاع الـ tenantId
   validate(req: Request, payload: { sub: string; tenantId: string }) {
     const refreshToken = req
       .get('Authorization')
       ?.replace('Bearer ', '')
       .trim();
-    return { ...payload, refreshToken };
+
+    // هذا الكائن هو الذي سيتم وضعه في request.user
+    return {
+      id: payload.sub,
+      tenantId: payload.tenantId, // تأكد من تمريره هنا
+      refreshToken,
+    };
   }
 }

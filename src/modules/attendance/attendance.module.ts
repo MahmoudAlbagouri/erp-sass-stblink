@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { BiometricDevice } from './entities/biometric-device.entity';
 import { AttendanceLog } from './entities/attendance-log.entity';
 import { Employee } from '../employees/entities/employee.entity';
+import { Shift } from './entities/shift.entity';
 import { AdmsController } from './adms.controller';
 import { AdmsService } from './adms.service';
 import { AttendanceController } from './attendance.controller';
@@ -17,6 +18,7 @@ import { DeviceCommand } from './entities/device-command.entity';
       AttendanceLog,
       DeviceCommand,
       Employee,
+      Shift,
     ]),
   ],
   controllers: [

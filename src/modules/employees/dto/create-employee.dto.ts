@@ -1,4 +1,3 @@
-// src/modules/employees/dto/create-employee.dto.ts
 import {
   IsString,
   IsNotEmpty,
@@ -13,8 +12,16 @@ export class CreateEmployeeDto {
   fullName!: string;
 
   @IsString()
-  @IsNotEmpty({ message: 'الرقم الوظيفي مطلوب' })
-  employeeCode!: string;
+  @IsOptional() // صار اختياري لأننا سنولده ديناميكياً
+  employeeCode?: string;
+
+  @IsString()
+  @IsOptional()
+  nationalId?: string;
+
+  @IsString()
+  @IsOptional()
+  nationalIdCardPath?: string;
 
   @IsString()
   @IsOptional()
@@ -36,7 +43,6 @@ export class CreateEmployeeDto {
   @IsOptional()
   status?: 'active' | 'inactive' | 'terminated';
 
-  // ✅ ID المستخدم المرتبط (اختياري)
   @IsString()
   @IsOptional()
   userId?: string;

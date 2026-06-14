@@ -1,4 +1,3 @@
-// src/modules/permissions/permissions.controller.ts
 import {
   Controller,
   Get,
@@ -15,26 +14,36 @@ import { UpdatePermissionDto } from './dto/update-permission.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { Permissions } from '../../common/decorators/permissions.decorator';
-// import { SystemAdminGuard } from '../../common/guards/system-admin.guard'; // ✅ استيراد حارس المالك
-// import { SystemAdmin } from '../../common/decorators/system-admin.decorator';
+import {
+  CurrentUser,
+  type CurrentUserData,
+} from '../../common/decorators/current-user.decorator';
+import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 
 @Controller('permissions')
-@UseGuards(JwtAuthGuard) // ✅ حماية عامة: يجب تسجيل الدخول أولاً
+@UseGuards(JwtAuthGuard)
 export class PermissionsController {
   constructor(private readonly permissionsService: PermissionsService) {}
 
   @Post()
   @Permissions('create_permission')
   @UseGuards(PermissionsGuard)
-  create(@Body() dto: CreatePermissionDto) {
-    return this.permissionsService.create(dto);
+  create(
+    @Body() dto: CreatePermissionDto,
+    @CurrentUser() user: CurrentUserData,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.permissionsService.create(dto, user, tenantId);
   }
 
   @Get()
   @Permissions('view_permissions')
   @UseGuards(PermissionsGuard)
-  findAll() {
-    return this.permissionsService.findAll();
+  findAll(
+    @CurrentUser() user: CurrentUserData,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.permissionsService.findAll(user, tenantId);
   }
 
   @Get(':id')

@@ -25,47 +25,41 @@ export class UploadInterceptor implements NestInterceptor {
       .pipe(map((data: unknown): unknown => this.transformData(data)));
   }
 
-  private transformData(data: any): unknown {
+  private transformData(data: any, seen = new WeakSet()): any {
+    // 1. إذا لم تكن كائناً أو مصفوفة، لا تفعل شيئاً
     if (!data || typeof data !== 'object') return data;
 
+    // 2. حماية من المراجع الدائرية (Circular References)
+    if (seen.has(data)) return data;
+    seen.add(data);
+
+    // 3. إذا كانت مصفوفة، قم بإنشاء نسخة جديدة
     if (Array.isArray(data)) {
-      return data.map((item) => this.transformData(item));
+      return data.map((item) => this.transformData(item, seen));
     }
 
-    Object.keys(data as Record<string, any>).forEach((key) => {
-      const value = data[key];
+    // 4. إنشاء كائن جديد بدلاً من تعديل الأصلي (Immutability)
+    const result = { ...data };
 
-      // معالجة النصوص
+    Object.keys(result).forEach((key) => {
+      const value = result[key];
+
+      // معالجة النصوص (إضافة الرابط)
       if (
         key !== 'filename' &&
         typeof value === 'string' &&
-        this.isImagePath(value)
+        this.isImagePath(value) &&
+        !value.startsWith('http')
       ) {
-        if (!value.startsWith('http')) {
-          // دمج الرابط الديناميكي مع المجلد واسم الملف
-          data[key] = `${this.baseUrl}/uploads/${value}`;
-        }
+        result[key] = `${this.baseUrl}/uploads/${value}`;
       }
-      // معالجة المصفوفات
-      else if (Array.isArray(value)) {
-        data[key] = value.map((item) => {
-          if (
-            typeof item === 'string' &&
-            this.isImagePath(item) &&
-            !item.startsWith('http')
-          ) {
-            return `${this.baseUrl}/uploads/${item}`;
-          }
-          return this.transformData(item);
-        });
-      }
-      // معالجة الكائنات المتداخلة
-      else if (value && typeof value === 'object') {
-        this.transformData(value);
+      // معالجة الكائنات المتداخلة أو المصفوفات
+      else if (typeof value === 'object' && value !== null) {
+        result[key] = this.transformData(value, seen);
       }
     });
 
-    return data;
+    return result;
   }
 
   private isImagePath(value: string): boolean {

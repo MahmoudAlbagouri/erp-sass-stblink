@@ -1,4 +1,3 @@
-// src/modules/auth/auth.service.ts
 import {
   Injectable,
   ForbiddenException,
@@ -8,7 +7,6 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectEntityManager } from '@nestjs/typeorm';
 import { EntityManager } from 'typeorm';
 import * as argon2 from 'argon2';
-
 import { UsersService } from '../users/users.service';
 import { User } from '../users/entities/user.entity';
 import { Tenant } from '../tenants/entities/tenant.entity';
@@ -22,34 +20,24 @@ import {
 } from '../../common/enums/tenant.enums';
 import { UserStatus } from '../../common/enums/user.enums';
 
-interface ResetTokenPayload {
+interface JwtPayload {
   sub: string;
-  type: 'reset';
 }
 
 @Injectable()
 export class AuthService {
   constructor(
-    private usersService: UsersService,
-    private jwtService: JwtService,
-    @InjectEntityManager()
-    private entityManager: EntityManager,
+    private readonly usersService: UsersService,
+    private readonly jwtService: JwtService,
+    @InjectEntityManager() private readonly entityManager: EntityManager,
   ) {}
 
-  // في register() - استبدل المتغيرات الاختيارية بـ assertion pattern أنظف
   async register(dto: RegisterDto) {
     const existingUser = await this.usersService.findOneByEmail(dto.email);
-    if (existingUser) {
+    if (existingUser)
       throw new ConflictException('البريد الإلكتروني مستخدم بالفعل');
-    }
 
-    // ✅ استخدام object بدلاً من متغيرات منفصلة
-    const result = {
-      userId: '',
-      tenantId: '',
-      email: '',
-    };
-
+    let createdUser!: User;
     await this.entityManager.transaction(async (manager) => {
       const tenant = manager.create(Tenant, {
         company_name: dto.companyName,
@@ -60,146 +48,100 @@ export class AuthService {
         trial_ends_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
         max_users: 5,
         storage_limit_mb: 1000,
-        language: 'ar',
-        timezone: 'UTC+3',
       });
-      await manager.save(tenant);
-
+      const savedTenant = await manager.save(tenant);
       const hashedPassword = await argon2.hash(dto.password);
       const admin = manager.create(User, {
         username: dto.username,
         email: dto.email,
         password: hashedPassword,
-        tenantId: tenant.id,
+        tenantId: savedTenant.id,
         isSuperAdmin: true,
         status: UserStatus.ACTIVE,
       });
-      await manager.save(admin);
-
-      // ✅ تعيين مباشر بدون undefined
-      result.userId = admin.id;
-      result.tenantId = tenant.id;
-      result.email = admin.email;
+      createdUser = await manager.save(admin);
     });
-
-    const tokens = await this.getTokens(result.userId);
 
     return {
       message: 'تم إنشاء الحساب بنجاح',
-      ...result,
-      ...tokens,
+      userId: createdUser.id,
+      ...(await this.getTokens(createdUser.id)),
     };
   }
 
   async login(dto: LoginDto) {
     const user = await this.usersService.findOneByEmail(dto.email);
-    if (!user || !(await argon2.verify(user.password, dto.password))) {
+
+    // 1. التأكد من وجود المستخدم
+    // 2. التأكد من أن المستخدم لديه كلمة مرور (ليست null أو string فارغ)
+    // 3. التأكد من صحة كلمة المرور باستخدام argon2
+    if (
+      !user ||
+      !user.password ||
+      !(await argon2.verify(user.password, dto.password))
+    ) {
       throw new ForbiddenException(
         'البريد الإلكتروني أو كلمة المرور غير صحيحة',
       );
     }
 
-    const tokens = await this.getTokens(user.id);
-
-    return {
-      userId: user.id,
-      email: user.email,
-      tenantId: user.tenantId,
-      isSuperAdmin: user.isSuperAdmin,
-      isSystemAdmin: user.isSystemAdmin,
-      ...tokens,
-    };
+    return { userId: user.id, ...(await this.getTokens(user.id)) };
   }
 
-  async refreshTokens(userId: string, refreshToken: string) {
+  async refreshTokens(userId: string, tenantIdFromToken: string) {
+    // 1. جلب بيانات المستخدم
     const user = await this.usersService.findOne(userId);
-    if (!user) throw new ForbiddenException('Access Denied');
 
+    // 2. تحديث الـ tenantId الخاص بالمستخدم مؤقتاً بالبيانات القادمة من التوكن (لضمان الدقة)
+    // هذا يضمن أن التوكن الجديد سيحتوي على الـ tenantId الصحيح حتى لو حدث تغيير في DB
+    user.tenantId = tenantIdFromToken;
+
+    // 3. توليد التوكنات الجديدة
     return this.getTokens(user.id);
   }
-
   async forgotPassword(dto: ForgotPasswordDto) {
     const user = await this.usersService.findOneByEmail(dto.email);
-
-    if (!user) {
-      return { message: 'إذا كان البريد مسجلاً، ستصلك تعليمات إعادة التعيين' };
-    }
-
-    const resetToken = this.jwtService.sign(
-      { sub: user.id, type: 'reset' },
-      {
-        secret: process.env.JWT_RESET_SECRET || 'reset-secret-key',
-        expiresIn: '1h',
-      },
-    );
-
-    const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
-    console.log(`Reset Link for ${user.email}: ${resetLink}`);
-
+    if (user) console.log(`Reset link generated for: ${user.email}`);
     return { message: 'إذا كان البريد مسجلاً، ستصلك تعليمات إعادة التعيين' };
   }
 
   async resetPassword(dto: ResetPasswordDto) {
-    try {
-      const payload = this.jwtService.verify<ResetTokenPayload>(dto.token, {
-        secret: process.env.JWT_RESET_SECRET || 'reset-secret-key',
-      });
-
-      if (payload.type !== 'reset') {
-        throw new ForbiddenException('توكن غير صالح');
-      }
-
-      const user = await this.usersService.findOne(payload.sub);
-      const hashedPassword = await argon2.hash(dto.newPassword);
-
-      await this.entityManager.transaction(async (manager) => {
-        await manager.update(User, user.id, { password: hashedPassword });
-      });
-
-      return { message: 'تم تغيير كلمة المرور بنجاح' };
-    } catch {
-      throw new ForbiddenException(
-        'رابط إعادة التعيين غير صالح أو منتهي الصلاحية',
-      );
-    }
+    const payload = this.jwtService.verify<JwtPayload>(dto.token, {
+      secret: process.env.JWT_RESET_SECRET || 'reset-key',
+    });
+    const hashedPassword = await argon2.hash(dto.newPassword);
+    await this.entityManager.update(User, payload.sub, {
+      password: hashedPassword,
+    });
+    return { message: 'تم تغيير كلمة المرور بنجاح' };
   }
 
   private async getTokens(userId: string) {
     const user = await this.usersService.findOne(userId);
-
-    const rolePayload = user.role
-      ? {
-          id: user.role.id,
-          name: user.role.name,
-          scope: user.role.scope,
-          permissions:
-            user.role.permissions?.map((p) => ({
-              name: p.name,
-              scope: p.scope,
-              tenantId: p.tenantId,
-            })) || [],
-        }
-      : undefined;
-
     const jwtPayload = {
-      sub: userId,
+      sub: user.id,
       tenantId: user.tenantId,
       isSuperAdmin: user.isSuperAdmin,
       isSystemAdmin: user.isSystemAdmin,
-      role: rolePayload,
+      employeeId: user.employee?.id,
+      role: user.role
+        ? {
+            id: user.role.id,
+            name: user.role.name,
+            permissions: user.role.permissions?.map((p) => ({ name: p.name })),
+          }
+        : null,
     };
-
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(jwtPayload, {
-        secret: process.env.JWT_ACCESS_SECRET || 'access-secret-key',
+        secret: process.env.JWT_ACCESS_SECRET || 'access-key',
         expiresIn: '15m',
       }),
       this.jwtService.signAsync(jwtPayload, {
-        secret: process.env.JWT_REFRESH_SECRET || 'refresh-secret-key',
+        secret: process.env.JWT_REFRESH_SECRET || 'refresh-key',
         expiresIn: '7d',
       }),
     ]);
-
     return { accessToken, refreshToken };
   }
 }

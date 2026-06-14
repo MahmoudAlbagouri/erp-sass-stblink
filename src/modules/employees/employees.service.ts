@@ -1,62 +1,54 @@
-// src/modules/employees/employees.service.ts
-import { Injectable, NotFoundException, Inject, Scope } from '@nestjs/common';
-import { REQUEST } from '@nestjs/core';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Request } from 'express';
 import { Employee } from './entities/employee.entity';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { User } from '../users/entities/user.entity';
 
-interface RequestWithUser extends Request {
-  user?: { id: string; tenantId: string };
-}
-
-@Injectable({ scope: Scope.REQUEST })
+@Injectable() // أصبح Singleton (بدون Scope.REQUEST)
 export class EmployeesService {
   constructor(
     @InjectRepository(Employee) private repo: Repository<Employee>,
     @InjectRepository(User) private userRepo: Repository<User>,
-    @Inject(REQUEST) private request: RequestWithUser,
   ) {}
 
-  // ✅ دالة مساعدة آمنة لجلب tenantId وتجنب تكرار الكود والأخطاء
-  private getTenantId(): string {
-    if (!this.request.user?.tenantId) {
-      throw new NotFoundException('سياق المستخدم أو الشركة غير موجود');
+  private async generateEmployeeCode(tenantId: string): Promise<string> {
+    const lastEmployee = await this.repo.findOne({
+      where: { tenantId },
+      order: { createdAt: 'DESC' },
+    });
+
+    let nextNumber = 1;
+    if (lastEmployee?.employeeCode) {
+      const match = lastEmployee.employeeCode.match(/EMP-(\d+)/);
+      if (match) nextNumber = parseInt(match[1], 10) + 1;
     }
-    return this.request.user.tenantId;
+    return `EMP-${nextNumber.toString().padStart(4, '0')}`;
   }
 
-  async create(dto: CreateEmployeeDto): Promise<Employee> {
-    const tenantId = this.getTenantId();
-
-    let user: User | null = null; // ✅ استخدام null لأن findOneBy ترجع null
+  async create(dto: CreateEmployeeDto, tenantId: string): Promise<Employee> {
+    let user: User | null = null;
     if (dto.userId) {
-      user = await this.userRepo.findOneBy({
-        id: dto.userId,
-        tenantId: tenantId,
-      });
-      if (!user) {
-        throw new NotFoundException(
-          'المستخدم المحدد غير موجود أو لا ينتمي لشركتك',
-        );
-      }
+      user = await this.userRepo.findOneBy({ id: dto.userId, tenantId });
+      if (!user)
+        throw new NotFoundException('المستخدم غير موجود أو لا ينتمي لشركتك');
     }
+
+    const employeeCode =
+      dto.employeeCode || (await this.generateEmployeeCode(tenantId));
 
     const employee = this.repo.create({
       ...dto,
-      user: user ?? undefined, // ✅ تحويل null إلى undefined ليتوافق مع Entity
-      tenantId: tenantId,
+      employeeCode,
+      user: user ?? undefined,
+      tenantId,
     });
 
     return await this.repo.save(employee);
   }
 
-  async findAll(): Promise<Employee[]> {
-    const tenantId = this.getTenantId();
-
+  async findAll(tenantId: string): Promise<Employee[]> {
     return this.repo.find({
       where: { tenantId },
       relations: ['user'],
@@ -64,38 +56,34 @@ export class EmployeesService {
     });
   }
 
-  async findOne(id: string): Promise<Employee> {
-    const tenantId = this.getTenantId();
-
+  async findOne(id: string, tenantId: string): Promise<Employee> {
     const employee = await this.repo.findOne({
       where: { id, tenantId },
-      relations: ['user'],
+      relations: ['user', 'contract'],
     });
-
     if (!employee) throw new NotFoundException('الموظف غير موجود');
     return employee;
   }
 
-  async update(id: string, dto: UpdateEmployeeDto): Promise<Employee> {
-    const tenantId = this.getTenantId();
-    const employee = await this.findOne(id);
+  async update(
+    id: string,
+    dto: UpdateEmployeeDto,
+    tenantId: string,
+  ): Promise<Employee> {
+    const employee = await this.findOne(id, tenantId);
 
     if (dto.userId && dto.userId !== employee.user?.id) {
-      const user = await this.userRepo.findOneBy({
-        id: dto.userId,
-        tenantId: tenantId,
-      });
-
+      const user = await this.userRepo.findOneBy({ id: dto.userId, tenantId });
       if (!user) throw new NotFoundException('المستخدم المحدد غير موجود');
-      employee.user = user ?? undefined; // ✅ تحويل آمن
+      employee.user = user;
     }
 
     Object.assign(employee, dto);
     return await this.repo.save(employee);
   }
 
-  async remove(id: string): Promise<void> {
-    const employee = await this.findOne(id);
+  async remove(id: string, tenantId: string): Promise<void> {
+    const employee = await this.findOne(id, tenantId);
     await this.repo.softRemove(employee);
   }
 }

@@ -13,6 +13,8 @@ import { UsersModule } from './modules/users/users.module';
 import { PermissionsModule } from './modules/permissions/permissions.module';
 import { RolesModule } from './modules/roles/roles.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
+import { EmployeesModule } from './modules/employees/employees.module';
+import { ContractsModule } from './modules/contracts/contracts.module';
 
 // الإعدادات (Config)
 import databaseConfig from './config/database.config';
@@ -22,7 +24,10 @@ import { i18nConfig } from './config/i18n.config';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { UploadInterceptor } from './common/interceptors/upload.interceptor';
 import { I18nExceptionFilter } from './common/filters/i18n-exception.filter';
-import { EmployeesModule } from './modules/employees/employees.module';
+import { LeavesModule } from './modules/leaves/leaves.module';
+import { AdvancesModule } from './modules/advances/advances.module';
+import { LoansModule } from './modules/loans/loans.module';
+import { SalariesModule } from './modules/salaries/salaries.module';
 
 @Module({
   imports: [
@@ -59,6 +64,11 @@ import { EmployeesModule } from './modules/employees/employees.module';
     RolesModule,
     EmployeesModule,
     AttendanceModule,
+    ContractsModule,
+    LeavesModule,
+    AdvancesModule,
+    LoansModule,
+    SalariesModule,
   ],
   providers: [
     {

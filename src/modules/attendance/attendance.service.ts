@@ -1,78 +1,84 @@
-// src/modules/attendance/attendance.service.ts
-import { Injectable, NotFoundException, Inject, Scope } from '@nestjs/common';
-import { REQUEST } from '@nestjs/core';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, FindOptionsWhere, DataSource } from 'typeorm';
-import { Request } from 'express';
 import { BiometricDevice } from './entities/biometric-device.entity';
 import { AttendanceLog, PunchType } from './entities/attendance-log.entity';
 import { DeviceCommand } from './entities/device-command.entity';
+import { Shift } from './entities/shift.entity'; // تأكد من وجود الـ Entity
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { AttendanceQueryDto } from './dto/attendance-query.dto';
+import { CurrentUserData } from '../../common/decorators/current-user.decorator';
 
-interface RequestWithUser extends Request {
-  user?: { tenantId?: string; isSystemAdmin?: boolean };
-}
-
-@Injectable({ scope: Scope.REQUEST })
+@Injectable()
 export class AttendanceService {
   constructor(
     @InjectRepository(BiometricDevice)
     private readonly deviceRepo: Repository<BiometricDevice>,
     @InjectRepository(AttendanceLog)
     private readonly logRepo: Repository<AttendanceLog>,
-    @Inject(REQUEST) private readonly request: RequestWithUser,
+    @InjectRepository(Shift)
+    private readonly shiftRepo: Repository<Shift>,
     private readonly dataSource: DataSource,
   ) {}
 
-  private getTenantId(): string {
-    const tid = this.request.user?.tenantId;
-    if (!tid) throw new NotFoundException('سياق الشركة غير موجود');
-    return tid;
+  // منطق تصنيف البصمة (Rules Engine)
+  private classifyPunch(punchTime: Date, shift: Shift): PunchType {
+    const time = punchTime.getHours() * 60 + punchTime.getMinutes();
+    const start =
+      parseInt(shift.startTime.split(':')[0]) * 60 +
+      parseInt(shift.startTime.split(':')[1]);
+    const end =
+      parseInt(shift.endTime.split(':')[0]) * 60 +
+      parseInt(shift.endTime.split(':')[1]);
+    const grace = shift.gracePeriod || 30;
+
+    if (Math.abs(time - start) <= grace) return PunchType.CHECK_IN;
+    if (Math.abs(time - end) <= grace) return PunchType.CHECK_OUT;
+
+    return time < (start + end) / 2 ? PunchType.CHECK_IN : PunchType.CHECK_OUT;
   }
 
   async pushUserToDevice(
     deviceId: string,
     employeeData: { pin: string; name: string },
+    user: CurrentUserData,
   ) {
-    const tenantId = this.getTenantId();
     const device = await this.deviceRepo.findOne({
-      where: { id: deviceId, tenantId },
+      where: { id: deviceId, tenantId: user.tenantId },
     });
-
-    if (!device)
-      throw new NotFoundException(
-        'الجهاز غير موجود أو لا تملك صلاحية الوصول إليه',
-      );
-
+    if (!device) throw new NotFoundException('الجهاز غير موجود');
     const commandContent = `DATA USER PIN=${employeeData.pin}\tName=${employeeData.name}\tPri=0\tPass=0`;
-
     return await this.dataSource.getRepository(DeviceCommand).save({
       deviceId: device.id,
       command: commandContent,
       isExecuted: false,
-      tenantId: tenantId,
+      tenantId: user.tenantId,
     });
   }
 
-  async createDevice(dto: CreateDeviceDto): Promise<BiometricDevice> {
-    const tenantId = this.getTenantId();
-    const device = this.deviceRepo.create({ ...dto, tenantId });
+  async createDevice(
+    dto: CreateDeviceDto,
+    user: CurrentUserData,
+  ): Promise<BiometricDevice> {
+    const device = this.deviceRepo.create({ ...dto, tenantId: user.tenantId });
     return this.deviceRepo.save(device);
   }
 
-  async findAllDevices(): Promise<BiometricDevice[]> {
-    const tenantId = this.getTenantId();
+  async findAllDevices(user: CurrentUserData): Promise<BiometricDevice[]> {
     return this.deviceRepo.find({
-      where: { tenantId },
+      where: { tenantId: user.tenantId },
       order: { createdAt: 'DESC' },
     });
   }
 
-  async findOneDevice(id: string): Promise<BiometricDevice> {
-    const tenantId = this.getTenantId();
-    const device = await this.deviceRepo.findOne({ where: { id, tenantId } });
+  async findOneDevice(
+    id: string,
+    user: CurrentUserData,
+  ): Promise<BiometricDevice> {
+    const device = await this.deviceRepo.findOne({
+      where: { id, tenantId: user.tenantId },
+    });
     if (!device) throw new NotFoundException('الجهاز غير موجود');
     return device;
   }
@@ -80,28 +86,22 @@ export class AttendanceService {
   async updateDevice(
     id: string,
     dto: UpdateDeviceDto,
+    user: CurrentUserData,
   ): Promise<BiometricDevice> {
-    const device = await this.findOneDevice(id);
+    const device = await this.findOneDevice(id, user);
     Object.assign(device, dto);
     return this.deviceRepo.save(device);
   }
 
-  async removeDevice(id: string): Promise<void> {
-    const device = await this.findOneDevice(id);
+  async removeDevice(id: string, user: CurrentUserData): Promise<void> {
+    const device = await this.findOneDevice(id, user);
     await this.deviceRepo.remove(device);
   }
 
-  async findLogs(
-    query: AttendanceQueryDto,
-  ): Promise<{ data: AttendanceLog[]; total: number }> {
-    const tenantId = this.getTenantId();
+  async findLogs(query: AttendanceQueryDto, user: CurrentUserData) {
     const { from, to, page = 1, limit = 50 } = query;
-    const where: FindOptionsWhere<AttendanceLog> = { tenantId };
-
-    if (from && to) {
-      where.punchTime = Between(new Date(from), new Date(to));
-    }
-
+    const where: FindOptionsWhere<AttendanceLog> = { tenantId: user.tenantId };
+    if (from && to) where.punchTime = Between(new Date(from), new Date(to));
     const [data, total] = await this.logRepo.findAndCount({
       where,
       relations: ['employee', 'device'],
@@ -109,22 +109,20 @@ export class AttendanceService {
       take: Math.min(limit, 200),
       skip: (page - 1) * limit,
     });
-
     return { data, total };
   }
 
   async findEmployeeLogs(
     employeeId: string,
     query: AttendanceQueryDto,
-  ): Promise<AttendanceLog[]> {
-    const tenantId = this.getTenantId();
+    user: CurrentUserData,
+  ) {
     const { from, to } = query;
-    const where: FindOptionsWhere<AttendanceLog> = { tenantId, employeeId };
-
-    if (from && to) {
-      where.punchTime = Between(new Date(from), new Date(to));
-    }
-
+    const where: FindOptionsWhere<AttendanceLog> = {
+      tenantId: user.tenantId,
+      employeeId,
+    };
+    if (from && to) where.punchTime = Between(new Date(from), new Date(to));
     return this.logRepo.find({
       where,
       relations: ['device'],
@@ -132,15 +130,14 @@ export class AttendanceService {
     });
   }
 
-  async getDailySummary(dateStr: string) {
-    const tenantId = this.getTenantId();
+  async getDailySummary(dateStr: string, user: CurrentUserData) {
     const date = new Date(dateStr);
     const dayStart = new Date(date.setHours(0, 0, 0, 0));
     const dayEnd = new Date(date.setHours(23, 59, 59, 999));
 
     const logs = await this.logRepo.find({
-      where: { tenantId, punchTime: Between(dayStart, dayEnd) },
-      relations: ['employee'],
+      where: { tenantId: user.tenantId, punchTime: Between(dayStart, dayEnd) },
+      relations: ['employee', 'employee.shift'],
       order: { punchTime: 'ASC' },
     });
 
@@ -152,8 +149,15 @@ export class AttendanceService {
     }
 
     return Array.from(grouped.entries()).map(([, employeeLogs]) => {
-      const first = employeeLogs[0];
-      const last = employeeLogs[employeeLogs.length - 1];
+      const shift = employeeLogs[0].employee?.shift;
+      // تطبيق المنطق الذكي على السجلات
+      const logsWithLogic = employeeLogs.map((l) => ({
+        ...l,
+        punchType: shift ? this.classifyPunch(l.punchTime, shift) : l.punchType,
+      }));
+
+      const first = logsWithLogic[0];
+      const last = logsWithLogic[logsWithLogic.length - 1];
       const totalMinutes = Math.round(
         (last.punchTime.getTime() - first.punchTime.getTime()) / 60000,
       );
@@ -165,18 +169,27 @@ export class AttendanceService {
         firstPunch: first.punchTime,
         lastPunch: last.punchTime,
         totalMinutes,
-        logs: employeeLogs,
+        logs: logsWithLogic,
       };
     });
   }
 
-  async getMonthlyReport(employeeId: string, month: number, year: number) {
-    const tenantId = this.getTenantId();
+  async getMonthlyReport(
+    employeeId: string,
+    month: number,
+    year: number,
+    user: CurrentUserData,
+  ) {
     const monthStart = new Date(year, month - 1, 1, 0, 0, 0);
     const monthEnd = new Date(year, month, 0, 23, 59, 59);
 
     const logs = await this.logRepo.find({
-      where: { tenantId, employeeId, punchTime: Between(monthStart, monthEnd) },
+      where: {
+        tenantId: user.tenantId,
+        employeeId,
+        punchTime: Between(monthStart, monthEnd),
+      },
+      relations: ['employee', 'employee.shift'],
       order: { punchTime: 'ASC' },
     });
 
@@ -184,27 +197,32 @@ export class AttendanceService {
       string,
       { checkIn: Date | null; checkOut: Date | null }
     >();
-
     for (const log of logs) {
+      const shift = log.employee?.shift;
+      const type = shift
+        ? this.classifyPunch(log.punchTime, shift)
+        : log.punchType;
+
       const dayKey = log.punchTime.toISOString().split('T')[0];
       if (!dailyMap.has(dayKey))
         dailyMap.set(dayKey, { checkIn: null, checkOut: null });
-      const day = dailyMap.get(dayKey)!;
 
-      if (log.punchType === PunchType.CHECK_IN && !day.checkIn)
+      const day = dailyMap.get(dayKey)!;
+      if (type === PunchType.CHECK_IN && !day.checkIn)
         day.checkIn = log.punchTime;
-      else if (log.punchType === PunchType.CHECK_OUT)
-        day.checkOut = log.punchTime;
+      else if (type === PunchType.CHECK_OUT) day.checkOut = log.punchTime;
     }
 
     const dailyBreakdown = Array.from(dailyMap.entries()).map(
-      ([date, { checkIn, checkOut }]) => {
-        const minutes =
+      ([date, { checkIn, checkOut }]) => ({
+        date,
+        checkIn,
+        checkOut,
+        minutes:
           checkIn && checkOut
             ? Math.round((checkOut.getTime() - checkIn.getTime()) / 60000)
-            : 0;
-        return { date, checkIn, checkOut, minutes };
-      },
+            : 0,
+      }),
     );
 
     return {

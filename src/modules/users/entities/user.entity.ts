@@ -8,10 +8,12 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   DeleteDateColumn,
+  OneToOne,
 } from 'typeorm';
 import { Tenant } from '../../tenants/entities/tenant.entity';
 import { Role } from '../../roles/entities/role.entity';
 import { UserStatus } from '../../../common/enums/user.enums';
+import { Employee } from 'src/modules/employees/entities/employee.entity';
 
 @Entity('users')
 export class User {
@@ -46,6 +48,9 @@ export class User {
   @ManyToOne(() => Tenant, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'tenant_id' })
   tenant?: Tenant;
+
+  @OneToOne(() => Employee, (employee) => employee.user)
+  employee?: Employee;
 
   @Column({ name: 'role_id', nullable: true })
   roleId?: string;

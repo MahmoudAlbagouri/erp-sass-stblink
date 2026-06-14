@@ -1,4 +1,3 @@
-// src/modules/users/users.controller.ts
 import {
   Controller,
   Get,
@@ -15,40 +14,43 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { Permissions } from '../../common/decorators/permissions.decorator';
-import { SystemAdminGuard } from '../../common/guards/system-admin.guard';
-import { SystemAdmin } from '../../common/decorators/system-admin.decorator';
+import {
+  CurrentUser,
+  type CurrentUserData,
+} from '../../common/decorators/current-user.decorator';
+import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 
-// src/modules/users/users.controller.ts
 @Controller('users')
 @UseGuards(JwtAuthGuard)
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
-  // ✅ مسار نظامي حصري - يعتمد على PermissionsGuard مع صلاحية system:
   @Get('system-stats')
   @Permissions('system:view_platform_stats')
-  @UseGuards(PermissionsGuard) // ✅ حارس واحد يكفي للتحقق المزدوج
+  @UseGuards(PermissionsGuard)
   getSystemStats() {
-    return {
-      totalUsers: 1,
-      totalTenants: 0,
-      message: 'مرحباً بك يا مالك النظام! هذه إحصائيات المنصة الكاملة.',
-    };
+    return this.usersService.getSystemStats();
   }
 
-  // ✅ باقي المسارات تبقى كما هي للصلاحيات العادية
   @Post()
   @Permissions('create_user')
   @UseGuards(PermissionsGuard)
-  create(@Body() createUserDto: CreateUserDto) {
-    return this.usersService.create(createUserDto);
+  create(
+    @Body() dto: CreateUserDto,
+    @CurrentUser() user: CurrentUserData,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.usersService.create(dto, user, tenantId);
   }
 
   @Get()
   @Permissions('view_users')
   @UseGuards(PermissionsGuard)
-  findAll() {
-    return this.usersService.findAll();
+  findAll(
+    @CurrentUser() user: CurrentUserData,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.usersService.findAll(user, tenantId);
   }
 
   @Get(':id')
@@ -61,8 +63,12 @@ export class UsersController {
   @Patch(':id')
   @Permissions('update_user')
   @UseGuards(PermissionsGuard)
-  update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
-    return this.usersService.update(id, updateUserDto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateUserDto,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.usersService.update(id, dto, user);
   }
 
   @Delete(':id')
