@@ -33,7 +33,7 @@ export class MediaController {
         filename: `${folder}/${subFolder}/${file.filename}`,
         mimetype: file.mimetype,
         size: file.size,
-        url: `/uploads/${folder}/${subFolder}/${file.filename}`,
+        url: `/${folder}/${subFolder}/${file.filename}`,
       };
     });
 
