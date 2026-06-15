@@ -1,8 +1,8 @@
 // src/app.module.ts
 import { Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { I18nModule } from 'nestjs-i18n';
-import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
+// import { I18nModule } from 'nestjs-i18n';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { MailerModule } from '@nestjs-modules/mailer';
 
 // الموديولات الخاصة بك
@@ -18,12 +18,12 @@ import { ContractsModule } from './modules/contracts/contracts.module';
 
 // الإعدادات (Config)
 import databaseConfig from './config/database.config';
-import { i18nConfig } from './config/i18n.config';
+// import { i18nConfig } from './config/i18n.config';
 
 // الفلاتر والـ Interceptors
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { UploadInterceptor } from './common/interceptors/upload.interceptor';
-import { I18nExceptionFilter } from './common/filters/i18n-exception.filter';
+// import { I18nExceptionFilter } from './common/filters/i18n-exception.filter';
 import { LeavesModule } from './modules/leaves/leaves.module';
 import { AdvancesModule } from './modules/advances/advances.module';
 import { LoansModule } from './modules/loans/loans.module';
@@ -55,7 +55,7 @@ import { FilesModule } from './modules/files/files.module';
       }),
     }),
     DatabaseModule,
-    I18nModule.forRoot(i18nConfig),
+    // I18nModule.forRoot(i18nConfig),
 
     // ✅ الترتيب الصحيح: AuthModule أولاً لضمان تسجيل الاستراتيجيات قبل استخدامها
     AuthModule,
@@ -75,10 +75,10 @@ import { FilesModule } from './modules/files/files.module';
     FilesModule,
   ],
   providers: [
-    {
-      provide: APP_FILTER,
-      useClass: I18nExceptionFilter,
-    },
+    // {
+    //   provide: APP_FILTER,
+    //   useClass: I18nExceptionFilter,
+    // },
     {
       provide: APP_INTERCEPTOR,
       useClass: TransformInterceptor,

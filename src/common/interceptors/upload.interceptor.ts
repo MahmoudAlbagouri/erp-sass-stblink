@@ -10,7 +10,7 @@ import { map } from 'rxjs/operators';
 @Injectable()
 export class UploadInterceptor implements NestInterceptor {
   // الرابط الأساسي للسيرفر
-  private readonly baseUrl = 'https://api.aphnan.com/uploads';
+  private readonly baseUrl = 'https://erp.api.stblink.com/uploads';
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     return next
