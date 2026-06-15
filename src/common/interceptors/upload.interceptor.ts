@@ -4,20 +4,13 @@ import {
   ExecutionContext,
   CallHandler,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config'; // استيراد الخدمة
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
 @Injectable()
 export class UploadInterceptor implements NestInterceptor {
-  private readonly baseUrl: string;
-
-  constructor(private readonly configService: ConfigService) {
-    // جلب الرابط من ملف .env، مع رابط افتراضي في حال عدم وجود المتغير
-    this.baseUrl =
-      this.configService.get<string>('API_BASE_URL') ||
-      'https://api.aphnan.com';
-  }
+  // الرابط الأساسي للسيرفر
+  private readonly baseUrl = 'https://api.aphnan.com/uploads';
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     return next
@@ -25,45 +18,58 @@ export class UploadInterceptor implements NestInterceptor {
       .pipe(map((data: unknown): unknown => this.transformData(data)));
   }
 
-  private transformData(data: any, seen = new WeakSet()): any {
-    // 1. إذا لم تكن كائناً أو مصفوفة، لا تفعل شيئاً
+  private transformData(data: any): unknown {
+    // 1. إذا لم تكن البيانات كائناً أو مصفوفة، نرجعها كما هي
     if (!data || typeof data !== 'object') return data;
 
-    // 2. حماية من المراجع الدائرية (Circular References)
-    if (seen.has(data)) return data;
-    seen.add(data);
-
-    // 3. إذا كانت مصفوفة، قم بإنشاء نسخة جديدة
+    // 2. إذا كانت مصفوفة (مثل قائمة المنتجات)، نطبق التحويل على كل عنصر
     if (Array.isArray(data)) {
-      return data.map((item) => this.transformData(item, seen));
+      return data.map((item) => this.transformData(item));
     }
 
-    // 4. إنشاء كائن جديد بدلاً من تعديل الأصلي (Immutability)
-    const result = { ...data };
+    // 3. نمر على كل مفاتيح الكائن
+    Object.keys(data as Record<string, any>).forEach((key) => {
+      const value = data[key];
 
-    Object.keys(result).forEach((key) => {
-      const value = result[key];
-
-      // معالجة النصوص (إضافة الرابط)
+      // معالجة النصوص المفردة (مثل mainImage أو logo أو ogImage)
       if (
         key !== 'filename' &&
         typeof value === 'string' &&
-        this.isImagePath(value) &&
-        !value.startsWith('http')
+        this.isImagePath(value)
       ) {
-        result[key] = `${this.baseUrl}/uploads/${value}`;
+        if (!value.startsWith('http')) {
+          data[key] = `${this.baseUrl}/${value}`;
+        }
       }
-      // معالجة الكائنات المتداخلة أو المصفوفات
-      else if (typeof value === 'object' && value !== null) {
-        result[key] = this.transformData(value, seen);
+
+      // معالجة المصفوفات (مثل defaultGallery أو variantImages)
+      else if (Array.isArray(value)) {
+        data[key] = value.map((item) => {
+          // إذا كان العنصر نصاً ويمثل مسار صورة
+          if (
+            typeof item === 'string' &&
+            this.isImagePath(item) &&
+            !item.startsWith('http')
+          ) {
+            return `${this.baseUrl}/${item}`;
+          }
+          // إذا كانت مصفوفة من الكائنات، نطبق التحويل بداخلها
+          return this.transformData(item);
+        });
+      }
+
+      // 4. الدخول في الكائنات المتداخلة (Nested Objects)
+      else if (value && typeof value === 'object') {
+        this.transformData(value);
       }
     });
 
-    return result;
+    return data as unknown;
   }
 
+  // دالة ذكية للتحقق من امتدادات الصور الشائعة
   private isImagePath(value: string): boolean {
-    const imageExtensions = /\.(jpg|jpeg|png|webp|gif|svg|bmp)$/i;
-    return imageExtensions.test(value);
+    const allowedExtensions = /\.(jpg|jpeg|png|webp|gif|svg|bmp|pdf)$/i;
+    return allowedExtensions.test(value);
   }
 }

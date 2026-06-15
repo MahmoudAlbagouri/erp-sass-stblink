@@ -7,11 +7,16 @@ import { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer
 export const storageConfig = (defaultFolder: string): MulterOptions => ({
   storage: diskStorage({
     destination: (req: any, file, cb) => {
-      // سحب المجلد من الـ URL ديناميكياً
+      // سحب المجلد الأساسي من الـ URL (مثال: employees)
       const folder = (req.params.folder || defaultFolder) as string;
-      const uploadPath = join(process.cwd(), 'uploads', folder);
 
-      // إنشاء المجلد تلقائياً إذا لم يكن موجوداً
+      // تحديد المجلد الفرعي تلقائياً (image للصور، files للمستندات)
+      const subFolder = file.mimetype.startsWith('image/') ? 'image' : 'files';
+
+      // المسار النهائي: uploads/employees/image أو uploads/employees/files
+      const uploadPath = join(process.cwd(), 'uploads', folder, subFolder);
+
+      // إنشاء المسار بالكامل تلقائياً
       if (!existsSync(uploadPath)) {
         mkdirSync(uploadPath, { recursive: true });
       }
@@ -30,9 +35,12 @@ export const storageConfig = (defaultFolder: string): MulterOptions => ({
     file: any,
     cb: (error: Error | null, acceptFile: boolean) => void,
   ) => {
-    if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
+    // التعديل: قبول الصور وملفات الـ PDF
+    if (!file.mimetype.match(/\/(jpg|jpeg|png|webp|pdf)$/)) {
       return cb(
-        new BadRequestException('فقط الصور (jpg, jpeg, png, webp) مسموح بها!'),
+        new BadRequestException(
+          'فقط الصور (jpg, jpeg, png, webp) وملفات PDF مسموح بها!',
+        ),
         false,
       );
     }

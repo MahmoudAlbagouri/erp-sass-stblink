@@ -28,6 +28,8 @@ import { LeavesModule } from './modules/leaves/leaves.module';
 import { AdvancesModule } from './modules/advances/advances.module';
 import { LoansModule } from './modules/loans/loans.module';
 import { SalariesModule } from './modules/salaries/salaries.module';
+import { MediaModule } from './modules/media/media.module';
+import { FilesModule } from './modules/files/files.module';
 
 @Module({
   imports: [
@@ -69,6 +71,8 @@ import { SalariesModule } from './modules/salaries/salaries.module';
     AdvancesModule,
     LoansModule,
     SalariesModule,
+    MediaModule,
+    FilesModule,
   ],
   providers: [
     {
