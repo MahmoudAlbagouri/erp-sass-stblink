@@ -27,6 +27,10 @@ export class CreateEmployeeDto {
   @IsOptional()
   phone?: string;
 
+  @IsUUID()
+  @IsOptional()
+  shiftId?: string;
+
   @IsString()
   @IsOptional()
   jobTitle?: string;
