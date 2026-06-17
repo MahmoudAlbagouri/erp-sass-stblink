@@ -4,11 +4,12 @@ import { Repository, Between, FindOptionsWhere, DataSource } from 'typeorm';
 import { BiometricDevice } from './entities/biometric-device.entity';
 import { AttendanceLog, PunchType } from './entities/attendance-log.entity';
 import { DeviceCommand } from './entities/device-command.entity';
-import { Shift } from './entities/shift.entity'; // تأكد من وجود الـ Entity
+import { Shift } from '../shifts/entities/shift.entity'; // تأكد من وجود الـ Entity
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { AttendanceQueryDto } from './dto/attendance-query.dto';
 import { CurrentUserData } from '../../common/decorators/current-user.decorator';
+import { Employee } from '../employees/entities/employee.entity';
 
 @Injectable()
 export class AttendanceService {
@@ -41,14 +42,25 @@ export class AttendanceService {
 
   async pushUserToDevice(
     deviceId: string,
-    employeeData: { pin: string; name: string },
+    employeeId: string, // نمرر الـ ID فقط
     user: CurrentUserData,
   ) {
+    // 1. التأكد من وجود الجهاز
     const device = await this.deviceRepo.findOne({
       where: { id: deviceId, tenantId: user.tenantId },
     });
     if (!device) throw new NotFoundException('الجهاز غير موجود');
-    const commandContent = `DATA USER PIN=${employeeData.pin}\tName=${employeeData.name}\tPri=0\tPass=0`;
+
+    // 2. جلب الموظف (للتأكد من وجوده وللحصول على بياناته)
+    const employee = await this.dataSource.getRepository(Employee).findOne({
+      where: { id: employeeId, tenantId: user.tenantId },
+    });
+    if (!employee) throw new NotFoundException('الموظف غير موجود');
+
+    // 3. بناء الأمر باستخدام بيانات الموظف الحقيقية
+    const commandContent = `DATA USER PIN=${employee.employeeCode}\tName=${employee.fullName}\tPri=0\tPass=0`;
+
+    // 4. حفظ الأمر
     return await this.dataSource.getRepository(DeviceCommand).save({
       deviceId: device.id,
       command: commandContent,
@@ -56,7 +68,6 @@ export class AttendanceService {
       tenantId: user.tenantId,
     });
   }
-
   async createDevice(
     dto: CreateDeviceDto,
     user: CurrentUserData,

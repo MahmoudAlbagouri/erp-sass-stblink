@@ -48,7 +48,7 @@ export class EmployeesController {
     const columns = [
       { header: 'الاسم الكامل', key: 'fullName' },
       { header: 'كود الموظف', key: 'employeeCode' },
-      { header: 'الرقم الوطني', key: 'nationalId' },
+      { header: 'رقم الهوية', key: 'nationalId' },
       { header: 'رقم الهاتف', key: 'phone' },
       { header: 'المسمى الوظيفي', key: 'jobTitle' },
       { header: 'القسم', key: 'department' },

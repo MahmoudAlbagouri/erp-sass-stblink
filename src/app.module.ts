@@ -30,6 +30,7 @@ import { LoansModule } from './modules/loans/loans.module';
 import { SalariesModule } from './modules/salaries/salaries.module';
 import { MediaModule } from './modules/media/media.module';
 import { FilesModule } from './modules/files/files.module';
+import { ShiftsModule } from './modules/shifts/shifts.module';
 
 @Module({
   imports: [
@@ -73,6 +74,7 @@ import { FilesModule } from './modules/files/files.module';
     SalariesModule,
     MediaModule,
     FilesModule,
+    ShiftsModule,
   ],
   providers: [
     {

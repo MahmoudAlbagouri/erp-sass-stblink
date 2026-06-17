@@ -21,10 +21,10 @@ export class EmployeesService {
 
     let nextNumber = 1;
     if (lastEmployee?.employeeCode) {
-      const match = lastEmployee.employeeCode.match(/EMP-(\d+)/);
+      const match = lastEmployee.employeeCode.match(/(\d+)/);
       if (match) nextNumber = parseInt(match[1], 10) + 1;
     }
-    return `EMP-${nextNumber.toString().padStart(4, '0')}`;
+    return `${nextNumber.toString().padStart(4, '0')}`;
   }
 
   async create(dto: CreateEmployeeDto, tenantId: string): Promise<Employee> {

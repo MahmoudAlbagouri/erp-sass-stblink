@@ -19,11 +19,6 @@ import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { AttendanceQueryDto } from './dto/attendance-query.dto';
 
-interface PushUserToDeviceDto {
-  pin: string;
-  name: string;
-}
-
 @Controller('attendance')
 @UseGuards(JwtAuthGuard)
 export class AttendanceController {
@@ -39,17 +34,16 @@ export class AttendanceController {
     return this.attendanceService.createDevice(dto, user);
   }
 
-  @Post('devices/:id/push-user')
+  @Post('devices/:id/push-user/:employeeId')
   @Permissions('update_biometric_device')
   @UseGuards(PermissionsGuard)
   pushUserToDevice(
     @Param('id') id: string,
-    @Body() data: PushUserToDeviceDto,
+    @Param('employeeId') employeeId: string, // الـ ID يأتي من المسار
     @CurrentUser() user: CurrentUserData,
   ) {
-    return this.attendanceService.pushUserToDevice(id, data, user);
+    return this.attendanceService.pushUserToDevice(id, employeeId, user);
   }
-
   @Get('devices')
   @Permissions('view_biometric_devices')
   @UseGuards(PermissionsGuard)

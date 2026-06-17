@@ -1,15 +1,14 @@
-// src/modules/attendance/attendance.module.ts
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BiometricDevice } from './entities/biometric-device.entity';
 import { AttendanceLog } from './entities/attendance-log.entity';
 import { Employee } from '../employees/entities/employee.entity';
-import { Shift } from './entities/shift.entity';
+import { DeviceCommand } from './entities/device-command.entity';
 import { AdmsController } from './adms.controller';
 import { AdmsService } from './adms.service';
 import { AttendanceController } from './attendance.controller';
 import { AttendanceService } from './attendance.service';
-import { DeviceCommand } from './entities/device-command.entity';
+import { ShiftsModule } from '../shifts/shifts.module'; // ✅ تم الاستيراد هنا
 
 @Module({
   imports: [
@@ -18,13 +17,10 @@ import { DeviceCommand } from './entities/device-command.entity';
       AttendanceLog,
       DeviceCommand,
       Employee,
-      Shift,
     ]),
+    ShiftsModule, // ✅ استيراد موديول الورديات لحل مشكلة UnknownDependenciesException
   ],
-  controllers: [
-    AdmsController, // ✅ بروتوكول ZKTeco (public - بدون JWT)
-    AttendanceController, // ✅ إدارة الأجهزة والسجلات (protected)
-  ],
+  controllers: [AdmsController, AttendanceController],
   providers: [AdmsService, AttendanceService],
   exports: [AttendanceService],
 })

@@ -15,7 +15,7 @@ import { User } from '../../users/entities/user.entity';
 import { Contract } from 'src/modules/contracts/entities/contract.entity';
 import { Loan } from 'src/modules/loans/entities/loan.entity';
 import { Advance } from 'src/modules/advances/entities/advance.entity';
-import { Shift } from 'src/modules/attendance/entities/shift.entity';
+import { Shift } from 'src/modules/shifts/entities/shift.entity';
 
 @Entity('employees')
 export class Employee {
