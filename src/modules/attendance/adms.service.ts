@@ -166,17 +166,20 @@ export class AdmsService {
     const [pin, dateTimeStr, statusStr, verifyStr] = parts;
     if (!pin || !dateTimeStr) return null;
 
-    // 1. استبدال المسافة بـ T للحصول على ISO String صحيح
-    // 2. إضافة "+03:00" في النهاية لإخبار JS أن هذا التاريخ بتوقيت السعودية
-    const timeString = dateTimeStr.replace(' ', 'T') + '+03:00';
-    const punchTime = new Date(timeString);
+    // 1. إنشاء كائن التاريخ من النص القادم من الجهاز
+    // نعتبره توقيت محلي للجهاز أولاً
+    const date = new Date(dateTimeStr.replace(' ', 'T'));
 
-    if (isNaN(punchTime.getTime())) return null;
+    if (isNaN(date.getTime())) return null;
+
+    // 2. ضبط التوقيت ليكون بتوقيت السعودية (UTC+3)
+    // نقوم بإضافة 3 ساعات (180 دقيقة) للميلي ثانية الخاصة بالتاريخ
+    const saudiTime = new Date(date.getTime() + 3 * 60 * 60 * 1000);
 
     const rawLogId = `${pin}_${dateTimeStr.replace(/[: ]/g, '')}`;
     return {
       pin,
-      punchTime,
+      punchTime: saudiTime, // التوقيت المعدل للسعودية
       status: parseInt(statusStr ?? '0', 10),
       verify: parseInt(verifyStr ?? '1', 10),
       rawLogId,
