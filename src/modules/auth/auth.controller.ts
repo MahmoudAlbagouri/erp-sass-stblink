@@ -6,7 +6,6 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { RefreshTokenGuard } from './guards/refresh-token.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { CurrentTenantId } from 'src/common/decorators/current-tenant-id.decorator';
 
 @Controller('auth')
 export class AuthController {
@@ -24,11 +23,8 @@ export class AuthController {
 
   @UseGuards(RefreshTokenGuard)
   @Post('refresh')
-  refreshTokens(
-    @CurrentUser('id') userId: string,
-    @CurrentTenantId() tenantId: string, // ✅ الآن سيعمل هذا الديكوريتور لأن الـ Strategy ترجعه
-  ) {
-    return this.authService.refreshTokens(userId, tenantId);
+  refreshTokens(@CurrentUser('id') userId: string) {
+    return this.authService.refreshTokens(userId);
   }
 
   @Post('forgot-password')

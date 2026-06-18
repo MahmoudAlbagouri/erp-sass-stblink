@@ -88,15 +88,13 @@ export class AuthService {
     return { userId: user.id, ...(await this.getTokens(user.id)) };
   }
 
-  async refreshTokens(userId: string, tenantIdFromToken: string) {
-    // 1. جلب بيانات المستخدم
+  async refreshTokens(userId: string) {
+    // 1. جلب بيانات المستخدم من قاعدة البيانات مباشرة (لضمان آخر تحديث)
     const user = await this.usersService.findOne(userId);
 
-    // 2. تحديث الـ tenantId الخاص بالمستخدم مؤقتاً بالبيانات القادمة من التوكن (لضمان الدقة)
-    // هذا يضمن أن التوكن الجديد سيحتوي على الـ tenantId الصحيح حتى لو حدث تغيير في DB
-    user.tenantId = tenantIdFromToken;
+    if (!user) throw new ForbiddenException('User not found');
 
-    // 3. توليد التوكنات الجديدة
+    // 2. إعادة توليد التوكنز بناءً على حالة المستخدم الحالية في DB
     return this.getTokens(user.id);
   }
   async forgotPassword(dto: ForgotPasswordDto) {
