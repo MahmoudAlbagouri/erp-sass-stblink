@@ -5,7 +5,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { Repository } from 'typeorm';
 import { Employee } from './entities/employee.entity';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
@@ -44,10 +44,14 @@ export class EmployeesService {
    * ✅ الحل الجذري: البحث عن أقصى قيمة عددية بدلاً من الاعتماد على الترتيب الزمني
    */
   private async generateEmployeeCode(tenantId: string): Promise<string> {
-    // جلب جميع أكواد الموظفين النشطين فقط
+    // ✅ الحل الجذري: تضمين الموظفين المحذوفين (withDeleted) عند حساب أعلى رقم
+    // لأن عمود employeeCode فريد (unique) على مستوى قاعدة البيانات، والـ Soft Delete
+    // لا يحذف الصف فعلياً (فقط يضع deletedAt)، فلو تجاهلناه هنا سنولّد كوداً
+    // مستخدَماً بالفعل ويتعارض مع الـ Unique Constraint عند الحفظ
     const employees = await this.repo.find({
-      where: { tenantId, deletedAt: IsNull() },
+      where: { tenantId },
       select: ['employeeCode'],
+      withDeleted: true,
     });
 
     let maxNumber = 0;
@@ -61,7 +65,6 @@ export class EmployeesService {
       }
     }
 
-    // الرقم التالي هو الأعلى + 1
     return `${(maxNumber + 1).toString().padStart(4, '0')}`;
   }
 
@@ -77,20 +80,40 @@ export class EmployeesService {
         throw new NotFoundException('المستخدم غير موجود أو لا ينتمي لشركتك');
     }
 
-    // ✅ 2. توليد كود جديد بناءً على أعلى رقم نشط فعلياً
-    const employeeCode = await this.generateEmployeeCode(tenantId);
+    // ✅ 2. آلية إعادة المحاولة: لو حدث تعارض نادر على employeeCode (طلبين بنفس اللحظة)
+    // نولّد كوداً جديداً ونعيد المحاولة بدلاً من رمي الخطأ مباشرة للمستخدم
+    const MAX_RETRIES = 3;
+    let lastError: unknown;
 
-    const employee = this.repo.create({
-      ...dto,
-      employeeCode,
-      user: user ?? undefined,
-      tenantId,
-      iqamaExpiryDate: dto.iqamaExpiryDate
-        ? new Date(dto.iqamaExpiryDate)
-        : undefined,
-    });
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      const employeeCode = await this.generateEmployeeCode(tenantId);
 
-    return await this.repo.save(employee);
+      const employee = this.repo.create({
+        ...dto,
+        employeeCode,
+        user: user ?? undefined,
+        tenantId,
+        iqamaExpiryDate: dto.iqamaExpiryDate
+          ? new Date(dto.iqamaExpiryDate)
+          : undefined,
+      });
+
+      try {
+        return await this.repo.save(employee);
+      } catch (error: unknown) {
+        const pgError = error as { code?: string; detail?: string };
+        const isEmployeeCodeConflict =
+          pgError.code === '23505' &&
+          (pgError.detail?.includes('employeeCode') ||
+            pgError.detail?.includes('employee_code'));
+
+        if (!isEmployeeCodeConflict) throw error; // أي خطأ آخر يُرمى فوراً كما هو
+        lastError = error;
+        // وإلا أعد المحاولة بكود جديد
+      }
+    }
+
+    throw lastError;
   }
 
   async findAll(tenantId: string): Promise<Employee[]> {
