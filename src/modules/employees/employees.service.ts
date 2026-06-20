@@ -5,7 +5,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, IsNull } from 'typeorm';
 import { Employee } from './entities/employee.entity';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
@@ -24,7 +24,7 @@ export class EmployeesService {
   private async checkNationalIdUniqueness(
     nationalId: string,
     tenantId: string,
-    excludeId?: string, // لاستثناء الموظف الحالي عند التحديث
+    excludeId?: string,
   ): Promise<void> {
     if (!nationalId) return;
 
@@ -32,7 +32,6 @@ export class EmployeesService {
       where: { nationalId, tenantId },
     });
 
-    // إذا وجد موظف بنفس الرقم وكان ليس هو نفسه (في حالة التحديث)
     if (existing && existing.id !== excludeId) {
       throw new ConflictException(
         `رقم الهوية "${nationalId}" مستخدم بالفعل من قبل الموظف: ${existing.fullName}`,
@@ -41,12 +40,16 @@ export class EmployeesService {
   }
 
   /**
-   * دالة توليد كود الموظف تلقائياً بناءً على آخر موظف في نفس الشركة
+   * دالة توليد كود الموظف تلقائياً بناءً على أعلى رقم نشط في نفس الشركة
    */
   private async generateEmployeeCode(tenantId: string): Promise<string> {
+    // البحث عن آخر موظف نشط فقط (غير محذوف) مرتباً حسب الكود تنازلياً
     const lastEmployee = await this.repo.findOne({
-      where: { tenantId },
-      order: { createdAt: 'DESC' },
+      where: {
+        tenantId,
+        deletedAt: IsNull(), // ✅ تجاهل الموظفين المحذوفين نهائياً
+      },
+      order: { employeeCode: 'DESC' }, // ✅ الترتيب حسب الكود وليس التاريخ
     });
 
     let nextNumber = 1;
@@ -69,7 +72,7 @@ export class EmployeesService {
         throw new NotFoundException('المستخدم غير موجود أو لا ينتمي لشركتك');
     }
 
-    // ✅ 2. تجاهل employeeCode القادم وتوليده تلقائياً دائماً
+    // ✅ 2. توليد كود جديد بناءً على الموظفين النشطين فقط
     const employeeCode = await this.generateEmployeeCode(tenantId);
 
     const employee = this.repo.create({
@@ -109,12 +112,11 @@ export class EmployeesService {
   ): Promise<Employee> {
     const employee = await this.findOne(id, tenantId);
 
-    // ✅ 3. التحقق من تكرار رقم الهوية عند التحديث (مع استثناء الموظف الحالي)
+    // ✅ 3. التحقق من تكرار رقم الهوية عند التحديث
     if (dto.nationalId && dto.nationalId !== employee.nationalId) {
       await this.checkNationalIdUniqueness(dto.nationalId, tenantId, id);
     }
 
-    // تحديث المستخدم المرتبط إذا تغير
     if (dto.userId && dto.userId !== employee.user?.id) {
       const user = await this.userRepo.findOneBy({ id: dto.userId, tenantId });
       if (!user) throw new NotFoundException('المستخدم المحدد غير موجود');
@@ -123,7 +125,6 @@ export class EmployeesService {
 
     Object.assign(employee, dto);
 
-    // معالجة تاريخ الإقامة عند التحديث
     if (dto.iqamaExpiryDate) {
       employee.iqamaExpiryDate = new Date(dto.iqamaExpiryDate);
     } else if (
