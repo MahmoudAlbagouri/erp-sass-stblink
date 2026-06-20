@@ -28,10 +28,17 @@ export class Loan {
   installmentsCount!: number; // عدد الأقساط
 
   @Column({ type: 'decimal', precision: 12, scale: 2 })
-  monthlyInstallment!: number; // قسط شهري
+  monthlyInstallment!: number; // قيمة القسط الشهري (محسوبة تلقائياً)
+
+  @Column({ type: 'text', nullable: true })
+  reason?: string; // سبب القرض (اختياري)
 
   @Column({ type: 'enum', enum: LoanStatus, default: LoanStatus.PENDING })
   status!: LoanStatus;
+
+  // تاريخ بداية السداد (متى يتم خصم أول قسط)
+  @Column({ type: 'date' })
+  startDate!: Date;
 
   @Column({ name: 'employee_id' })
   employeeId!: string;

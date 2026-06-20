@@ -42,8 +42,10 @@ export class Contract {
   @Column({ type: 'text', nullable: true })
   notes?: string;
 
-  @Column({ type: 'simple-array', nullable: true })
-  attachments?: string[];
+  // تخزين مسارات المرفقات (يمكن أن تكون رابطاً واحداً أو مصفوفة روابط مفصولة بفاصلة)
+  // سنستخدم simple-array من TypeORM لتخزينها كمصفوفة في قاعدة البيانات
+  @Column('simple-array', { nullable: true })
+  attachmentPaths?: string[];
 
   @Column({ name: 'employee_id' })
   employeeId!: string;

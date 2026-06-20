@@ -5,6 +5,7 @@ import {
   IsString,
   IsOptional,
   Min,
+  IsDateString,
 } from 'class-validator';
 
 export class CreateAdvanceDto {
@@ -13,12 +14,12 @@ export class CreateAdvanceDto {
   @IsNotEmpty()
   amount!: number;
 
-  @IsNumber()
-  @Min(1)
-  @IsNotEmpty()
-  numberOfInstallments!: number;
-
   @IsString()
   @IsOptional()
   reason?: string;
+
+  // تاريخ السداد (مثلاً: 2026-07-30 لخصمها من راتب يوليو)
+  @IsDateString()
+  @IsNotEmpty()
+  repaymentDate!: string;
 }

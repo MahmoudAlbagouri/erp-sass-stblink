@@ -1,10 +1,11 @@
+// src/modules/contracts/contracts.service.ts
 import {
   Injectable,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, ILike, Like } from 'typeorm';
 import { Contract } from './entities/contract.entity';
 import { CreateContractDto } from './dto/create-contract.dto';
 import { UpdateContractDto } from './dto/update-contract.dto';
@@ -30,12 +31,44 @@ export class ContractsService {
       ...dto,
       tenantId,
     });
+
     return await this.repo.save(contract);
   }
 
   async findAll(tenantId: string): Promise<Contract[]> {
     return await this.repo.find({
       where: { tenantId },
+      relations: ['employee'],
+    });
+  }
+
+  // ✅ دالة جديدة لجلب عقد موظف محدد (مطلوبة لموديول الإجازات)
+  async getByEmployeeId(
+    employeeId: string,
+    tenantId: string,
+  ): Promise<Contract | null> {
+    return await this.repo.findOne({
+      where: { employeeId, tenantId },
+    });
+  }
+
+  // دالة البحث
+  async search(tenantId: string, query: string) {
+    return await this.repo.find({
+      where: [
+        // الشرط الأول: البحث باسم الموظف
+        {
+          tenantId,
+          employee: {
+            fullName: ILike(`%${query}%`),
+          },
+        },
+        // الشرط الثاني: البحث بنوع العقد
+        {
+          tenantId,
+          contractType: Like(`%${query}%`) as any,
+        },
+      ],
       relations: ['employee'],
     });
   }
@@ -55,40 +88,12 @@ export class ContractsService {
     tenantId: string,
   ): Promise<Contract> {
     const contract = await this.findOne(id, tenantId);
-
-    // تحديث البيانات
     Object.assign(contract, dto);
-
     return await this.repo.save(contract);
   }
 
   async remove(id: string, tenantId: string): Promise<void> {
     const contract = await this.findOne(id, tenantId);
     await this.repo.remove(contract);
-  }
-
-  async getByEmployeeId(
-    employeeId: string,
-    tenantId: string,
-  ): Promise<Contract | null> {
-    return await this.repo.findOne({
-      where: { employeeId, tenantId },
-      relations: ['employee'],
-    });
-  }
-
-  // دالة إضافية لحساب المدة تلقائياً عند الحاجة
-  async getContractDuration(id: string, tenantId: string) {
-    const contract = await this.findOne(id, tenantId);
-    const start = new Date(contract.startDate);
-    const end = contract.endDate ? new Date(contract.endDate) : new Date();
-
-    const diffTime = Math.abs(end.getTime() - start.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-    return {
-      durationInDays: diffDays,
-      isActive: !contract.endDate || new Date(contract.endDate) > new Date(),
-    };
   }
 }

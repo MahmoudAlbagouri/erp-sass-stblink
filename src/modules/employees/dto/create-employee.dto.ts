@@ -1,3 +1,4 @@
+// src/modules/employees/dto/create-employee.dto.ts
 import {
   IsString,
   IsNotEmpty,
@@ -5,7 +6,9 @@ import {
   IsEnum,
   IsDateString,
   IsUUID,
+  ValidateIf,
 } from 'class-validator';
+import { NationalityType } from '../entities/employee.entity';
 
 export class CreateEmployeeDto {
   @IsString()
@@ -13,8 +16,20 @@ export class CreateEmployeeDto {
   fullName!: string;
 
   @IsString()
-  @IsOptional() // صار اختياري لأننا سنولده ديناميكياً
+  @IsOptional()
   employeeCode?: string;
+
+  // ✅ نوع الجنسية (إلزامي)
+  @IsEnum(NationalityType)
+  @IsNotEmpty({ message: 'نوع الجنسية مطلوب' })
+  nationalityType!: NationalityType;
+
+  // ✅ تاريخ انتهاء الإقامة (إلزامي فقط إذا كان غير سعودي)
+  @ValidateIf(
+    (o: CreateEmployeeDto) => o.nationalityType === NationalityType.NON_SAUDI,
+  )
+  @IsDateString({}, { message: 'تاريخ انتهاء الإقامة مطلوب لغير السعوديين' })
+  iqamaExpiryDate?: string;
 
   @IsString()
   @IsOptional()
@@ -40,9 +55,7 @@ export class CreateEmployeeDto {
   @IsOptional()
   department?: string;
 
-  @IsDateString()
-  @IsOptional()
-  hireDate?: string;
+  // ❌ تم حذف hireDate
 
   @IsEnum(['active', 'inactive', 'terminated'])
   @IsOptional()

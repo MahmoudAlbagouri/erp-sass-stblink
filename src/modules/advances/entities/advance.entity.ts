@@ -24,14 +24,15 @@ export class Advance {
   @Column({ type: 'decimal', precision: 12, scale: 2 })
   amount!: number;
 
-  @Column()
-  numberOfInstallments!: number; // عدد الأقساط
-
   @Column({ type: 'text', nullable: true })
   reason!: string;
 
   @Column({ type: 'enum', enum: AdvanceStatus, default: AdvanceStatus.PENDING })
   status!: AdvanceStatus;
+
+  // تاريخ السداد المتوقع (يحدد شهر الخصم)
+  @Column({ type: 'date' })
+  repaymentDate!: Date;
 
   @Column({ name: 'employee_id' })
   employeeId!: string;

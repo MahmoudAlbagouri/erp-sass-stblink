@@ -1,3 +1,4 @@
+// src/modules/employees/employees.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -6,7 +7,7 @@ import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { User } from '../users/entities/user.entity';
 
-@Injectable() // أصبح Singleton (بدون Scope.REQUEST)
+@Injectable()
 export class EmployeesService {
   constructor(
     @InjectRepository(Employee) private repo: Repository<Employee>,
@@ -43,6 +44,10 @@ export class EmployeesService {
       employeeCode,
       user: user ?? undefined,
       tenantId,
+      // تحويل التاريخ إلى كائن Date إذا كان موجوداً
+      iqamaExpiryDate: dto.iqamaExpiryDate
+        ? new Date(dto.iqamaExpiryDate)
+        : undefined,
     });
 
     return await this.repo.save(employee);
@@ -79,6 +84,18 @@ export class EmployeesService {
     }
 
     Object.assign(employee, dto);
+
+    // معالجة تاريخ الإقامة عند التحديث
+    if (dto.iqamaExpiryDate) {
+      employee.iqamaExpiryDate = new Date(dto.iqamaExpiryDate);
+    } else if (
+      dto.iqamaExpiryDate === null ||
+      dto.iqamaExpiryDate === undefined
+    ) {
+      // تعيينها undefined لضمان حذفها من قاعدة البيانات إذا كانت مطلوبة
+      employee.iqamaExpiryDate = undefined;
+    }
+
     return await this.repo.save(employee);
   }
 

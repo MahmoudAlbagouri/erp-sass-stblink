@@ -1,3 +1,4 @@
+// src/modules/leaves/entities/leave-request.entity.ts
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -12,6 +13,13 @@ export enum LeaveStatus {
   PENDING = 'pending',
   APPROVED = 'approved',
   REJECTED = 'rejected',
+}
+
+// إضافة نوع الإجازة
+export enum LeaveType {
+  ANNUAL = 'annual', // سنوية
+  UNPAID = 'unpaid', // بدون راتب
+  OTHER = 'other', // أخرى
 }
 
 @Entity('leave_requests')
@@ -31,6 +39,10 @@ export class LeaveRequest {
 
   @Column({ type: 'date' })
   endDate!: Date;
+
+  // حقل نوع الإجازة الجديد
+  @Column({ type: 'enum', enum: LeaveType, default: LeaveType.ANNUAL })
+  type!: LeaveType;
 
   @Column({ type: 'enum', enum: LeaveStatus, default: LeaveStatus.PENDING })
   status!: LeaveStatus;

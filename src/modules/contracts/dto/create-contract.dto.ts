@@ -7,6 +7,7 @@ import {
   IsNumber,
   IsUUID,
   IsEnum,
+  IsArray,
 } from 'class-validator';
 import { ContractType } from '../entities/contract.entity';
 
@@ -34,4 +35,9 @@ export class CreateContractDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  // استقبال مصفوفة الروابط من الـ Frontend
+  @IsOptional()
+  @IsArray()
+  attachmentPaths?: string[];
 }

@@ -5,6 +5,7 @@ import {
   IsPositive,
   IsOptional,
   IsString,
+  IsDateString,
 } from 'class-validator';
 
 export class CreateLoanDto {
@@ -21,4 +22,8 @@ export class CreateLoanDto {
   @IsString()
   @IsOptional()
   reason?: string;
+
+  @IsDateString()
+  @IsNotEmpty()
+  startDate!: string; // تاريخ بداية الخصم
 }

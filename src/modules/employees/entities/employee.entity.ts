@@ -1,3 +1,4 @@
+// src/modules/employees/entities/employee.entity.ts
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -17,6 +18,13 @@ import { Loan } from 'src/modules/loans/entities/loan.entity';
 import { Advance } from 'src/modules/advances/entities/advance.entity';
 import { Shift } from 'src/modules/shifts/entities/shift.entity';
 
+// تعريف أنواع الجنسية
+export enum NationalityType {
+  SAUDI = 'saudi', // سعودي
+  NON_SAUDI = 'non_saudi', // غير سعودي
+  OUTSIDE_SPONSORSHIP = 'outside_sponsorship', // خارج الكفالة
+}
+
 @Entity('employees')
 export class Employee {
   @PrimaryGeneratedColumn('uuid')
@@ -27,6 +35,18 @@ export class Employee {
 
   @Column({ unique: true, length: 50 })
   employeeCode!: string;
+
+  // ✅ إضافة نوع الجنسية
+  @Column({
+    type: 'enum',
+    enum: NationalityType,
+    default: NationalityType.SAUDI,
+  })
+  nationalityType!: NationalityType;
+
+  // ✅ تاريخ انتهاء الإقامة (يظهر فقط لغير السعوديين)
+  @Column({ type: 'date', nullable: true })
+  iqamaExpiryDate?: Date | null; // ✅ أضف | null هنا
 
   // حقول الهوية الجديدة
   @Column({ nullable: true })
@@ -44,8 +64,7 @@ export class Employee {
   @Column({ nullable: true, length: 100 })
   department?: string;
 
-  @Column({ type: 'date', nullable: true })
-  hireDate?: Date;
+  // ❌ تم حذف hireDate حسب الطلب
 
   @Column({
     type: 'enum',
@@ -54,8 +73,8 @@ export class Employee {
   })
   status!: 'active' | 'inactive' | 'terminated';
 
-  @OneToOne(() => User, (user) => user.employee) // الربط مع المستخدم
-  @JoinColumn({ name: 'user_id' }) // هذا هو المكان الوحيد للـ JoinColumn
+  @OneToOne(() => User, (user) => user.employee)
+  @JoinColumn({ name: 'user_id' })
   user?: User;
 
   @Column({ name: 'tenant_id' })
@@ -73,7 +92,7 @@ export class Employee {
   @ManyToOne(() => Tenant, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'tenant_id' })
   tenant?: Tenant;
-  // أضف هذه الأسطر داخل كلاس Employee
+
   @ManyToOne(() => Shift, { nullable: true })
   @JoinColumn({ name: 'shift_id' })
   shift?: Shift;
@@ -83,8 +102,10 @@ export class Employee {
 
   @CreateDateColumn()
   createdAt!: Date;
+
   @UpdateDateColumn()
   updatedAt!: Date;
+
   @DeleteDateColumn({ nullable: true })
   deletedAt?: Date;
 }

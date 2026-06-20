@@ -10,13 +10,18 @@ export class LoansService {
   constructor(@InjectRepository(Loan) private repo: Repository<Loan>) {}
 
   async create(dto: CreateLoanDto, employeeId: string, tenantId: string) {
-    const monthlyInstallment = dto.totalAmount / dto.installmentsCount;
+    // حساب القسط الشهري بدقة
+    const monthlyInstallment =
+      Number(dto.totalAmount) / Number(dto.installmentsCount);
+
     const loan = this.repo.create({
       ...dto,
       employeeId,
       tenantId,
       monthlyInstallment,
+      startDate: new Date(dto.startDate),
     });
+
     return await this.repo.save(loan);
   }
 
@@ -24,12 +29,14 @@ export class LoansService {
     return await this.repo.find({
       where: { tenantId },
       relations: ['employee'],
+      order: { createdAt: 'DESC' },
     });
   }
 
   async updateStatus(id: string, status: LoanStatus, tenantId: string) {
     const loan = await this.repo.findOne({ where: { id, tenantId } });
     if (!loan) throw new NotFoundException('القرض غير موجود');
+
     loan.status = status;
     return await this.repo.save(loan);
   }

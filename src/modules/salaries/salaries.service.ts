@@ -38,4 +38,11 @@ export class SalariesService {
     salary.totalSalary = this.calculateTotal(salary);
     return await this.repo.save(salary);
   }
+
+  // دالة جديدة لجلب راتب موظف محدد للتحقق منه عند طلب سلفة
+  async findByEmployee(employeeId: string, tenantId: string) {
+    return await this.repo.findOne({
+      where: { employeeId, tenantId },
+    });
+  }
 }
