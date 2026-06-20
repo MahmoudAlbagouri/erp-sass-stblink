@@ -41,23 +41,28 @@ export class EmployeesService {
 
   /**
    * دالة توليد كود الموظف تلقائياً بناءً على أعلى رقم نشط في نفس الشركة
+   * ✅ الحل الجذري: البحث عن أقصى قيمة عددية بدلاً من الاعتماد على الترتيب الزمني
    */
   private async generateEmployeeCode(tenantId: string): Promise<string> {
-    // البحث عن آخر موظف نشط فقط (غير محذوف) مرتباً حسب الكود تنازلياً
-    const lastEmployee = await this.repo.findOne({
-      where: {
-        tenantId,
-        deletedAt: IsNull(), // ✅ تجاهل الموظفين المحذوفين نهائياً
-      },
-      order: { employeeCode: 'DESC' }, // ✅ الترتيب حسب الكود وليس التاريخ
+    // جلب جميع أكواد الموظفين النشطين فقط
+    const employees = await this.repo.find({
+      where: { tenantId, deletedAt: IsNull() },
+      select: ['employeeCode'],
     });
 
-    let nextNumber = 1;
-    if (lastEmployee?.employeeCode) {
-      const match = lastEmployee.employeeCode.match(/(\d+)/);
-      if (match) nextNumber = parseInt(match[1], 10) + 1;
+    let maxNumber = 0;
+    for (const emp of employees) {
+      if (emp.employeeCode) {
+        const match = emp.employeeCode.match(/(\d+)/);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (num > maxNumber) maxNumber = num;
+        }
+      }
     }
-    return `${nextNumber.toString().padStart(4, '0')}`;
+
+    // الرقم التالي هو الأعلى + 1
+    return `${(maxNumber + 1).toString().padStart(4, '0')}`;
   }
 
   async create(dto: CreateEmployeeDto, tenantId: string): Promise<Employee> {
@@ -72,7 +77,7 @@ export class EmployeesService {
         throw new NotFoundException('المستخدم غير موجود أو لا ينتمي لشركتك');
     }
 
-    // ✅ 2. توليد كود جديد بناءً على الموظفين النشطين فقط
+    // ✅ 2. توليد كود جديد بناءً على أعلى رقم نشط فعلياً
     const employeeCode = await this.generateEmployeeCode(tenantId);
 
     const employee = this.repo.create({
