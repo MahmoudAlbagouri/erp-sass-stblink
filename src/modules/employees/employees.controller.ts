@@ -1,3 +1,4 @@
+// src/modules/employees/employees.controller.ts
 import {
   Controller,
   Get,
@@ -34,8 +35,9 @@ export class EmployeesController {
     return this.employeesService.create(dto, tenantId);
   }
 
+  // ✅ مسار التصدير المحدث ليعكس الحقول الجديدة (الجنسية + الإقامة)
   @Get('export/:type')
-  @Permissions('view_employees') // أو 'export_employees' حسب نظام الصلاحيات لديك
+  @Permissions('view_employees')
   @UseGuards(PermissionsGuard)
   async exportEmployees(
     @Param('type') type: 'excel' | 'pdf',
@@ -44,20 +46,49 @@ export class EmployeesController {
   ) {
     const data = await this.employeesService.findAll(tenantId);
 
-    // تعريف أعمدة التقرير ديناميكياً
+    // تعريف أعمدة التقرير المحدث
     const columns = [
       { header: 'الاسم الكامل', key: 'fullName' },
       { header: 'كود الموظف', key: 'employeeCode' },
+      { header: 'نوع الجنسية', key: 'nationalityTypeLabel' },
+      { header: 'تاريخ انتهاء الإقامة', key: 'iqamaExpiryDate' },
       { header: 'رقم الهوية', key: 'nationalId' },
       { header: 'رقم الهاتف', key: 'phone' },
       { header: 'المسمى الوظيفي', key: 'jobTitle' },
       { header: 'القسم', key: 'department' },
-      { header: 'تاريخ التوظيف', key: 'hireDate' },
-      { header: 'الحالة', key: 'status' },
+      { header: 'الحالة', key: 'statusLabel' },
     ];
 
+    // تنسيق البيانات لتتناسب مع الأعمدة الجديدة
+    const formattedData = data.map((emp) => ({
+      fullName: emp.fullName,
+      employeeCode: emp.employeeCode,
+      nationalityTypeLabel:
+        String(emp.nationalityType) === 'saudi'
+          ? 'سعودي'
+          : String(emp.nationalityType) === 'non_saudi'
+            ? 'غير سعودي'
+            : 'خارج الكفالة',
+      iqamaExpiryDate: emp.iqamaExpiryDate
+        ? new Date(emp.iqamaExpiryDate).toLocaleDateString('ar-SA')
+        : '-',
+      nationalId: emp.nationalId || '-',
+      phone: emp.phone || '-',
+      jobTitle: emp.jobTitle || '-',
+      department: emp.department || '-',
+      statusLabel:
+        emp.status === 'active'
+          ? 'نشط'
+          : emp.status === 'inactive'
+            ? 'غير نشط'
+            : 'منهي الخدمة',
+    }));
+
     if (type === 'excel') {
-      const buffer = await this.reportService.generateExcel(data, columns);
+      const buffer = await this.reportService.generateExcel(
+        formattedData,
+        columns,
+      );
       res.setHeader(
         'Content-Type',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -71,7 +102,7 @@ export class EmployeesController {
 
     if (type === 'pdf') {
       const buffer = await this.reportService.generatePdf(
-        data,
+        formattedData,
         columns,
         'تقرير الموظفين',
       );
