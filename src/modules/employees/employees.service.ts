@@ -1,5 +1,9 @@
 // src/modules/employees/employees.service.ts
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Employee } from './entities/employee.entity';
@@ -14,6 +18,31 @@ export class EmployeesService {
     @InjectRepository(User) private userRepo: Repository<User>,
   ) {}
 
+  /**
+   * التحقق من عدم تكرار رقم الهوية داخل نفس الشركة
+   */
+  private async checkNationalIdUniqueness(
+    nationalId: string,
+    tenantId: string,
+    excludeId?: string, // لاستثناء الموظف الحالي عند التحديث
+  ): Promise<void> {
+    if (!nationalId) return;
+
+    const existing = await this.repo.findOne({
+      where: { nationalId, tenantId },
+    });
+
+    // إذا وجد موظف بنفس الرقم وكان ليس هو نفسه (في حالة التحديث)
+    if (existing && existing.id !== excludeId) {
+      throw new ConflictException(
+        `رقم الهوية "${nationalId}" مستخدم بالفعل من قبل الموظف: ${existing.fullName}`,
+      );
+    }
+  }
+
+  /**
+   * دالة توليد كود الموظف تلقائياً بناءً على آخر موظف في نفس الشركة
+   */
   private async generateEmployeeCode(tenantId: string): Promise<string> {
     const lastEmployee = await this.repo.findOne({
       where: { tenantId },
@@ -29,6 +58,10 @@ export class EmployeesService {
   }
 
   async create(dto: CreateEmployeeDto, tenantId: string): Promise<Employee> {
+    // ✅ 1. التحقق من تكرار رقم الهوية أولاً
+    await this.checkNationalIdUniqueness(dto.nationalId!, tenantId);
+
+    // التحقق من المستخدم المرتبط إذا تم إرساله
     let user: User | null = null;
     if (dto.userId) {
       user = await this.userRepo.findOneBy({ id: dto.userId, tenantId });
@@ -36,15 +69,14 @@ export class EmployeesService {
         throw new NotFoundException('المستخدم غير موجود أو لا ينتمي لشركتك');
     }
 
-    const employeeCode =
-      dto.employeeCode || (await this.generateEmployeeCode(tenantId));
+    // ✅ 2. تجاهل employeeCode القادم وتوليده تلقائياً دائماً
+    const employeeCode = await this.generateEmployeeCode(tenantId);
 
     const employee = this.repo.create({
       ...dto,
       employeeCode,
       user: user ?? undefined,
       tenantId,
-      // تحويل التاريخ إلى كائن Date إذا كان موجوداً
       iqamaExpiryDate: dto.iqamaExpiryDate
         ? new Date(dto.iqamaExpiryDate)
         : undefined,
@@ -77,6 +109,12 @@ export class EmployeesService {
   ): Promise<Employee> {
     const employee = await this.findOne(id, tenantId);
 
+    // ✅ 3. التحقق من تكرار رقم الهوية عند التحديث (مع استثناء الموظف الحالي)
+    if (dto.nationalId && dto.nationalId !== employee.nationalId) {
+      await this.checkNationalIdUniqueness(dto.nationalId, tenantId, id);
+    }
+
+    // تحديث المستخدم المرتبط إذا تغير
     if (dto.userId && dto.userId !== employee.user?.id) {
       const user = await this.userRepo.findOneBy({ id: dto.userId, tenantId });
       if (!user) throw new NotFoundException('المستخدم المحدد غير موجود');
@@ -92,7 +130,6 @@ export class EmployeesService {
       dto.iqamaExpiryDate === null ||
       dto.iqamaExpiryDate === undefined
     ) {
-      // تعيينها undefined لضمان حذفها من قاعدة البيانات إذا كانت مطلوبة
       employee.iqamaExpiryDate = undefined;
     }
 
