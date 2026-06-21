@@ -13,6 +13,11 @@ import { User } from '../users/entities/user.entity';
 
 @Injectable()
 export class EmployeesService {
+  // عدد خانات بادئة الشركة وعدد خانات الرقم التسلسلي
+  // لو جهاز البصمة عندك بيقبل أرقام أطول/أقصر من 7 خانات، غيّر القيمتين دول بس
+  private readonly TENANT_PREFIX_DIGITS = 3; // 000 - 999
+  private readonly SEQUENCE_DIGITS = 4; // 0000 - 9999
+
   constructor(
     @InjectRepository(Employee) private repo: Repository<Employee>,
     @InjectRepository(User) private userRepo: Repository<User>,
@@ -40,14 +45,35 @@ export class EmployeesService {
   }
 
   /**
-   * دالة توليد كود الموظف تلقائياً بناءً على أعلى رقم نشط في نفس الشركة
-   * ✅ الحل الجذري: البحث عن أقصى قيمة عددية بدلاً من الاعتماد على الترتيب الزمني
+   * ✅ بادئة رقمية بالكامل (من 000 لـ 999) مشتقة بشكل ثابت من tenantId
+   * باستخدام دالة hash بسيطة وحتمية: نفس الـ tenantId هيدّي دايماً نفس
+   * البادئة. مفيش حروف ولا فواصل، عشان جهاز البصمة (ZKTeco) بيقبل أرقام بس.
+   *
+   * احتمالية تطابق بادئتين لشركتين مختلفتين واردة رياضياً (1 من 1000)،
+   * لكنها مش مشكلة عملياً لأن آلية إعادة المحاولة في create() بتكتشف أي
+   * تعارض فعلي على مستوى الكود الكامل وتولّد رقم تسلسلي مختلف تلقائياً.
+   */
+  private getTenantPrefix(tenantId: string): string {
+    const mod = 10 ** this.TENANT_PREFIX_DIGITS;
+    let hash = 0;
+    for (let i = 0; i < tenantId.length; i++) {
+      hash = (hash * 31 + tenantId.charCodeAt(i)) % mod;
+    }
+    return hash.toString().padStart(this.TENANT_PREFIX_DIGITS, '0');
+  }
+
+  /**
+   * توليد كود الموظف التالي: كود رقمي بالكامل = بادئة الشركة + رقم تسلسلي
+   * مثال: "2350001" (بادئة 235 + رقم 0001)
+   *
+   * الترقيم لسه مستقل لكل شركة (بيبدأ من 0001 لكل tenant)، والبحث عن
+   * أعلى رقم بيشمل الموظفين المحذوفين (withDeleted) عشان منولّدش كود
+   * مُستخدم بالفعل سواء فعّال أو محذوف soft-delete.
    */
   private async generateEmployeeCode(tenantId: string): Promise<string> {
-    // ✅ الحل الجذري: تضمين الموظفين المحذوفين (withDeleted) عند حساب أعلى رقم
-    // لأن عمود employeeCode فريد (unique) على مستوى قاعدة البيانات، والـ Soft Delete
-    // لا يحذف الصف فعلياً (فقط يضع deletedAt)، فلو تجاهلناه هنا سنولّد كوداً
-    // مستخدَماً بالفعل ويتعارض مع الـ Unique Constraint عند الحفظ
+    const prefix = this.getTenantPrefix(tenantId);
+    const totalLength = this.TENANT_PREFIX_DIGITS + this.SEQUENCE_DIGITS;
+
     const employees = await this.repo.find({
       where: { tenantId },
       select: ['employeeCode'],
@@ -56,20 +82,26 @@ export class EmployeesService {
 
     let maxNumber = 0;
     for (const emp of employees) {
-      if (emp.employeeCode) {
-        const match = emp.employeeCode.match(/(\d+)/);
-        if (match) {
-          const num = parseInt(match[1], 10);
-          if (num > maxNumber) maxNumber = num;
-        }
+      const code = emp.employeeCode;
+      if (!code) continue;
+
+      // نهتم بس بالأكواد اللي بنفس بادئة الشركة الحالية وبنفس الطول المتوقع
+      // (أي أكواد قديمة بصيغة مختلفة بنتجاهلها هنا ومش بنستخدمها في الحساب)
+      if (code.length === totalLength && code.startsWith(prefix)) {
+        const num = parseInt(code.slice(this.TENANT_PREFIX_DIGITS), 10);
+        if (!isNaN(num) && num > maxNumber) maxNumber = num;
       }
     }
 
-    return `${(maxNumber + 1).toString().padStart(4, '0')}`;
+    const nextNumber = (maxNumber + 1)
+      .toString()
+      .padStart(this.SEQUENCE_DIGITS, '0');
+
+    return `${prefix}${nextNumber}`;
   }
 
   async create(dto: CreateEmployeeDto, tenantId: string): Promise<Employee> {
-    // ✅ 1. التحقق من تكرار رقم الهوية أولاً
+    // 1. التحقق من تكرار رقم الهوية أولاً
     await this.checkNationalIdUniqueness(dto.nationalId!, tenantId);
 
     // التحقق من المستخدم المرتبط إذا تم إرساله
@@ -80,8 +112,8 @@ export class EmployeesService {
         throw new NotFoundException('المستخدم غير موجود أو لا ينتمي لشركتك');
     }
 
-    // ✅ 2. آلية إعادة المحاولة: لو حدث تعارض نادر على employeeCode (طلبين بنفس اللحظة)
-    // نولّد كوداً جديداً ونعيد المحاولة بدلاً من رمي الخطأ مباشرة للمستخدم
+    // 2. آلية إعادة المحاولة: حماية إضافية ضد أي تزامن نادر بين طلبين
+    // بيوصلوا في نفس اللحظة، أو تطابق نادر في البادئة بين شركتين مختلفتين
     const MAX_RETRIES = 3;
     let lastError: unknown;
 
@@ -140,7 +172,7 @@ export class EmployeesService {
   ): Promise<Employee> {
     const employee = await this.findOne(id, tenantId);
 
-    // ✅ 3. التحقق من تكرار رقم الهوية عند التحديث
+    // التحقق من تكرار رقم الهوية عند التحديث
     if (dto.nationalId && dto.nationalId !== employee.nationalId) {
       await this.checkNationalIdUniqueness(dto.nationalId, tenantId, id);
     }
