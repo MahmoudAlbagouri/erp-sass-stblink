@@ -1,6 +1,6 @@
-// src/quotations/quotation-pdf.service.ts
-import { Injectable } from '@nestjs/common';
-import * as fs from 'fs/promises'; // ✅ استخدام promises للتعامل مع async/await
+// src/modules/quotation/quotation-pdf.service.ts
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
 import * as path from 'path';
 import * as handlebars from 'handlebars';
@@ -8,23 +8,22 @@ import * as puppeteer from 'puppeteer';
 
 @Injectable()
 export class QuotationPdfService {
-  // ✅ دالة مساعدة غير متزامنة لقراءة الصور
   private async getImageBase64(filePath: string): Promise<string> {
     try {
+      if (!existsSync(filePath)) return '';
       const buffer = await fs.readFile(filePath);
       const ext = path.extname(filePath).toLowerCase().replace('.', '');
       const mimeType = ext === 'svg' ? 'svg+xml' : ext;
       return `data:image/${mimeType};base64,${buffer.toString('base64')}`;
-    } catch (error) {
-      console.error(`Error reading image at ${filePath}:`, error);
+    } catch {
       return '';
     }
   }
 
-  // ✅ دالة تحميل الأصول باستخدام async/await
   private async loadAssets(): Promise<{ logo: string; companyImage: string }> {
-    const logoPath = path.join(process.cwd(), 'assets', 'logo.png');
-    const companyImagePath = path.join(process.cwd(), 'assets', 'company.png');
+    const rootDir = process.cwd();
+    const logoPath = path.join(rootDir, 'assets', 'logo.png');
+    const companyImagePath = path.join(rootDir, 'assets', 'company.png');
 
     const [logo, companyImage] = await Promise.all([
       this.getImageBase64(logoPath),
@@ -41,17 +40,11 @@ export class QuotationPdfService {
       'templates',
       'quotation.hbs',
     );
-
-    if (!existsSync(templatePath)) {
-      throw new Error('Quotation template not found');
-    }
+    if (!existsSync(templatePath)) throw new Error('Template not found');
 
     const templateSource = await fs.readFile(templatePath, 'utf-8');
-    const assets = await this.loadAssets(); // ✅ انتظار تحميل الصور
-
-    const compiledTemplate = handlebars.compile(templateSource);
-    const html = compiledTemplate({ ...data, ...assets });
-
+    const assets = await this.loadAssets();
+    const html = handlebars.compile(templateSource)({ ...data, ...assets });
     return this.renderToPdf(html);
   }
 
@@ -62,50 +55,50 @@ export class QuotationPdfService {
       'templates',
       'invoice.hbs',
     );
-
-    if (!existsSync(templatePath)) {
-      throw new Error('Invoice template not found');
-    }
+    if (!existsSync(templatePath)) throw new Error('Template not found');
 
     const templateSource = await fs.readFile(templatePath, 'utf-8');
-    const assets = await this.loadAssets(); // ✅ انتظار تحميل الصور
-
-    const compiledTemplate = handlebars.compile(templateSource);
-    const html = compiledTemplate({ ...data, ...assets });
-
+    const assets = await this.loadAssets();
+    const html = handlebars.compile(templateSource)({ ...data, ...assets });
     return this.renderToPdf(html);
   }
 
   private async renderToPdf(html: string): Promise<Buffer> {
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-      ],
-    });
-
+    let browser;
     try {
+      // ✅ تم تغيير 'new' إلى true لتوافق الإصدارات القديمة
+      browser = await puppeteer.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage', // ضروري جداً للينكس لتجنب امتلاء الذاكرة
+          '--disable-gpu',
+          '--disable-software-rasterizer',
+        ],
+      });
+
       const page = await browser.newPage();
 
-      // ✅ استخدام networkidle0 لضمان معالجة الـ Base64 بالكامل
+      // ✅ استخدام networkidle0 لضمان تحميل الصور والخطوط قبل الطباعة
       await page.setContent(html, {
-        waitUntil: 'load',
+        waitUntil: 'networkidle0',
         timeout: 30000,
       });
 
       const pdfBuffer = await page.pdf({
         format: 'A4',
-        printBackground: true,
-        margin: { top: '20px', bottom: '20px', left: '20px', right: '20px' },
-        preferCSSPageSize: true,
+        printBackground: true, // لطباعة الألوان والخلفيات
+        margin: { top: '10mm', bottom: '10mm', left: '10mm', right: '10mm' },
       });
 
       return Buffer.from(pdfBuffer);
+    } catch (error) {
+      console.error('PDF Generation Error:', error);
+      throw new InternalServerErrorException('Failed to generate PDF document');
     } finally {
-      await browser.close();
+      // ✅ التأكد من إغلاق المتصفح حتى لو حدث خطأ
+      if (browser) await browser.close();
     }
   }
 }
