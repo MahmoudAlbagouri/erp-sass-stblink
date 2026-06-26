@@ -9,16 +9,25 @@ import {
   Delete,
   UseGuards,
   Res,
+  BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { EmployeesService } from './employees.service';
+import { EmployeesOnboardingService } from './employees-onboarding.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
+import { OnboardEmployeeDto } from './dto/onboard-employee.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
+import {
+  CurrentUser,
+  type CurrentUserData,
+} from '../../common/decorators/current-user.decorator';
 import { ReportService } from '../../common/reports/report.service';
+// ✅ استيراد الثوابت
+import { PERMS } from 'src/common/constants/permissions';
 
 @Controller('employees')
 @UseGuards(JwtAuthGuard)
@@ -26,18 +35,38 @@ export class EmployeesController {
   constructor(
     private readonly employeesService: EmployeesService,
     private readonly reportService: ReportService,
+    private readonly employeesOnboardingService: EmployeesOnboardingService,
   ) {}
 
+  // ─── مسار الـ Onboarding المجمع ──────────────────────────────────────────
+  @Post('onboard')
+  @Permissions(PERMS.EMPLOYEE_ONBOARD)
+  @UseGuards(PermissionsGuard)
+  async onboard(
+    @Body() dto: OnboardEmployeeDto,
+    @CurrentTenantId() tenantId: string,
+    @CurrentUser() currentUser: CurrentUserData,
+  ) {
+    console.log('Received tenantId:', tenantId);
+    if (!tenantId) throw new BadRequestException('Tenant ID is missing');
+
+    return await this.employeesOnboardingService.onboard(
+      dto,
+      tenantId,
+      currentUser,
+    );
+  }
+
+  // ─── المسارات التقليدية ──────────────────────────────────────────────────
   @Post()
-  @Permissions('create_employee')
+  @Permissions(PERMS.EMPLOYEE_CREATE)
   @UseGuards(PermissionsGuard)
   create(@Body() dto: CreateEmployeeDto, @CurrentTenantId() tenantId: string) {
     return this.employeesService.create(dto, tenantId);
   }
 
-  // ✅ مسار التصدير المحدث ليعكس الحقول الجديدة (الجنسية + الإقامة)
   @Get('export/:type')
-  @Permissions('view_employees')
+  @Permissions(PERMS.EMPLOYEE_EXPORT)
   @UseGuards(PermissionsGuard)
   async exportEmployees(
     @Param('type') type: 'excel' | 'pdf',
@@ -46,7 +75,6 @@ export class EmployeesController {
   ) {
     const data = await this.employeesService.findAll(tenantId);
 
-    // تعريف أعمدة التقرير المحدث
     const columns = [
       { header: 'الاسم الكامل', key: 'fullName' },
       { header: 'كود الموظف', key: 'employeeCode' },
@@ -59,7 +87,6 @@ export class EmployeesController {
       { header: 'الحالة', key: 'statusLabel' },
     ];
 
-    // تنسيق البيانات لتتناسب مع الأعمدة الجديدة
     const formattedData = data.map((emp) => ({
       fullName: emp.fullName,
       employeeCode: emp.employeeCode,
@@ -116,21 +143,21 @@ export class EmployeesController {
   }
 
   @Get()
-  @Permissions('view_employees')
+  @Permissions(PERMS.EMPLOYEE_VIEW)
   @UseGuards(PermissionsGuard)
   findAll(@CurrentTenantId() tenantId: string) {
     return this.employeesService.findAll(tenantId);
   }
 
   @Get(':id')
-  @Permissions('view_employees')
+  @Permissions(PERMS.EMPLOYEE_VIEW)
   @UseGuards(PermissionsGuard)
   findOne(@Param('id') id: string, @CurrentTenantId() tenantId: string) {
     return this.employeesService.findOne(id, tenantId);
   }
 
   @Patch(':id')
-  @Permissions('update_employee')
+  @Permissions(PERMS.EMPLOYEE_UPDATE)
   @UseGuards(PermissionsGuard)
   update(
     @Param('id') id: string,
@@ -141,7 +168,7 @@ export class EmployeesController {
   }
 
   @Delete(':id')
-  @Permissions('delete_employee')
+  @Permissions(PERMS.EMPLOYEE_DELETE)
   @UseGuards(PermissionsGuard)
   remove(@Param('id') id: string, @CurrentTenantId() tenantId: string) {
     return this.employeesService.remove(id, tenantId);

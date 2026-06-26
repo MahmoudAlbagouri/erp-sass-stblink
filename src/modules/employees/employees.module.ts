@@ -1,16 +1,40 @@
-// src/modules/employees/employees.module.ts
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+
+// الكيانات المطلوبة للـ Onboarding
 import { Employee } from './entities/employee.entity';
 import { User } from '../users/entities/user.entity';
+import { Role } from '../roles/entities/role.entity';
+import { Permission } from '../permissions/entities/permission.entity';
+import { Contract } from '../contracts/entities/contract.entity';
+import { Salary } from '../salaries/entities/salary.entity';
+
+// الخدمات
 import { EmployeesService } from './employees.service';
+import { EmployeesOnboardingService } from './employees-onboarding.service'; // تأكد من استيراد الخدمة الجديدة
 import { EmployeesController } from './employees.controller';
-import { ReportService } from '../../common/reports/report.service'; // أضف هذا الاستيراد
+import { ReportService } from '../../common/reports/report.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Employee, User])],
+  imports: [
+    TypeOrmModule.forFeature([
+      Employee,
+      User,
+      Role,
+      Permission,
+      Contract,
+      Salary,
+    ]),
+  ],
   controllers: [EmployeesController],
-  providers: [EmployeesService, ReportService], // أضف ReportService هنا
-  exports: [EmployeesService],
+  providers: [
+    EmployeesService,
+    EmployeesOnboardingService, // أضف الخدمة هنا
+    ReportService,
+  ],
+  exports: [
+    EmployeesService,
+    EmployeesOnboardingService, // قم بتصديرها إذا كنت ستستخدمها في موديولات أخرى
+  ],
 })
 export class EmployeesModule {}

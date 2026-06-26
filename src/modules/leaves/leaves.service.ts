@@ -11,7 +11,7 @@ import {
   In,
   LessThanOrEqual,
   MoreThanOrEqual,
-} from 'typeorm'; // ✅ استيراد أدوات البحث عن التداخل
+} from 'typeorm';
 import {
   LeaveRequest,
   LeaveStatus,
@@ -142,9 +142,12 @@ export class LeavesService {
   }
 
   async findAll(tenantId: string) {
+    // ✅ استخدام الصيغة الحديثة للعلاقات لضمان جلب بيانات الموظف
     return await this.repo.find({
       where: { tenantId },
-      relations: ['employee'],
+      relations: {
+        employee: true,
+      },
       order: { createdAt: 'DESC' },
     });
   }

@@ -18,25 +18,27 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
-import { ReportService } from '../../common/reports/report.service'; // ✅ استيراد خدمة التقارير
+import { ReportService } from '../../common/reports/report.service';
+// ✅ استيراد الثوابت
+import { PERMS } from 'src/common/constants/permissions';
 
 @Controller('contracts')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class ContractsController {
   constructor(
     private readonly contractsService: ContractsService,
-    private readonly reportService: ReportService, // ✅ حقن الخدمة
+    private readonly reportService: ReportService,
   ) {}
 
   @Post()
-  @Permissions('create_contract')
+  @Permissions(PERMS.CONTRACT_CREATE)
   create(@Body() dto: CreateContractDto, @CurrentTenantId() tenantId: string) {
     return this.contractsService.create(dto, tenantId);
   }
 
   // ✅ مسار التصدير الجديد للعقود
   @Get('export/:type')
-  @Permissions('view_contracts')
+  @Permissions(PERMS.CONTRACT_EXPORT)
   async exportContracts(
     @Param('type') type: 'excel' | 'pdf',
     @CurrentTenantId() tenantId: string,
@@ -100,19 +102,19 @@ export class ContractsController {
   }
 
   @Get()
-  @Permissions('view_contracts')
+  @Permissions(PERMS.CONTRACT_VIEW)
   findAll(@CurrentTenantId() tenantId: string) {
     return this.contractsService.findAll(tenantId);
   }
 
   @Get(':id')
-  @Permissions('view_contracts')
+  @Permissions(PERMS.CONTRACT_VIEW)
   findOne(@Param('id') id: string, @CurrentTenantId() tenantId: string) {
     return this.contractsService.findOne(id, tenantId);
   }
 
   @Patch(':id')
-  @Permissions('update_contract')
+  @Permissions(PERMS.CONTRACT_UPDATE)
   update(
     @Param('id') id: string,
     @Body() dto: UpdateContractDto,
@@ -122,7 +124,7 @@ export class ContractsController {
   }
 
   @Delete(':id')
-  @Permissions('delete_contract')
+  @Permissions(PERMS.CONTRACT_DELETE)
   remove(@Param('id') id: string, @CurrentTenantId() tenantId: string) {
     return this.contractsService.remove(id, tenantId);
   }

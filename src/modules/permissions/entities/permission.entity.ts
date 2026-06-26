@@ -18,9 +18,11 @@ export class Permission {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column()
+  @Column({ unique: true })
   name!: string;
 
+  @Column({ nullable: true }) // أضف هذه الخاصية
+  displayNameAr!: string;
   @Column({
     type: 'enum',
     enum: PermissionScope,
@@ -32,7 +34,6 @@ export class Permission {
   @JoinColumn({ name: 'tenant_id' })
   tenant?: Tenant;
 
-  // ✅ التغيير الجوهري: السماح بـ null صراحةً
   @Column({ name: 'tenant_id', nullable: true, type: 'uuid' })
   tenantId?: string | null;
 }

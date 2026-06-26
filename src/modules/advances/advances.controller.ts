@@ -1,3 +1,4 @@
+// src/modules/advances/advances.controller.ts
 import {
   Controller,
   Get,
@@ -19,6 +20,8 @@ import {
   type CurrentUserData,
 } from '../../common/decorators/current-user.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
+// ✅ استيراد الثوابت
+import { PERMS } from 'src/common/constants/permissions';
 
 @Controller('advances')
 @UseGuards(JwtAuthGuard)
@@ -29,6 +32,9 @@ export class AdvancesController {
    * مسار الخدمة الذاتية (الموظف يطلب سلفة لنفسه)
    */
   @Post('my-advances')
+  // ✅ استخدام ثابت الصلاحية للخدمة الذاتية
+  @Permissions(PERMS.ADVANCE_REQUEST_SELF)
+  @UseGuards(PermissionsGuard)
   createMyAdvance(
     @CurrentUser() user: CurrentUserData,
     @CurrentTenantId() tenantId: string,
@@ -43,7 +49,7 @@ export class AdvancesController {
    * مسار إداري (HR يطلب سلفة لموظف معين)
    */
   @Post('admin/:employeeId')
-  @Permissions('create_advance')
+  @Permissions(PERMS.ADVANCE_CREATE_ADMIN)
   @UseGuards(PermissionsGuard)
   createForEmployee(
     @Param('employeeId') employeeId: string,
@@ -54,14 +60,14 @@ export class AdvancesController {
   }
 
   @Get()
-  @Permissions('view_advances')
+  @Permissions(PERMS.ADVANCE_VIEW)
   @UseGuards(PermissionsGuard)
   findAll(@CurrentTenantId() tenantId: string) {
     return this.advancesService.findAll(tenantId);
   }
 
   @Patch(':id/status')
-  @Permissions('approve_advance')
+  @Permissions(PERMS.ADVANCE_APPROVE)
   @UseGuards(PermissionsGuard)
   updateStatus(
     @Param('id') id: string,

@@ -1,3 +1,4 @@
+// src/modules/roles/roles.controller.ts
 import {
   Controller,
   Get,
@@ -19,6 +20,8 @@ import {
   type CurrentUserData,
 } from '../../common/decorators/current-user.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
+// ✅ استيراد الثوابت
+import { PERMS } from 'src/common/constants/permissions';
 
 @Controller('roles')
 @UseGuards(JwtAuthGuard)
@@ -26,7 +29,7 @@ export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
 
   @Post()
-  @Permissions('create_role')
+  @Permissions(PERMS.ROLE_CREATE)
   @UseGuards(PermissionsGuard)
   create(
     @Body() dto: CreateRoleDto,
@@ -37,7 +40,7 @@ export class RolesController {
   }
 
   @Get()
-  @Permissions('view_roles')
+  @Permissions(PERMS.ROLE_VIEW)
   @UseGuards(PermissionsGuard)
   findAll(
     @CurrentUser() user: CurrentUserData,
@@ -47,21 +50,21 @@ export class RolesController {
   }
 
   @Get(':id')
-  @Permissions('view_roles')
+  @Permissions(PERMS.ROLE_VIEW)
   @UseGuards(PermissionsGuard)
   findOne(@Param('id') id: string) {
     return this.rolesService.findOne(id);
   }
 
   @Patch(':id')
-  @Permissions('update_role')
+  @Permissions(PERMS.ROLE_UPDATE)
   @UseGuards(PermissionsGuard)
   update(@Param('id') id: string, @Body() dto: UpdateRoleDto) {
     return this.rolesService.update(id, dto);
   }
 
   @Delete(':id')
-  @Permissions('delete_role')
+  @Permissions(PERMS.ROLE_DELETE)
   @UseGuards(PermissionsGuard)
   remove(@Param('id') id: string) {
     return this.rolesService.remove(id);

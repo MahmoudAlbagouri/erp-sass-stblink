@@ -41,6 +41,12 @@ export class User {
   @Column({ default: false })
   isEmailVerified!: boolean;
 
+  @Column({ type: 'varchar', nullable: true })
+  resetPasswordToken: string | null; // سيتم تخزين الهاش الخاص بالرمز هنا
+
+  @Column({ type: 'timestamp', nullable: true })
+  resetPasswordExpires: Date | null;
+
   // ✅ nullable: true لأن مالك النظام قد لا يكون مرتبطاً بشركة
   @Column({ name: 'tenant_id', nullable: true })
   tenantId?: string;

@@ -1,16 +1,17 @@
+// src/modules/permissions/permissions.service.ts
 import {
   Injectable,
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull, FindOptionsWhere } from 'typeorm';
+import { Repository, IsNull } from 'typeorm';
 import { Permission, PermissionScope } from './entities/permission.entity';
 import { CreatePermissionDto } from './dto/create-permission.dto';
 import { UpdatePermissionDto } from './dto/update-permission.dto';
 import { CurrentUserData } from '../../common/decorators/current-user.decorator';
 
-@Injectable() // ✅ أصبح Singleton
+@Injectable()
 export class PermissionsService {
   constructor(
     @InjectRepository(Permission)
@@ -24,7 +25,6 @@ export class PermissionsService {
   ): Promise<Permission> {
     const isSystem = dto.scope === PermissionScope.SYSTEM;
 
-    // التحقق من أن System Admin فقط يمكنه إنشاء صلاحيات System
     if (isSystem && !user.isSystemAdmin) {
       throw new ForbiddenException(
         'Only System Admin can create system permissions',
@@ -43,18 +43,23 @@ export class PermissionsService {
     user: CurrentUserData,
     tenantId: string,
   ): Promise<Permission[]> {
+    // ✅ System Admin: يرى كل الصلاحيات بدون استثناء
     if (user.isSystemAdmin) {
       return this.repo.find();
     }
 
     if (tenantId) {
+      // ✅ يجلب:
+      //    1. الصلاحيات العامة (tenantId = NULL) بكلا النوعين
+      //    2. الصلاحيات الخاصة بهذا الـ tenant
       const allPerms = await this.repo.find({
         where: [
-          { tenantId: IsNull(), scope: PermissionScope.SYSTEM },
-          { tenantId: tenantId },
-        ] as FindOptionsWhere<Permission>[],
+          { tenantId: IsNull() }, // كل الصلاحيات العامة (SYSTEM + TENANT بدون مستأجر)
+          { tenantId: tenantId }, // الصلاحيات الخاصة بهذا المستأجر
+        ],
       });
 
+      // ✅ حذف صلاحيات system: من نتائج الموظفين العاديين والـ SuperAdmin
       return allPerms.filter((p) => !p.name.startsWith('system:'));
     }
 

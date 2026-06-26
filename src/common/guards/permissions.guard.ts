@@ -7,7 +7,10 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Request } from 'express';
-import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
+import {
+  PERMISSIONS_KEY,
+  PermissionMetadata,
+} from '../decorators/permissions.decorator';
 import { PermissionScope } from '../../modules/permissions/entities/permission.entity';
 
 interface AuthenticatedUser {
@@ -34,25 +37,27 @@ export class PermissionsGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const requiredPermissions = this.reflector.getAllAndOverride<string[]>(
-      PERMISSIONS_KEY,
-      [context.getHandler(), context.getClass()],
-    );
+    const rawPermissions = this.reflector.getAllAndOverride<
+      (string | PermissionMetadata)[]
+    >(PERMISSIONS_KEY, [context.getHandler(), context.getClass()]);
 
-    // إذا لم تكن هناك صلاحيات مطلوبة، اسمح بالمرور
-    if (!requiredPermissions || requiredPermissions.length === 0) return true;
+    if (!rawPermissions || rawPermissions.length === 0) return true;
+
+    // ✅ استخراج أسماء الصلاحيات سواء كانت string أو PermissionMetadata
+    const requiredPermissions = rawPermissions.map((p) =>
+      typeof p === 'string' ? p : p.name,
+    );
 
     const request = context.switchToHttp().getRequest<RequestWithUser>();
     const user = request.user;
 
     if (!user) throw new ForbiddenException('Not authenticated');
 
-    // ✅ 1. مالك النظام يمر دائماً (صلاحيات مطلقة)
+    // ✅ 1. مالك النظام يمر دائماً
     if (user.isSystemAdmin) return true;
 
-    // ✅ 2. مدير الشركة: تحقق أمني قبل السماح
+    // ✅ 2. مدير الشركة: منع صلاحيات system فقط
     if (user.isSuperAdmin && user.tenantId) {
-      // منع مدير الشركة من الوصول لصلاحيات تبدأ بـ system:
       const hasSystemPermission = requiredPermissions.some((perm) =>
         perm.toLowerCase().startsWith('system:'),
       );
@@ -63,24 +68,17 @@ export class PermissionsGuard implements CanActivate {
         );
       }
 
-      // السماح بصلاحيات الشركة العادية
       return true;
     }
 
-    // ✅ 3. الموظفون العاديون: التحقق الدقيق من الصلاحيات في التوكن
-    // نجمع الصلاحيات المتاحة للدور (سواء كانت SYSTEM عامة أو TENANT خاصة بالشركة)
-    const userPerms = user.role?.permissions || [];
+    // ✅ 3. الموظفون العاديون: التحقق الدقيق
+    const userPermNames = (user.role?.permissions || []).map((p) => p.name);
 
-    // استخراج أسماء الصلاحيات للمقارنة
-    const userPermNames = userPerms.map((p) => p.name);
-
-    // التحقق من وجود كل الصلاحيات المطلوبة
     const hasAllPermissions = requiredPermissions.every((reqPerm) =>
       userPermNames.includes(reqPerm),
     );
 
     if (!hasAllPermissions) {
-      // لوج تشخيصي لمعرفة سبب الرفض (يمكن حذفه لاحقاً)
       console.log('🚫 Permission Denied:', {
         required: requiredPermissions,
         userHas: userPermNames,

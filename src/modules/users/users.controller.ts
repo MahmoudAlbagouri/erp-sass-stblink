@@ -1,3 +1,4 @@
+// src/modules/users/users.controller.ts
 import {
   Controller,
   Get,
@@ -19,6 +20,8 @@ import {
   type CurrentUserData,
 } from '../../common/decorators/current-user.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
+// ✅ استيراد الثوابت
+import { PERMS } from 'src/common/constants/permissions';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard)
@@ -26,14 +29,15 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get('system-stats')
-  @Permissions('system:view_platform_stats')
+  // ✅ استخدام الثابت بدلاً من النص المباشر
+  @Permissions(PERMS.SYSTEM_STATS)
   @UseGuards(PermissionsGuard)
   getSystemStats() {
     return this.usersService.getSystemStats();
   }
 
   @Post()
-  @Permissions('create_user')
+  @Permissions(PERMS.USER_CREATE)
   @UseGuards(PermissionsGuard)
   create(
     @Body() dto: CreateUserDto,
@@ -44,7 +48,7 @@ export class UsersController {
   }
 
   @Get()
-  @Permissions('view_users')
+  @Permissions(PERMS.USER_VIEW)
   @UseGuards(PermissionsGuard)
   findAll(
     @CurrentUser() user: CurrentUserData,
@@ -54,14 +58,15 @@ export class UsersController {
   }
 
   @Get(':id')
-  @Permissions('view_users')
+  @Permissions(PERMS.USER_VIEW) // ✅ توحيد صلاحية العرض (أو يمكن إنشاء USER_VIEW_ONE إذا لزم الأمر)
   @UseGuards(PermissionsGuard)
   findOne(@Param('id') id: string) {
     return this.usersService.findOne(id);
   }
 
   @Patch(':id')
-  @Permissions('update_user')
+  // ✅ استخدام الثابت الجديد
+  @Permissions(PERMS.USER_UPDATE)
   @UseGuards(PermissionsGuard)
   update(
     @Param('id') id: string,
@@ -72,8 +77,9 @@ export class UsersController {
   }
 
   @Delete(':id')
-  @Permissions('delete_user')
+  @Permissions(PERMS.USER_DELETE)
   @UseGuards(PermissionsGuard)
+  // ✅ تصحيح اسم الدالة من remo//... إلى remove
   remove(@Param('id') id: string) {
     return this.usersService.remove(id);
   }

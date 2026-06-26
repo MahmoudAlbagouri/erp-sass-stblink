@@ -41,21 +41,23 @@ export class UsersService {
     return user;
   }
   // ✅ الدالة التي كانت مفقودة وأعادناها
+  // ✅ الدالة التي كانت مفقودة وأعدناها
   async findOneByEmail(email: string): Promise<User | null> {
     return await this.userRepository.findOne({
       where: { email },
       relations: ['role', 'role.permissions'],
-      // ✅ الحل: أضف select صريحة تشمل الـ password
-      // لاحظ أنك يجب أن تضيف كل الحقول التي تحتاجها لأن select تلغي الجلب التلقائي لكل شيء
+      // ✅ الحل: أضف حقول استعادة كلمة المرور إلى قائمة select
       select: {
         id: true,
         email: true,
-        password: true, // تأكد من جلب كلمة المرور
+        password: true,
         username: true,
         tenantId: true,
         isSuperAdmin: true,
         isSystemAdmin: true,
         status: true,
+        resetPasswordToken: true, // ✅ تمت الإضافة
+        resetPasswordExpires: true, // ✅ تمت الإضافة
         role: {
           id: true,
           name: true,

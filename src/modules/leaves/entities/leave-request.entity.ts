@@ -15,11 +15,10 @@ export enum LeaveStatus {
   REJECTED = 'rejected',
 }
 
-// إضافة نوع الإجازة
 export enum LeaveType {
-  ANNUAL = 'annual', // سنوية
-  UNPAID = 'unpaid', // بدون راتب
-  OTHER = 'other', // أخرى
+  ANNUAL = 'annual',
+  UNPAID = 'unpaid',
+  OTHER = 'other',
 }
 
 @Entity('leave_requests')
@@ -30,8 +29,9 @@ export class LeaveRequest {
   @Column()
   employeeId!: string;
 
+  // ✅ التصحيح: استخدام نفس اسم العمود الموجود في قاعدة البيانات
   @ManyToOne(() => Employee, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'employee_id' })
+  @JoinColumn({ name: 'employeeId' })
   employee!: Employee;
 
   @Column({ type: 'date' })
@@ -40,7 +40,6 @@ export class LeaveRequest {
   @Column({ type: 'date' })
   endDate!: Date;
 
-  // حقل نوع الإجازة الجديد
   @Column({ type: 'enum', enum: LeaveType, default: LeaveType.ANNUAL })
   type!: LeaveType;
 

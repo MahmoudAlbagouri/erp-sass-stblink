@@ -1,3 +1,4 @@
+// src/modules/leaves/leaves.controller.ts
 import {
   Controller,
   Get,
@@ -19,6 +20,8 @@ import {
   type CurrentUserData,
 } from '../../common/decorators/current-user.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
+// ✅ استيراد الثوابت
+import { PERMS } from 'src/common/constants/permissions';
 
 @Controller('leaves')
 @UseGuards(JwtAuthGuard)
@@ -26,6 +29,9 @@ export class LeavesController {
   constructor(private readonly leavesService: LeavesService) {}
 
   @Post('my-leaves')
+  // ✅ استخدام ثابت الخدمة الذاتية للإجازات
+  @Permissions(PERMS.LEAVE_REQUEST_SELF)
+  @UseGuards(PermissionsGuard)
   createMyLeave(
     @CurrentUser() user: CurrentUserData,
     @CurrentTenantId() tenantId: string,
@@ -37,7 +43,7 @@ export class LeavesController {
   }
 
   @Post('balance')
-  @Permissions('manage_leave_balance')
+  @Permissions(PERMS.LEAVE_BALANCE_MANAGE)
   @UseGuards(PermissionsGuard)
   async setBalance(
     @Body() dto: { employeeId: string; year: number; amount: number },
@@ -47,7 +53,7 @@ export class LeavesController {
   }
 
   @Post('admin/:employeeId')
-  @Permissions('create_leave')
+  @Permissions(PERMS.LEAVE_CREATE_ADMIN)
   @UseGuards(PermissionsGuard)
   createForEmployee(
     @Param('employeeId') employeeId: string,
@@ -58,14 +64,14 @@ export class LeavesController {
   }
 
   @Get()
-  @Permissions('view_leaves')
+  @Permissions(PERMS.LEAVE_VIEW)
   @UseGuards(PermissionsGuard)
   findAll(@CurrentTenantId() tenantId: string) {
     return this.leavesService.findAll(tenantId);
   }
 
   @Patch(':id/status')
-  @Permissions('approve_leave')
+  @Permissions(PERMS.LEAVE_APPROVE)
   @UseGuards(PermissionsGuard)
   updateStatus(
     @Param('id') id: string,

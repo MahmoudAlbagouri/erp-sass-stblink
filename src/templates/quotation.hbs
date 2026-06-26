@@ -1,0 +1,360 @@
+<html lang='ar' dir='rtl'>
+  <head>
+    <meta charset='UTF-8' />
+    <title>عرض سعر - {{quotationNumber}}</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap');
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: 'Cairo', sans-serif;
+        color: #333;
+        font-size: 13px;
+        line-height: 1.6;
+        background: #fff;
+        padding: 20px;
+      }
+
+      /* Header */
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 3px solid #0056b3;
+        padding-bottom: 15px;
+        margin-bottom: 25px;
+      }
+      .company-info h1 {
+        color: #0056b3;
+        font-size: 22px;
+        margin-bottom: 5px;
+      }
+      .company-info p {
+        color: #666;
+        font-size: 12px;
+        margin: 2px 0;
+      }
+      .logo {
+        max-height: 70px;
+        width: auto;
+      }
+
+      /* Title */
+      .doc-title {
+        text-align: center;
+        margin-bottom: 25px;
+      }
+      .doc-title h2 {
+        color: #0056b3;
+        font-size: 20px;
+        margin-bottom: 5px;
+      }
+      .doc-title p {
+        color: #777;
+        font-size: 12px;
+      }
+
+      /* Info Boxes */
+      .info-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        margin-bottom: 25px;
+      }
+      .box {
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 8px;
+        border: 1px solid #e9ecef;
+      }
+      .box-title {
+        color: #0056b3;
+        font-weight: 700;
+        font-size: 13px;
+        margin-bottom: 10px;
+        padding-bottom: 5px;
+        border-bottom: 1px solid #dee2e6;
+      }
+      .box p {
+        margin: 4px 0;
+        font-size: 12px;
+      }
+      .box strong {
+        color: #333;
+      }
+
+      /* Table */
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 25px;
+        font-size: 12px;
+      }
+      th {
+        background-color: #0056b3;
+        color: #fff;
+        padding: 10px 12px;
+        text-align: right;
+        font-weight: 700;
+      }
+      td {
+        padding: 10px 12px;
+        border-bottom: 1px solid #eee;
+        text-align: right;
+      }
+      tr:nth-child(even) td {
+        background-color: #f8f9fa;
+      }
+
+      /* Totals */
+      .totals-section {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 25px;
+      }
+      .totals-box {
+        width: 320px;
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      .total-row {
+        display: flex;
+        justify-content: space-between;
+        padding: 10px 15px;
+        border-bottom: 1px solid #eee;
+        font-size: 13px;
+      }
+      .final-total {
+        background: #0056b3;
+        color: #fff;
+        font-weight: 700;
+        font-size: 15px;
+      }
+
+      /* Terms & Notes */
+      .terms-box {
+        margin-bottom: 20px;
+        font-size: 12px;
+      }
+      .terms-box ol {
+        padding-right: 20px;
+      }
+      .notes-box {
+        background: #fffde7;
+        border: 1px solid #fff9c4;
+        padding: 12px 15px;
+        border-radius: 8px;
+        margin-bottom: 30px;
+        font-size: 12px;
+        color: #5d4037;
+      }
+
+      /* Signature & Trust Footer */
+      .signature-section {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        margin-top: 40px;
+        border-top: 2px dashed #ccc;
+        padding-top: 20px;
+      }
+      .signature-box {
+        text-align: center;
+        width: 200px;
+      }
+      .signature-line {
+        border-bottom: 1px solid #333;
+        margin-bottom: 5px;
+        height: 30px;
+      }
+      .signature-label {
+        font-size: 11px;
+        color: #666;
+        font-weight: bold;
+      }
+
+      .trust-footer {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        background: #f8f9fa;
+        padding: 10px;
+        border-radius: 8px;
+        border: 1px solid #e9ecef;
+      }
+      .trust-logo {
+        height: 50px;
+        width: auto;
+      }
+      .trust-info {
+        font-size: 11px;
+        line-height: 1.4;
+      }
+      .trust-qr {
+        width: 70px;
+        height: 70px;
+        margin-right: auto;
+      }
+
+      /* Print Optimization */
+      @media print {
+        body {
+          padding: 0;
+        }
+        .box,
+        th,
+        .final-total,
+        .trust-footer {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+      }
+    </style>
+  </head>
+  <body>
+
+    <!-- HEADER -->
+    <div class='header'>
+      <div class='company-info'>
+        <h1>Smart Tech Business</h1>
+        <p>التقنية الذكية للأعمال</p>
+        <p>جدة حي الروضة</p>
+        <p>السجل التجاري: 7053885393</p>
+      </div>
+      <img src='{{logo}}' class='logo' alt='STB Logo' />
+    </div>
+
+    <!-- TITLE -->
+    <div class='doc-title'>
+      <h2>عرض سعر / QUOTATION</h2>
+      <p>رقم العرض:
+        <strong>{{quotationNumber}}</strong>
+        &nbsp;|&nbsp; التاريخ:
+        {{date}}</p>
+    </div>
+
+    <!-- CUSTOMER & BANK INFO -->
+    <div class='info-grid'>
+      <div class='box'>
+        <div class='box-title'>👤 بيانات العميل / CUSTOMER</div>
+        <p><strong>الاسم:</strong> {{customerName}}</p>
+        <p><strong>الجوال:</strong> {{customerPhone}}</p>
+        <p><strong>العنوان:</strong> {{customerAddress}}</p>
+      </div>
+      <div class='box'>
+        <div class='box-title'>🏦 الحسابات البنكية المعتمدة</div>
+        {{#if bankAccounts}}
+          {{#each bankAccounts}}
+            <p><strong>{{this.bankName}}:</strong></p>
+            <p
+              style='direction: ltr; text-align: right; font-family: monospace;'
+            >{{this.iban}}</p>
+          {{/each}}
+        {{else}}
+          <p><strong>الأهلي السعودي:</strong></p>
+          <p
+            style='direction: ltr; text-align: right; font-family: monospace;'
+          >SA47 1000 0001 4000 3572 9003</p>
+          <br />
+          <p><strong>مصرف الإنماء:</strong></p>
+          <p
+            style='direction: ltr; text-align: right; font-family: monospace;'
+          >SA36 0500 0068 2072 7216 9000</p>
+        {{/if}}
+      </div>
+    </div>
+
+    <!-- ITEMS TABLE -->
+    <table>
+      <thead>
+        <tr>
+          <th style='width: 5%;'>#</th>
+          <th style='width: 40%;'>المنتج / الخدمة</th>
+          <th style='width: 10%;'>الكمية</th>
+          <th style='width: 15%;'>سعر الوحدة</th>
+          <th style='width: 15%;'>الإجمالي</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{#each items}}
+          <tr>
+            <td>{{@index}}</td>
+            <td>{{this.description}}</td>
+            <td>{{this.qty}}</td>
+            <td>{{this.unitPrice}}</td>
+            <td>{{this.total}}</td>
+          </tr>
+        {{/each}}
+      </tbody>
+    </table>
+
+    <!-- TOTALS -->
+    <div class='totals-section'>
+      <div class='totals-box'>
+        <div class='total-row'>
+          <span>الإجمالي قبل الضريبة:</span>
+          <span>{{subTotal}} ريال</span>
+        </div>
+        <div class='total-row'>
+          <span>ضريبة القيمة المضافة (15%):</span>
+          <span>{{taxAmount}} ريال</span>
+        </div>
+        <div class='total-row final-total'>
+          <span>الإجمالي النهائي:</span>
+          <span>{{grandTotal}} ريال</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- TERMS AND CONDITIONS -->
+    {{#if termsAndConditions}}
+      <div class='terms-box'>
+        <div class='box-title'>📜 الشروط والأحكام</div>
+        <ol>
+          {{#each termsAndConditions}}
+            <li>{{this}}</li>
+          {{/each}}
+        </ol>
+      </div>
+    {{/if}}
+
+    <!-- NOTES -->
+    {{#if notes}}
+      <div class='notes-box'>
+        <strong>📝 ملاحظات:</strong>
+        {{notes}}
+      </div>
+    {{/if}}
+
+    <!-- SIGNATURE & TRUST FOOTER -->
+    <div class='signature-section'>
+      <!-- خانة التوقيع -->
+      <div class='signature-box'>
+        <div class='signature-line'></div>
+        <div class='signature-label'>التوقيع والختم المعتمد</div>
+      </div>
+
+      <!-- قسم الموثوقية -->
+      <div class='trust-footer'>
+        <img
+          src='{{companyImage}}'
+          class='trust-logo'
+          alt='Saudi Business Center'
+        />
+        <div class='trust-info'>
+          <strong>المركز السعودي للأعمال</strong><br />
+          Saudi Business Center<br />
+          سجل تجاري: 7053885393<br />
+          رقم معروف: 37240
+        </div>
+        <!-- يمكنك وضع صورة QR للموثوقية هنا إذا توفرت -->
+        <!-- <img src="path/to/trust-qr.png" class="trust-qr" alt="QR"> -->
+      </div>
+    </div>
+
+  </body>
+</html>

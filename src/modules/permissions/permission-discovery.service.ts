@@ -1,8 +1,11 @@
 // src/modules/permissions/permission-discovery.service.ts
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { DiscoveryService, Reflector } from '@nestjs/core';
-import { PERMISSIONS_KEY } from '../../common/decorators/permissions.decorator';
-import { PermissionCoreService } from './permission-core.service'; // ← التغيير هنا
+import {
+  PERMISSIONS_KEY,
+  PermissionMetadata,
+} from '../../common/decorators/permissions.decorator';
+import { PermissionCoreService } from './permission-core.service';
 import { PermissionScope } from './entities/permission.entity';
 
 @Injectable()
@@ -12,49 +15,50 @@ export class PermissionDiscoveryService implements OnModuleInit {
   constructor(
     private readonly discoveryService: DiscoveryService,
     private readonly reflector: Reflector,
-    private readonly permissionCoreService: PermissionCoreService, // ← بدلاً من PermissionsService
+    private readonly permissionCoreService: PermissionCoreService,
   ) {}
 
   async onModuleInit(): Promise<void> {
-    this.logger.log('Starting automatic permission discovery...');
-
     const controllers = this.discoveryService.getControllers();
-    let discoveredCount = 0;
 
     for (const controller of controllers) {
-      if (!controller.instance || !controller.metatype) continue;
+      if (!controller.instance) continue;
 
+      // ✅ الحل 1: تحديد نوع prototype بوضوح
       const prototype = Object.getPrototypeOf(controller.instance) as Record<
         string,
-        unknown
+        any
       >;
 
+      // ✅ الحل 2: تحديد نوع methodName كـ string
       for (const methodName of Object.getOwnPropertyNames(prototype)) {
         const handler = prototype[methodName];
+
+        // ✅ التحقق من أن handler هو دالة قبل استخدامه
         if (typeof handler !== 'function') continue;
 
-        const permissions = this.reflector.get<string[] | undefined>(
+        const permissions = this.reflector.get<(string | PermissionMetadata)[]>(
           PERMISSIONS_KEY,
-          handler as (...args: unknown[]) => unknown,
+          handler, // ✅ الآن handler معروف أنه Function
         );
 
         if (!Array.isArray(permissions)) continue;
 
-        for (const permName of permissions) {
-          // ✅ تحديد النطاق بوضوح
-          const scope = permName.startsWith('system:')
+        for (const p of permissions) {
+          const name = typeof p === 'string' ? p : p.name;
+          const labelAr = typeof p === 'string' ? p : p.labelAr;
+          const scope = name.startsWith('system:')
             ? PermissionScope.SYSTEM
-            : PermissionScope.SYSTEM; // ✅ تغيير هنا: الصلاحيات الأساسية كلها SYSTEM
+            : PermissionScope.TENANT;
 
-          // ✅ تمرير null كـ tenantId للصلاحيات النظامية
-          await this.permissionCoreService.findOrCreate(permName, scope, null);
-          discoveredCount++;
+          await this.permissionCoreService.findOrCreate(
+            name,
+            labelAr,
+            scope,
+            null,
+          );
         }
       }
     }
-
-    this.logger.log(
-      `Permission discovery completed. Processed ${discoveredCount} permissions.`,
-    );
   }
 }

@@ -1,13 +1,15 @@
 // src/modules/auth/dto/reset-password.dto.ts
-import { IsString, IsNotEmpty, MinLength } from 'class-validator';
+import { IsEmail, IsString, Length, MinLength } from 'class-validator';
 
 export class ResetPasswordDto {
-  @IsString()
-  @IsNotEmpty({ message: 'التوكن مطلوب' })
-  token!: string; // التوكن المستلم عبر الإيميل
+  @IsEmail({}, { message: 'يرجى إدخال بريد إلكتروني صحيح' })
+  email: string;
 
   @IsString()
-  @IsNotEmpty({ message: 'كلمة المرور الجديدة مطلوبة' })
-  @MinLength(6, { message: 'كلمة المرور يجب أن لا تقل عن 6 أحرف' })
-  newPassword!: string;
+  @Length(12, 12, { message: 'يجب أن يكون رمز التحقق مكوناً من 12 رقماً' })
+  code: string;
+
+  @IsString()
+  @MinLength(8, { message: 'كلمة المرور الجديدة يجب أن تكون 8 أحرف على الأقل' })
+  newPassword: string;
 }

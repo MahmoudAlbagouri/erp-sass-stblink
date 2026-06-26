@@ -18,57 +18,47 @@ export class UploadInterceptor implements NestInterceptor {
       .pipe(map((data: unknown): unknown => this.transformData(data)));
   }
 
-  private transformData(data: any): unknown {
-    // 1. إذا لم تكن البيانات كائناً أو مصفوفة، نرجعها كما هي
+  private transformData(data: any, visited = new WeakSet()): unknown {
+    // 1. إذا لم تكن البيانات كائناً أو كانت null/undefined، نرجعها كما هي
     if (!data || typeof data !== 'object') return data;
 
-    // 2. إذا كانت مصفوفة (مثل قائمة المنتجات)، نطبق التحويل على كل عنصر
+    // 2. حماية من التكرار اللانهائي (Circular References)
+    if (visited.has(data)) {
+      return data;
+    }
+    visited.add(data);
+
+    // 3. إذا كانت مصفوفة، نطبق التحويل على كل عنصر
     if (Array.isArray(data)) {
-      return data.map((item) => this.transformData(item));
+      return data.map((item) => this.transformData(item, visited));
     }
 
-    // 3. نمر على كل مفاتيح الكائن
-    Object.keys(data as Record<string, any>).forEach((key) => {
+    // 4. نمر على كل مفاتيح الكائن
+    const keys = Object.keys(data as Record<string, any>);
+    for (const key of keys) {
       const value = data[key];
 
-      // معالجة النصوص المفردة (مثل mainImage أو logo أو ogImage)
-      if (
-        key !== 'filename' &&
-        typeof value === 'string' &&
-        this.isImagePath(value)
-      ) {
+      // حالة خاصة: تجاهل بعض المفاتيح إذا لزم الأمر (مثل filename الداخلي)
+      if (key === 'filename') continue;
+
+      // معالجة النصوص المفردة (مثل mainImage أو logo)
+      if (typeof value === 'string' && this.isImagePath(value)) {
         if (!value.startsWith('http')) {
           data[key] = `${this.baseUrl}/${value}`;
         }
       }
-
-      // معالجة المصفوفات (مثل defaultGallery أو variantImages)
-      else if (Array.isArray(value)) {
-        data[key] = value.map((item) => {
-          // إذا كان العنصر نصاً ويمثل مسار صورة
-          if (
-            typeof item === 'string' &&
-            this.isImagePath(item) &&
-            !item.startsWith('http')
-          ) {
-            return `${this.baseUrl}/${item}`;
-          }
-          // إذا كانت مصفوفة من الكائنات، نطبق التحويل بداخلها
-          return this.transformData(item);
-        });
-      }
-
-      // 4. الدخول في الكائنات المتداخلة (Nested Objects)
+      // معالجة القيم التي هي كائنات أو مصفوفات للدخول فيها recursively
       else if (value && typeof value === 'object') {
-        this.transformData(value);
+        data[key] = this.transformData(value, visited);
       }
-    });
+    }
 
-    return data as unknown;
+    return data;
   }
 
   // دالة ذكية للتحقق من امتدادات الصور الشائعة
   private isImagePath(value: string): boolean {
+    if (!value) return false;
     const allowedExtensions = /\.(jpg|jpeg|png|webp|gif|svg|bmp|pdf)$/i;
     return allowedExtensions.test(value);
   }

@@ -1,3 +1,4 @@
+// src/modules/permissions/permissions.controller.ts
 import {
   Controller,
   Get,
@@ -19,6 +20,8 @@ import {
   type CurrentUserData,
 } from '../../common/decorators/current-user.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
+// ✅ استيراد الثوابت
+import { PERMS } from 'src/common/constants/permissions';
 
 @Controller('permissions')
 @UseGuards(JwtAuthGuard)
@@ -26,7 +29,7 @@ export class PermissionsController {
   constructor(private readonly permissionsService: PermissionsService) {}
 
   @Post()
-  @Permissions('create_permission')
+  @Permissions(PERMS.PERMISSION_CREATE)
   @UseGuards(PermissionsGuard)
   create(
     @Body() dto: CreatePermissionDto,
@@ -37,7 +40,7 @@ export class PermissionsController {
   }
 
   @Get()
-  @Permissions('view_permissions')
+  @Permissions(PERMS.PERMISSION_VIEW)
   @UseGuards(PermissionsGuard)
   findAll(
     @CurrentUser() user: CurrentUserData,
@@ -47,21 +50,21 @@ export class PermissionsController {
   }
 
   @Get(':id')
-  @Permissions('view_permissions')
+  @Permissions(PERMS.PERMISSION_VIEW)
   @UseGuards(PermissionsGuard)
   findOne(@Param('id') id: string) {
     return this.permissionsService.findOne(id);
   }
 
   @Patch(':id')
-  @Permissions('update_permission')
+  @Permissions(PERMS.PERMISSION_UPDATE)
   @UseGuards(PermissionsGuard)
   update(@Param('id') id: string, @Body() dto: UpdatePermissionDto) {
     return this.permissionsService.update(id, dto);
   }
 
   @Delete(':id')
-  @Permissions('delete_permission')
+  @Permissions(PERMS.PERMISSION_DELETE)
   @UseGuards(PermissionsGuard)
   remove(@Param('id') id: string) {
     return this.permissionsService.remove(id);

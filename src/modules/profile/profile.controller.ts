@@ -2,7 +2,6 @@ import { Controller, Get, UseGuards } from '@nestjs/common';
 import { ProfileService } from './profile.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 import { type CurrentUserData } from '../../common/decorators/current-user.decorator';
 
 @Controller('profile')
@@ -11,10 +10,7 @@ export class ProfileController {
   constructor(private readonly profileService: ProfileService) {}
 
   @Get('me')
-  getMyProfile(
-    @CurrentUser() user: CurrentUserData,
-    @CurrentTenantId() tenantId: string,
-  ) {
-    return this.profileService.getMyProfile(user.id, tenantId);
+  getMyProfile(@CurrentUser() user: CurrentUserData) {
+    return this.profileService.getMyProfile(user);
   }
 }

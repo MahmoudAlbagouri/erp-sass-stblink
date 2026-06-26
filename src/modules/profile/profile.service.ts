@@ -13,6 +13,7 @@ import {
 } from '../leaves/entities/leave-request.entity';
 import { Advance, AdvanceStatus } from '../advances/entities/advance.entity';
 import { Loan, LoanStatus } from '../loans/entities/loan.entity';
+import { type CurrentUserData } from '../../common/decorators/current-user.decorator';
 
 @Injectable()
 export class ProfileService {
@@ -29,30 +30,34 @@ export class ProfileService {
     @InjectRepository(Loan) private loanRepo: Repository<Loan>,
   ) {}
 
-  async getMyProfile(userId: string, tenantId: string) {
+  async getMyProfile(user: CurrentUserData) {
     // ✅ جلب بيانات المستخدم المتوفرة فقط في الـ Entity
-    const user = await this.userRepo.findOne({
-      where: { id: userId, tenantId },
+    const userData = await this.userRepo.findOne({
+      where: { id: user.id },
       relations: ['role'],
     });
 
-    if (!user) throw new NotFoundException('المستخدم غير موجود');
+    if (!userData) throw new NotFoundException('المستخدم غير موجود');
 
     const employee = await this.employeeRepo.findOne({
-      where: { user: { id: userId }, tenantId },
+      where: { user: { id: user.id } },
     });
 
     if (!employee) {
-      return this.buildBasicProfile(user);
+      return this.buildBasicProfile(userData);
     }
 
     // جلب البيانات المتعددة بشكل متوازي
     const [contract, salary, leaveBalances] = await Promise.all([
       this.contractRepo.findOne({
-        where: { employeeId: employee.id, tenantId },
+        where: { employeeId: employee.id },
       }),
-      this.salaryRepo.findOne({ where: { employeeId: employee.id, tenantId } }),
-      this.balanceRepo.find({ where: { employeeId: employee.id, tenantId } }),
+      this.salaryRepo.findOne({
+        where: { employeeId: employee.id },
+      }),
+      this.balanceRepo.find({
+        where: { employeeId: employee.id },
+      }),
     ]);
 
     // تحليل الإجازات
@@ -61,7 +66,6 @@ export class ProfileService {
       leaveBalances.find((b) => b.year === currentYear) || null;
     const leaveStatsByType = await this.getLeaveStatsByType(
       employee.id,
-      tenantId,
       currentYear,
     );
 
@@ -97,7 +101,6 @@ export class ProfileService {
     // التحليل المالي والإحصائيات
     const financialStats = await this.getFinancialAnalysis(
       employee.id,
-      tenantId,
       salary?.totalSalary || 0,
     );
     const contractStatus = this.analyzeContractStatus(contract);
@@ -106,13 +109,13 @@ export class ProfileService {
       personal: {
         // ✅ عرض البيانات المتاحة فقط + بيانات وصفية مفيدة
         user: {
-          id: user.id,
-          email: user.email,
-          username: user.username,
-          role: user.role?.name,
-          status: user.status, // حالة الحساب (نشط/غير نشط)
-          isSuperAdmin: user.isSuperAdmin,
-          joinedAt: user.created_at, // تاريخ إنشاء الحساب
+          id: userData.id,
+          email: userData.email,
+          username: userData.username,
+          role: userData.role?.name,
+          status: userData.status, // حالة الحساب (نشط/غير نشط)
+          isSuperAdmin: userData.isSuperAdmin,
+          joinedAt: userData.created_at, // تاريخ إنشاء الحساب
         },
         employee: {
           id: employee.id,
@@ -150,18 +153,13 @@ export class ProfileService {
     };
   }
 
-  private async getLeaveStatsByType(
-    employeeId: string,
-    tenantId: string,
-    year: number,
-  ) {
+  private async getLeaveStatsByType(employeeId: string, year: number) {
     const startDate = new Date(`${year}-01-01`);
     const endDate = new Date(`${year}-12-31`);
 
     const requests = await this.leaveReqRepo.find({
       where: {
         employeeId,
-        tenantId,
         status: LeaveStatus.APPROVED,
         startDate: MoreThanOrEqual(startDate),
         endDate: MoreThanOrEqual(startDate),
@@ -211,15 +209,10 @@ export class ProfileService {
     };
   }
 
-  private async getFinancialAnalysis(
-    employeeId: string,
-    tenantId: string,
-    totalSalary: number,
-  ) {
+  private async getFinancialAnalysis(employeeId: string, totalSalary: number) {
     const activeAdvances = await this.advanceRepo.find({
       where: {
         employeeId,
-        tenantId,
         status: In([AdvanceStatus.PENDING, AdvanceStatus.APPROVED]),
       },
       order: { createdAt: 'DESC' },
@@ -229,7 +222,6 @@ export class ProfileService {
     const activeLoans = await this.loanRepo.find({
       where: {
         employeeId,
-        tenantId,
         status: In([LoanStatus.PENDING, LoanStatus.APPROVED]),
       },
       order: { createdAt: 'DESC' },
