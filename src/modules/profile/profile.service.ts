@@ -1,3 +1,5 @@
+// src/modules/profile/profile.service.ts
+
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, MoreThanOrEqual } from 'typeorm';
@@ -31,7 +33,6 @@ export class ProfileService {
   ) {}
 
   async getMyProfile(user: CurrentUserData) {
-    // ✅ جلب بيانات المستخدم المتوفرة فقط في الـ Entity
     const userData = await this.userRepo.findOne({
       where: { id: user.id },
       relations: ['role'],
@@ -47,7 +48,7 @@ export class ProfileService {
       return this.buildBasicProfile(userData);
     }
 
-    // جلب البيانات المتعددة بشكل متوازي
+    // جلب البيانات الأساسية
     const [contract, salary, leaveBalances] = await Promise.all([
       this.contractRepo.findOne({
         where: { employeeId: employee.id },
@@ -60,10 +61,14 @@ export class ProfileService {
       }),
     ]);
 
-    // تحليل الإجازات
+    // تحليل الإجازات الحالية
     const currentYear = new Date().getFullYear();
     const currentBalance =
       leaveBalances.find((b) => b.year === currentYear) || null;
+
+    // ✅ جلب سجل الإجازات الكامل (موافق، معلق، مرفوض)
+    const leaveHistory = await this.getLeaveHistory(employee.id);
+
     const leaveStatsByType = await this.getLeaveStatsByType(
       employee.id,
       currentYear,
@@ -103,19 +108,23 @@ export class ProfileService {
       employee.id,
       salary?.totalSalary || 0,
     );
+
+    // ✅ جلب القروض والسلف المرفوضة
+    const rejectedLoans = await this.getRejectedLoans(employee.id);
+    const rejectedAdvances = await this.getRejectedAdvances(employee.id);
+
     const contractStatus = this.analyzeContractStatus(contract);
 
     return {
       personal: {
-        // ✅ عرض البيانات المتاحة فقط + بيانات وصفية مفيدة
         user: {
           id: userData.id,
           email: userData.email,
           username: userData.username,
           role: userData.role?.name,
-          status: userData.status, // حالة الحساب (نشط/غير نشط)
+          status: userData.status,
           isSuperAdmin: userData.isSuperAdmin,
-          joinedAt: userData.created_at, // تاريخ إنشاء الحساب
+          joinedAt: userData.created_at,
         },
         employee: {
           id: employee.id,
@@ -123,7 +132,7 @@ export class ProfileService {
           employeeCode: employee.employeeCode,
           jobTitle: employee.jobTitle,
           department: employee.department,
-          phone: employee.phone, // رقم الهاتف موجود في Employee وليس User
+          phone: employee.phone,
           joinDate: employee.createdAt,
           nationalityType: employee.nationalityType,
         },
@@ -136,6 +145,7 @@ export class ProfileService {
           daysUntilExpiry: contractStatus.daysUntilExpiry,
         },
         leaveBalance: leaveAnalysis,
+        leaveHistory: leaveHistory, // ✅ إضافة سجل الإجازات
       },
       financial: {
         salary: salary
@@ -149,8 +159,79 @@ export class ProfileService {
             }
           : null,
         stats: financialStats,
+        rejectedLoans: rejectedLoans, // ✅ إضافة القروض المرفوضة
+        rejectedAdvances: rejectedAdvances, // ✅ إضافة السلف المرفوضة
       },
     };
+  }
+
+  // ✅ دالة جديدة لجلب سجل الإجازات الكامل
+  private async getLeaveHistory(employeeId: string) {
+    const requests = await this.leaveReqRepo.find({
+      where: { employeeId },
+      order: { createdAt: 'DESC' },
+      take: 20, // آخر 20 طلب مثلاً
+    });
+
+    return requests.map((req) => ({
+      id: req.id,
+      type: req.type,
+      startDate: req.startDate,
+      endDate: req.endDate,
+      status: req.status,
+      reason: req.reason,
+      createdAt: req.createdAt,
+      durationDays: this.calculateDuration(req.startDate, req.endDate),
+    }));
+  }
+
+  // ✅ دالة مساعدة لحساب عدد الأيام
+  private calculateDuration(start: Date, end: Date): number {
+    const diffTime = Math.abs(
+      new Date(end).getTime() - new Date(start).getTime(),
+    );
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+  }
+
+  // ✅ دالة جديدة لجلب القروض المرفوضة
+  private async getRejectedLoans(employeeId: string) {
+    const loans = await this.loanRepo.find({
+      where: {
+        employeeId,
+        status: LoanStatus.REJECTED,
+      },
+      order: { createdAt: 'DESC' },
+      take: 10,
+    });
+
+    return loans.map((l) => ({
+      id: l.id,
+      totalAmount: l.totalAmount,
+      monthlyInstallment: l.monthlyInstallment,
+      installmentsCount: l.installmentsCount,
+      reason: l.reason,
+      rejectedAt: l.createdAt, // يمكن إضافة حقل updatedAt إذا أردت تاريخ الرفض الدقيق
+    }));
+  }
+
+  // ✅ دالة جديدة لجلب السلف المرفوضة
+  private async getRejectedAdvances(employeeId: string) {
+    const advances = await this.advanceRepo.find({
+      where: {
+        employeeId,
+        status: AdvanceStatus.REJECTED,
+      },
+      order: { createdAt: 'DESC' },
+      take: 10,
+    });
+
+    return advances.map((a) => ({
+      id: a.id,
+      amount: a.amount,
+      reason: a.reason,
+      repaymentDate: a.repaymentDate,
+      rejectedAt: a.createdAt,
+    }));
   }
 
   private async getLeaveStatsByType(employeeId: string, year: number) {
@@ -201,10 +282,12 @@ export class ProfileService {
         },
         employee: null,
       },
-      hr: { contract: null, leaveBalance: null },
+      hr: { contract: null, leaveBalance: null, leaveHistory: [] },
       financial: {
         salary: null,
         stats: { pendingAdvances: 0, pendingLoans: 0, totalDebt: 0 },
+        rejectedLoans: [],
+        rejectedAdvances: [],
       },
     };
   }
