@@ -39,6 +39,24 @@ export const PERMS: Record<string, PermissionMetadata> = {
   SALARY_VIEW: { name: 'view_salaries', labelAr: 'عرض الرواتب' },
   SALARY_MANAGE: { name: 'manage_salary', labelAr: 'إدارة الرواتب' },
 
+  // ─── Payroll (مسير الرواتب) ──────────────────────── ✅ جديد
+  PAYROLL_GENERATE: {
+    name: 'generate_payroll',
+    labelAr: 'إعداد مسير الرواتب',
+  },
+  PAYROLL_VIEW: {
+    name: 'view_payroll',
+    labelAr: 'عرض مسيرات الرواتب',
+  },
+  PAYROLL_EXPORT: {
+    name: 'export_payroll',
+    labelAr: 'تصدير مسير الرواتب',
+  },
+  PAYROLL_DELETE: {
+    name: 'delete_payroll',
+    labelAr: 'حذف مسير راتب',
+  },
+
   // ─── Advances (السلف) ───────────────────────────────
   ADVANCE_REQUEST_SELF: {
     name: 'request_advance_self',
@@ -142,7 +160,7 @@ export const PERMS: Record<string, PermissionMetadata> = {
   ROLE_UPDATE: { name: 'update_role', labelAr: 'تعديل دور' },
   ROLE_DELETE: { name: 'delete_role', labelAr: 'حذف دور' },
 
-  // ✅ تمت الإضافة: Shifts (الورديات)
+  // ✅ Shifts (الورديات)
   SHIFT_CREATE: {
     name: 'create_shift',
     labelAr: 'إنشاء وردية',

@@ -33,6 +33,7 @@ import { FilesModule } from './modules/files/files.module';
 import { ShiftsModule } from './modules/shifts/shifts.module';
 import { ProfileModule } from './modules/profile/profile.module';
 import { QuotationModule } from './modules/quotation/quotation.module';
+import { PayrollModule } from './modules/payroll/payroll.module';
 
 @Module({
   imports: [
@@ -79,6 +80,7 @@ import { QuotationModule } from './modules/quotation/quotation.module';
     ShiftsModule,
     ProfileModule,
     QuotationModule,
+    PayrollModule,
   ],
   providers: [
     {

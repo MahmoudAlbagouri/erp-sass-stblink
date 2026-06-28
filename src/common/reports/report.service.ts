@@ -1,8 +1,9 @@
+// src/common/reports/report.service.ts
 import { Injectable } from '@nestjs/common';
 import * as ExcelJS from 'exceljs';
 import * as puppeteer from 'puppeteer';
 import * as fs from 'fs';
-import * as os from 'os'; // أضف هذا السطر
+import * as os from 'os';
 import * as path from 'path';
 
 @Injectable()
@@ -146,23 +147,45 @@ export class ReportService {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Report');
 
+    // ✅ تفعيل الاتجاه من اليمين لليسار (RTL) للجدول بالكامل
+    worksheet.views = [{ state: 'frozen', ySplit: 1, rightToLeft: true }];
+
     worksheet.columns = columns.map((col) => ({
       header: col.header,
       key: col.key,
       width: 25,
     }));
 
-    worksheet.getRow(1).eachCell((cell) => {
+    // تنسيق رأس الجدول
+    const headerRow = worksheet.getRow(1);
+    headerRow.eachCell((cell) => {
       cell.fill = {
         type: 'pattern',
         pattern: 'solid',
         fgColor: { argb: 'FF0056B3' },
       };
-      cell.font = { color: { argb: 'FFFFFFFF' }, bold: true };
-      cell.alignment = { horizontal: 'center' };
+      cell.font = {
+        color: { argb: 'FFFFFFFF' },
+        bold: true,
+        name: 'Cairo', // ✅ استخدام خط عربي موحد
+        size: 11,
+      };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+    });
+    headerRow.height = 28;
+
+    // إضافة البيانات وتنسيق الخلايا
+    const dataRows = worksheet.addRows(data);
+    dataRows.forEach((row) => {
+      row.eachCell((cell) => {
+        cell.font = { name: 'Cairo', size: 10 };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = {
+          bottom: { style: 'thin', color: { argb: 'FFE0E0E0' } },
+        };
+      });
     });
 
-    worksheet.addRows(data);
     return (await workbook.xlsx.writeBuffer()) as unknown as Buffer;
   }
 
