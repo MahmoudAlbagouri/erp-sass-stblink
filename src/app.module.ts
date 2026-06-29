@@ -15,6 +15,7 @@ import { RolesModule } from './modules/roles/roles.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
 import { EmployeesModule } from './modules/employees/employees.module';
 import { ContractsModule } from './modules/contracts/contracts.module';
+import { SettlementsModule } from './modules/settlements/settlements.module';
 
 // الإعدادات (Config)
 import databaseConfig from './config/database.config';
@@ -81,6 +82,7 @@ import { PayrollModule } from './modules/payroll/payroll.module';
     ProfileModule,
     QuotationModule,
     PayrollModule,
+    SettlementsModule,
   ],
   providers: [
     {

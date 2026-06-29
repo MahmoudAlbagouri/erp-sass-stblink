@@ -174,6 +174,16 @@ export const PERMS: Record<string, PermissionMetadata> = {
     labelAr: 'تعديل وردية',
   },
 
+  // ___________________________________________________
+  SETTLEMENT_VIEW: {
+    name: 'view_settlements',
+    labelAr: 'عرض مستحقات بدل الاجازة',
+  },
+  SETTLEMENT_CREATE: {
+    name: 'create_settlements',
+    labelAr: 'انشاء مستحقات بدل الاجازة',
+  },
+
   // ─── System (system admins only) ─────────────────────
   SYSTEM_STATS: {
     name: 'system:view_platform_stats',
