@@ -183,6 +183,10 @@ export const PERMS: Record<string, PermissionMetadata> = {
     name: 'create_settlements',
     labelAr: 'انشاء مستحقات بدل الاجازة',
   },
+  SETTLEMENT_EXPORT: {
+    name: 'export_settlements',
+    labelAr: 'تصدير مستحقات بدل الاجازة',
+  },
 
   // ─── System (system admins only) ─────────────────────
   SYSTEM_STATS: {

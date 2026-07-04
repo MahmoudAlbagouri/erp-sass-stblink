@@ -35,9 +35,11 @@ import { ShiftsModule } from './modules/shifts/shifts.module';
 import { ProfileModule } from './modules/profile/profile.module';
 import { QuotationModule } from './modules/quotation/quotation.module';
 import { PayrollModule } from './modules/payroll/payroll.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
       load: [databaseConfig],

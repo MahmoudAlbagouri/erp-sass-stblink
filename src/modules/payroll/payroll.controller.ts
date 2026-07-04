@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { PayrollService } from './payroll.service';
+import { SalariesService } from '../salaries/salaries.service'; // ✅ استيراد خدمة الرواتب
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { Permissions } from '../../common/decorators/permissions.decorator';
@@ -23,10 +24,10 @@ import { PERMS } from 'src/common/constants/permissions';
 export class PayrollController {
   constructor(
     private readonly payrollService: PayrollService,
+    private readonly salariesService: SalariesService, // ✅ إضافة الخدمة
     private readonly reportService: ReportService,
   ) {}
 
-  // ✅ جديد: جلب كل المسيرات
   @Get()
   @Permissions(PERMS.PAYROLL_VIEW)
   @UseGuards(PermissionsGuard)
@@ -51,7 +52,6 @@ export class PayrollController {
     @CurrentTenantId() tenantId: string,
   ) {
     if (!tenantId) throw new BadRequestException('Tenant ID is missing');
-
     return this.payrollService.generateMonthlyPayroll(
       Number(month),
       Number(year),
@@ -84,51 +84,108 @@ export class PayrollController {
     if (!payrolls.length)
       throw new BadRequestException('لا يوجد مسير لهذا الشهر');
 
-    // جلب التفاصيل الكاملة للمسير الأول فقط لغرض التصدير
     const payroll = await this.payrollService.findOneWithDetails(
       payrolls[0].id,
       tenantId,
     );
 
-    if (!payroll) {
-      throw new BadRequestException('لم يتم العثور على بيانات المسير للتصدير');
+    if (!payroll || !payroll.items?.length) {
+      throw new BadRequestException('لم يتم العثور على بيانات للتصدير');
     }
 
+    // ✅ 1. جلب هياكل الرواتب لجميع الموظفين في هذا المسير دفعة واحدة
+    const employeeIds = payroll.items.map((item) => item.employeeId);
+    const salaries = await this.salariesService.findByEmployeeIds(employeeIds);
+
+    // إنشاء خريطة للبحث السريع عن الراتب باستخدام employeeId كمفتاح
+    const salaryMap = new Map();
+    salaries.forEach((s) => salaryMap.set(s.employeeId, s));
+
+    // ✅ 2. تعريف الأعمدة بالترتيب الجديد
     const columns = [
-      { header: '#', key: 'index' },
+      { header: 'الرقم الوظيفي', key: 'employeeCode' },
+      { header: 'رقم الهوية', key: 'nationalId' },
       { header: 'اسم الموظف', key: 'fullName' },
       { header: 'الراتب الأساسي', key: 'basicSalary' },
-      { header: 'البدلات', key: 'allowances' },
-      { header: 'خصم قروض', key: 'loanDeduction' },
-      { header: 'خصم سلف', key: 'advanceDeduction' },
-      { header: 'الإجمالي', key: 'gross' },
+      { header: 'بدل السكن', key: 'housingAllowance' },
+      { header: 'بدلات أخرى', key: 'otherAllowances' },
+      { header: 'إجمالي الراتب', key: 'totalGross' },
+      { header: 'الخصومات', key: 'deductions' },
       { header: 'الصافي', key: 'netSalary' },
     ];
 
-    const data = payroll.items.map((item, i) => ({
-      index: i + 1,
-      fullName: item.employee.fullName,
-      basicSalary: Number(item.basicSalary).toLocaleString('en-US'),
-      allowances: Number(item.allowances).toLocaleString('en-US'),
-      loanDeduction: Number(item.loanDeduction).toLocaleString('en-US'),
-      advanceDeduction: Number(item.advanceDeduction).toLocaleString('en-US'),
-      gross: (
-        Number(item.basicSalary) + Number(item.allowances)
-      ).toLocaleString('en-US'),
-      netSalary: Number(item.netSalary).toLocaleString('en-US'),
-    }));
+    // ✅ 3. تجهيز البيانات مع فصل البدلات
+    const data = payroll.items.map((item) => {
+      const salary = salaryMap.get(item.employeeId);
 
-    data.push({
-      index: 0,
-      fullName: 'الإجمالي',
-      basicSalary: '',
-      allowances: '',
-      loanDeduction: '',
-      advanceDeduction: '',
-      gross: Number(payroll.totalNetSalary).toLocaleString('en-US'),
-      netSalary: Number(payroll.totalNetSalary).toLocaleString('en-US'),
+      // استخدام قيم الراتب الأصلي إذا وجدت، وإلا الاعتماد على قيم المسير المجمعة
+      const basic = Number(salary?.basicSalary ?? item.basicSalary) || 0;
+      const housing = Number(salary?.housingAllowance ?? 0) || 0;
+      // البدلات الأخرى تشمل النقل + أي بدلات إضافية
+      const other =
+        (Number(salary?.transportAllowance ?? 0) || 0) +
+        (Number(salary?.otherAllowances ?? 0) || 0);
+
+      const loan = Number(item.loanDeduction) || 0;
+      const advance = Number(item.advanceDeduction) || 0;
+      const unpaid = Number(item.unpaidLeaveDeduction) || 0;
+      const otherDed = Number(item.otherDeductions) || 0;
+
+      const totalGross = basic + housing + other;
+      const totalDeductions = loan + advance + unpaid + otherDed;
+      const net = Number(item.netSalary) || 0;
+
+      return {
+        employeeCode: item.employee?.employeeCode || '-',
+        nationalId: item.employee?.nationalId || '-',
+        fullName: item.employee?.fullName || '-',
+        basicSalary: basic.toLocaleString('en-US'),
+        housingAllowance: housing.toLocaleString('en-US'),
+        otherAllowances: other.toLocaleString('en-US'),
+        totalGross: totalGross.toLocaleString('en-US'),
+        deductions: totalDeductions.toLocaleString('en-US'),
+        netSalary: net.toLocaleString('en-US'),
+      };
     });
 
+    // ✅ 4. حساب الإجماليات النهائية
+    const totals = payroll.items.reduce(
+      (acc, item) => {
+        const salary = salaryMap.get(item.employeeId);
+        const b = Number(salary?.basicSalary ?? item.basicSalary) || 0;
+        const h = Number(salary?.housingAllowance ?? 0) || 0;
+        const o =
+          (Number(salary?.transportAllowance ?? 0) || 0) +
+          (Number(salary?.otherAllowances ?? 0) || 0);
+
+        acc.basic += b;
+        acc.housing += h;
+        acc.other += o;
+        acc.gross += b + h + o;
+        acc.deductions +=
+          (Number(item.loanDeduction) || 0) +
+          (Number(item.advanceDeduction) || 0) +
+          (Number(item.unpaidLeaveDeduction) || 0) +
+          (Number(item.otherDeductions) || 0);
+        acc.net += Number(item.netSalary) || 0;
+        return acc;
+      },
+      { basic: 0, housing: 0, other: 0, gross: 0, deductions: 0, net: 0 },
+    );
+
+    data.push({
+      employeeCode: '',
+      nationalId: '',
+      fullName: 'الإجمالي',
+      basicSalary: totals.basic.toLocaleString('en-US'),
+      housingAllowance: totals.housing.toLocaleString('en-US'),
+      otherAllowances: totals.other.toLocaleString('en-US'),
+      totalGross: totals.gross.toLocaleString('en-US'),
+      deductions: totals.deductions.toLocaleString('en-US'),
+      netSalary: totals.net.toLocaleString('en-US'),
+    });
+
+    // ✅ 5. التصدير
     if (type === 'excel') {
       const buffer = await this.reportService.generateExcel(data, columns);
       res.setHeader(

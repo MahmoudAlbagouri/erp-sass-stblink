@@ -8,6 +8,7 @@ import {
   IsUUID,
   IsEnum,
   IsArray,
+  Min,
 } from 'class-validator';
 import { ContractType } from '../entities/contract.entity';
 
@@ -31,6 +32,12 @@ export class CreateContractDto {
   @IsNumber()
   @IsNotEmpty()
   annualLeaveDays!: number;
+
+  // ✅ إضافة حقل مدة العقد
+  @IsNumber()
+  @IsOptional()
+  @Min(1)
+  contractDurationYears?: number;
 
   @IsOptional()
   @IsString()

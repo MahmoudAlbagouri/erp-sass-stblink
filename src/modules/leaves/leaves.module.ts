@@ -1,19 +1,35 @@
 // src/modules/leaves/leaves.module.ts
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+
 import { LeavesService } from './leaves.service';
 import { LeavesController } from './leaves.controller';
+import { LeaveAccrualService } from './leave-accrual.service';
+import { LeaveCarryoverCronService } from './leave-carryover.cron.service';
+
+// ✅ استيراد DateUtils إذا كانت في موديول منفصل
+
 import { LeaveRequest } from './entities/leave-request.entity';
 import { LeaveBalance } from './entities/leave-balance.entity';
-import { ContractsModule } from '../contracts/contracts.module'; // ✅ استيراد موديول العقود
+import { LeaveBalanceHistory } from './entities/leave-balance-history.entity';
+
+import { ContractsModule } from '../contracts/contracts.module';
+import { DateUtils } from 'src/common/utils/date.utils';
+import { LeavePolicyService } from './config/leave-policy.config';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([LeaveRequest, LeaveBalance]),
-    ContractsModule, // ✅ تمكين الوصول لخدمة العقود
+    TypeOrmModule.forFeature([LeaveRequest, LeaveBalance, LeaveBalanceHistory]),
+    ContractsModule,
   ],
   controllers: [LeavesController],
-  providers: [LeavesService],
-  exports: [LeavesService],
+  providers: [
+    LeavesService,
+    LeaveAccrualService,
+    LeaveCarryoverCronService,
+    DateUtils, // ✅ إضافة الموديول الذي يحتوي على DateUtils
+    LeavePolicyService,
+  ],
+  exports: [LeavesService, DateUtils, LeaveAccrualService],
 })
 export class LeavesModule {}

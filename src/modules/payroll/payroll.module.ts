@@ -11,9 +11,11 @@ import { Loan } from '../loans/entities/loan.entity';
 import { Advance } from '../advances/entities/advance.entity';
 import { LeaveRequest } from '../leaves/entities/leave-request.entity';
 import { Employee } from '../employees/entities/employee.entity';
+import { SalariesModule } from '../salaries/salaries.module'; // ✅ استيراد الموديول
 
 @Module({
   imports: [
+    // 1. تسجيل الجداول (Entities) فقط هنا
     TypeOrmModule.forFeature([
       Payroll,
       PayrollItem,
@@ -23,6 +25,9 @@ import { Employee } from '../employees/entities/employee.entity';
       LeaveRequest,
       Employee,
     ]),
+
+    // 2. استيراد الموديولات الخارجية هنا (خارج forFeature)
+    SalariesModule,
   ],
   controllers: [PayrollController],
   providers: [PayrollService, ReportService],

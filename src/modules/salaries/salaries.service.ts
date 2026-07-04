@@ -1,7 +1,7 @@
 // src/modules/salaries/salaries.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Salary } from './entities/salary.entity';
 import { CreateSalaryDto } from './dto/create-salary.dto';
 import { UpdateSalaryDto } from './dto/update-salary.dto';
@@ -37,6 +37,12 @@ export class SalariesService {
     Object.assign(salary, dto);
     salary.totalSalary = this.calculateTotal(salary);
     return await this.repo.save(salary);
+  }
+  async findByEmployeeIds(ids: string[]) {
+    if (!ids.length) return [];
+    return await this.repo.find({
+      where: { employeeId: In(ids) },
+    });
   }
 
   // دالة جديدة لجلب راتب موظف محدد للتحقق منه عند طلب سلفة

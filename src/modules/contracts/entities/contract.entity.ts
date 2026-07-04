@@ -30,6 +30,7 @@ export class Contract {
   })
   contractType!: ContractType;
 
+  /** تاريخ التعيين — نقطة البداية الافتراضية لحساب الاستحقاق اليومي */
   @Column({ type: 'date' })
   startDate!: Date;
 
@@ -39,11 +40,13 @@ export class Contract {
   @Column({ type: 'int', default: 30 })
   annualLeaveDays!: number;
 
+  /** مدة العقد بالسنوات (اختياري، للعقود محددة المدة) */
+  @Column({ name: 'contract_duration_years', type: 'int', nullable: true })
+  contractDurationYears?: number;
+
   @Column({ type: 'text', nullable: true })
   notes?: string;
 
-  // تخزين مسارات المرفقات (يمكن أن تكون رابطاً واحداً أو مصفوفة روابط مفصولة بفاصلة)
-  // سنستخدم simple-array من TypeORM لتخزينها كمصفوفة في قاعدة البيانات
   @Column('simple-array', { nullable: true })
   attachmentPaths?: string[];
 

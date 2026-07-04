@@ -12,12 +12,13 @@ import {
   ValidateIf,
   ValidateNested,
   IsArray,
+  Length,
+  Matches,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { NationalityType } from '../entities/employee.entity';
 import { ContractType } from '../../contracts/entities/contract.entity';
 
-// ─── بيانات المستخدم المدمجة ──────────────────────────────────────────────
 export class OnboardUserDto {
   @IsString()
   @IsNotEmpty({ message: 'اسم المستخدم مطلوب' })
@@ -30,12 +31,10 @@ export class OnboardUserDto {
   @IsNotEmpty({ message: 'كلمة المرور مطلوبة' })
   password!: string;
 
-  // ✅ إما roleId لدور موجود، أو roleName لإنشاء دور جديد بصلاحيات افتراضية
   @IsUUID()
   @IsOptional()
   roleId?: string;
 
-  // ✅ لو مش عايز تربط المستخدم بأي دور
   @IsString()
   @IsOptional()
   roleName?: string;
@@ -45,7 +44,6 @@ export class OnboardUserDto {
   permissionIds?: string[];
 }
 
-// ─── بيانات العقد (اختيارية) ─────────────────────────────────────────────
 export class OnboardContractDto {
   @IsEnum(ContractType)
   @IsNotEmpty()
@@ -63,17 +61,21 @@ export class OnboardContractDto {
   @IsOptional()
   annualLeaveDays?: number;
 
+  // ✅ إضافة حقل مدة العقد
+  @IsNumber()
+  @IsOptional()
+  @Min(1)
+  contractDurationYears?: number;
+
   @IsString()
   @IsOptional()
   notes?: string;
 
-  // ✅ استقبال مصفوفة مسارات مرفقات العقد
   @IsArray()
   @IsOptional()
   attachmentPaths?: string[];
 }
 
-// ─── بيانات الراتب (اختيارية) ────────────────────────────────────────────
 export class OnboardSalaryDto {
   @IsNumber()
   @Min(0)
@@ -96,9 +98,7 @@ export class OnboardSalaryDto {
   otherAllowances?: number;
 }
 
-// ─── DTO الرئيسي للـ Onboarding ──────────────────────────────────────────
 export class OnboardEmployeeDto {
-  // ═══ بيانات الموظف ════════════════════════════════════════════════════
   @IsString()
   @IsNotEmpty({ message: 'الاسم الكامل مطلوب' })
   fullName!: string;
@@ -113,17 +113,22 @@ export class OnboardEmployeeDto {
   @IsDateString({}, { message: 'تاريخ انتهاء الإقامة مطلوب لغير السعوديين' })
   iqamaExpiryDate?: string;
 
+  // ✅ تحديث رقم الهوية
   @IsString()
   @IsOptional()
+  @Length(10, 10, { message: 'رقم الهوية يجب أن يتكون من 10 أرقام' })
+  @Matches(/^[0-9]{10}$/, { message: 'رقم الهوية يجب أن يحتوي على أرقام فقط' })
   nationalId?: string;
 
-  // ✅ مسار صورة/ملف الهوية الوطنية
   @IsString()
   @IsOptional()
   nationalIdCardPath?: string;
 
+  // ✅ تحديث رقم الهاتف
   @IsString()
   @IsOptional()
+  @Length(10, 10, { message: 'رقم الهاتف يجب أن يتكون من 10 أرقام' })
+  @Matches(/^[0-9]{10}$/, { message: 'رقم الهاتف يجب أن يحتوي على أرقام فقط' })
   phone?: string;
 
   @IsString()
@@ -142,19 +147,16 @@ export class OnboardEmployeeDto {
   @IsOptional()
   status?: 'active' | 'inactive' | 'terminated';
 
-  // ═══ بيانات المستخدم (اختيارية — لو مش عايز تربط الموظف بحساب) ═════
   @ValidateNested()
   @Type(() => OnboardUserDto)
   @IsOptional()
   user?: OnboardUserDto;
 
-  // ═══ بيانات العقد (اختيارية) ══════════════════════════════════════════
   @ValidateNested()
   @Type(() => OnboardContractDto)
   @IsOptional()
   contract?: OnboardContractDto;
 
-  // ═══ بيانات الراتب (اختيارية) ════════════════════════════════════════
   @ValidateNested()
   @Type(() => OnboardSalaryDto)
   @IsOptional()

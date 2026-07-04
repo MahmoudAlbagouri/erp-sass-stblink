@@ -137,7 +137,6 @@ export class EmployeesOnboardingService {
 
       const employeeCode = await this.generateEmployeeCode(tenantId, manager);
 
-      // ✅ إنشاء الموظف مع صورة الهوية
       const newEmployee = manager.create(Employee, {
         fullName: dto.fullName,
         nationalityType: dto.nationalityType,
@@ -159,7 +158,7 @@ export class EmployeesOnboardingService {
       const savedEmployee = await manager.save(Employee, newEmployee);
       result.employee = savedEmployee;
 
-      // ✅ إنشاء العقد مع المرفقات
+      // ✅ إنشاء العقد مع المرفقات ومدة العقد
       if (dto.contract) {
         const newContract = manager.create(Contract, {
           contractType: dto.contract.contractType,
@@ -168,8 +167,9 @@ export class EmployeesOnboardingService {
             ? new Date(dto.contract.endDate)
             : undefined,
           annualLeaveDays: dto.contract.annualLeaveDays ?? 30,
+          contractDurationYears: dto.contract.contractDurationYears, // ✅ تمرير القيمة الجديدة
           notes: dto.contract.notes,
-          attachmentPaths: dto.contract.attachmentPaths, // <--- تمرير المرفقات
+          attachmentPaths: dto.contract.attachmentPaths,
           employeeId: savedEmployee.id,
           tenantId,
         });
