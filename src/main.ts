@@ -6,7 +6,7 @@ import {
   i18nValidationErrorFactory,
   I18nValidationExceptionFilter,
 } from 'nestjs-i18n';
-import { TypeOrmExceptionFilter } from './common/filters/typeorm-exception.filter';
+// import { TypeOrmExceptionFilter } from './common/filters/typeorm-exception.filter';
 import { join } from 'path';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { seedSystemOwner } from './database/seeds/system-owner.seed';
@@ -54,7 +54,7 @@ async function bootstrap() {
   // ✅ الفلاتر العامة
   app.useGlobalFilters(
     new I18nValidationExceptionFilter({ detailedErrors: false }),
-    new TypeOrmExceptionFilter(),
+    // new TypeOrmExceptionFilter(),
   );
 
   // ✅ الملفات الثابتة

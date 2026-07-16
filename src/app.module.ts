@@ -36,6 +36,12 @@ import { ProfileModule } from './modules/profile/profile.module';
 import { QuotationModule } from './modules/quotation/quotation.module';
 import { PayrollModule } from './modules/payroll/payroll.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
+import { PlansModule } from './modules/plans/plans.module';
+import { BonusesModule } from './modules/bonuses/bonuses.module';
+import { DeductionsModule } from './modules/deduction/deduction.module';
+import { EOSModule } from './modules/eos/eos.module';
+import { ResignationsModule } from './modules/resignations/resignations.module';
 
 @Module({
   imports: [
@@ -85,6 +91,12 @@ import { ScheduleModule } from '@nestjs/schedule';
     QuotationModule,
     PayrollModule,
     SettlementsModule,
+    SubscriptionsModule,
+    PlansModule,
+    BonusesModule,
+    DeductionsModule,
+    EOSModule,
+    ResignationsModule,
   ],
   providers: [
     {

@@ -5,29 +5,25 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  DeleteDateColumn, // مهم للـ Soft Delete
+  DeleteDateColumn,
+  OneToMany, // ✅ استيراد OneToMany
 } from 'typeorm';
-import {
-  TenantStatus,
-  SubscriptionPlan,
-} from '../../../common/enums/tenant.enums';
+import { Subscription } from '../../subscriptions/entities/subscription.entity'; // ✅ استيراد كيان الاشتراك
 
 @Entity('tenants')
 export class Tenant {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  // --- بيانات الهوية ---
   @Column({ unique: true })
   company_name!: string;
 
   @Column({ nullable: true })
-  logo_url?: string; // رابط شعار الشركة
+  logo_url?: string;
 
   @Column({ nullable: true })
-  domain?: string; // نطاق مخصص للشركة (اختياري)
+  domain?: string;
 
-  // --- بيانات التواصل ---
   @Column({ nullable: true })
   phone?: string;
 
@@ -37,41 +33,19 @@ export class Tenant {
   @Column({ nullable: true })
   country?: string;
 
-  // --- حالة الاشتراك والخطة ---
-  @Column({
-    type: 'enum',
-    enum: SubscriptionPlan,
-    default: SubscriptionPlan.FREE,
-  })
-  subscription_plan!: SubscriptionPlan;
-
-  @Column({ type: 'enum', enum: TenantStatus, default: TenantStatus.TRIAL })
-  status!: TenantStatus;
-
-  @Column({ nullable: true })
-  trial_ends_at?: Date; // تاريخ انتهاء الفترة التجريبية
-
-  @Column({ nullable: true })
-  subscription_ends_at?: Date; // تاريخ انتهاء الاشتراك المدفوع
-
-  // --- حدود الاستخدام (Quotas) ---
-  @Column({ default: 5 })
-  max_users!: number; // الحد الأقصى للمستخدمين حسب الخطة
-
-  @Column({ default: 1000 })
-  storage_limit_mb!: number; // مساحة التخزين بالميجابايت
-
-  // --- إعدادات النظام ---
   @Column({ default: 'ar' })
-  language?: string; // اللغة الافتراضية للشركة
+  language?: string;
 
   @Column({ default: 'UTC+3' })
-  timezone?: string; // المنطقة الزمنية
+  timezone?: string;
 
   @Column({ default: false })
-  is_verified?: boolean; // هل تم التحقق من البريد الإلكتروني؟
+  is_verified?: boolean;
 
-  // --- التواريخ ---
+  // ✅ علاقة عكسية: الشركة لديها العديد من الاشتراكات (تاريخ الفوترة)
+  @OneToMany(() => Subscription, (sub) => sub.tenant)
+  subscriptions?: Subscription[];
+
   @CreateDateColumn()
   created_at!: Date;
 
@@ -79,5 +53,5 @@ export class Tenant {
   updated_at!: Date;
 
   @DeleteDateColumn({ nullable: true })
-  deleted_at?: Date; // للحذف الناعم (Soft Delete) بدلاً من الحذف النهائي
+  deleted_at?: Date;
 }

@@ -10,7 +10,7 @@ export class RegisterDto {
   // --- بيانات الشركة ---
   @IsString()
   @IsNotEmpty({ message: 'اسم الشركة مطلوب' })
-  companyName!: string;
+  company_name!: string;
 
   @IsOptional()
   @IsString()

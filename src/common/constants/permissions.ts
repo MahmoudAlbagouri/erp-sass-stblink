@@ -34,7 +34,7 @@ export const PERMS: Record<string, PermissionMetadata> = {
     labelAr: 'الموافقة على عرض السعر',
   },
 
-  // ─── Salaries (الرواتب) ────────────────────────────
+  // ─── Salaries (الرواتب) ───────────────────────────
   SALARY_CREATE: { name: 'create_salary', labelAr: 'إضافة راتب' },
   SALARY_VIEW: { name: 'view_salaries', labelAr: 'عرض الرواتب' },
   SALARY_MANAGE: { name: 'manage_salary', labelAr: 'إدارة الرواتب' },
@@ -145,7 +145,7 @@ export const PERMS: Record<string, PermissionMetadata> = {
   LOAN_VIEW: { name: 'view_loans', labelAr: 'عرض القروض' },
   LOAN_APPROVE: { name: 'approve_loan', labelAr: 'اعتماد القروض' },
 
-  // ─── Permissions Management (إدارة الصلاحيات) ───────
+  // ─── Permissions Management (إدارة الصلاحيات) ──────
   PERMISSION_CREATE: {
     name: 'create_permission',
     labelAr: 'إنشاء صلاحية جديدة',
@@ -173,6 +173,34 @@ export const PERMS: Record<string, PermissionMetadata> = {
     name: 'update_shift',
     labelAr: 'تعديل وردية',
   },
+  // ─── End of Service (نهاية الخدمة) ──────────────────
+  EOS_CREATE: {
+    name: 'create_eos',
+    labelAr: 'إنشاء تسوية نهاية خدمة',
+  },
+  EOS_VIEW: {
+    name: 'view_eos',
+    labelAr: 'عرض تسويات نهاية الخدمة',
+  },
+  EOS_UPDATE: {
+    name: 'update_eos',
+    labelAr: 'تعديل تسوية نهاية خدمة',
+  },
+  EOS_DELETE: {
+    name: 'delete_eos',
+    labelAr: 'حذف تسوية نهاية خدمة',
+  },
+  // ─── Bonuses (المكافآت) ─────────────────────────────
+  BONUS_CREATE: { name: 'create_bonus', labelAr: 'إضافة مكافأة' },
+  BONUS_VIEW: { name: 'view_bonuses', labelAr: 'عرض المكافآت' },
+  BONUS_UPDATE: { name: 'update_bonus', labelAr: 'تعديل مكافأة' },
+  BONUS_DELETE: { name: 'delete_bonus', labelAr: 'حذف مكافأة' },
+
+  // ─── Deductions (الخصومات) ──────────────────────────
+  DEDUCTION_CREATE: { name: 'create_deduction', labelAr: 'إضافة خصم' },
+  DEDUCTION_VIEW: { name: 'view_deductions', labelAr: 'عرض الخصومات' },
+  DEDUCTION_UPDATE: { name: 'update_deduction', labelAr: 'تعديل خصم' },
+  DEDUCTION_DELETE: { name: 'delete_deduction', labelAr: 'حذف خصم' },
 
   // ___________________________________________________
   SETTLEMENT_VIEW: {
@@ -187,8 +215,53 @@ export const PERMS: Record<string, PermissionMetadata> = {
     name: 'export_settlements',
     labelAr: 'تصدير مستحقات بدل الاجازة',
   },
+  // ─── Resignations (الاستقالات) ──────────────────────
+  RESIGNATION_REQUEST_SELF: {
+    name: 'request_resignation_self',
+    labelAr: 'تقديم طلب استقالة ذاتي',
+  },
+  RESIGNATION_APPROVE: {
+    name: 'approve_resignation',
+    labelAr: 'اتخاذ قرار بشأن الاستقالات (اعتماد/رفض)',
+  },
+  RESIGNATION_VIEW_ALL: {
+    name: 'view_all_resignations',
+    labelAr: 'عرض جميع طلبات الاستقالة',
+  },
 
-  // ─── System (system admins only) ─────────────────────
+  // ─── Plans (الخطط - حصري لمالك النظام) ────────────── ✅ جديد
+  PLAN_CREATE: {
+    name: 'system:plans:create',
+    labelAr: 'إنشاء خطة اشتراك',
+  },
+  PLAN_VIEW: {
+    name: 'system:plans:view',
+    labelAr: 'عرض الخطط',
+  },
+  PLAN_UPDATE: {
+    name: 'system:plans:update',
+    labelAr: 'تعديل خطة اشتراك',
+  },
+  PLAN_DELETE: {
+    name: 'system:plans:delete',
+    labelAr: 'حذف خطة اشتراك',
+  },
+
+  // ─── Subscriptions (الاشتراكات) ───────────────────── ✅ جديد
+  SUBSCRIPTION_VIEW_OWN: {
+    name: 'subscriptions:view-own',
+    labelAr: 'عرض اشتراكي الحالي',
+  },
+  SUBSCRIPTION_VIEW_ANY: {
+    name: 'system:subscriptions:view-any',
+    labelAr: 'عرض جميع الاشتراكات',
+  },
+  SUBSCRIPTION_MANAGE: {
+    name: 'system:subscriptions:manage',
+    labelAr: 'إدارة الاشتراكات (ترقية/تجديد/إلغاء)',
+  },
+
+  // ── System (system admins only) ─────────────────────
   SYSTEM_STATS: {
     name: 'system:view_platform_stats',
     labelAr: 'عرض إحصائيات النظام',
