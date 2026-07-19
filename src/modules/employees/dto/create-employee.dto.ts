@@ -8,9 +8,13 @@ import {
   IsUUID,
   ValidateIf,
   Length, // ✅ استيراد Length
-  Matches, // ✅ استيراد Matches للتحقق من الأرقام فقط
+  Matches,
+  ValidateNested,
+  IsArray, // ✅ استيراد Matches للتحقق من الأرقام فقط
 } from 'class-validator';
 import { NationalityType } from '../entities/employee.entity';
+import { EducationDto } from './education.dto';
+import { Type } from 'class-transformer';
 
 export class CreateEmployeeDto {
   @IsString()
@@ -24,6 +28,12 @@ export class CreateEmployeeDto {
   @IsEnum(NationalityType)
   @IsNotEmpty({ message: 'نوع الجنسية مطلوب' })
   nationalityType!: NationalityType;
+
+  @ValidateNested({ each: true })
+  @Type(() => EducationDto)
+  @IsArray()
+  @IsOptional()
+  educations?: EducationDto[];
 
   @ValidateIf(
     (o: CreateEmployeeDto) => o.nationalityType === NationalityType.NON_SAUDI,

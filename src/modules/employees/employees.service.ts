@@ -1,4 +1,3 @@
-// src/modules/employees/employees.service.ts
 import {
   Injectable,
   NotFoundException,
@@ -14,7 +13,6 @@ import { User } from '../users/entities/user.entity';
 @Injectable()
 export class EmployeesService {
   // عدد خانات بادئة الشركة وعدد خانات الرقم التسلسلي
-  // لو جهاز البصمة عندك بيقبل أرقام أطول/أقصر من 7 خانات، غيّر القيمتين دول بس
   private readonly TENANT_PREFIX_DIGITS = 3; // 000 - 999
   private readonly SEQUENCE_DIGITS = 4; // 0000 - 9999
 
@@ -45,13 +43,7 @@ export class EmployeesService {
   }
 
   /**
-   * ✅ بادئة رقمية بالكامل (من 000 لـ 999) مشتقة بشكل ثابت من tenantId
-   * باستخدام دالة hash بسيطة وحتمية: نفس الـ tenantId هيدّي دايماً نفس
-   * البادئة. مفيش حروف ولا فواصل، عشان جهاز البصمة (ZKTeco) بيقبل أرقام بس.
-   *
-   * احتمالية تطابق بادئتين لشركتين مختلفتين واردة رياضياً (1 من 1000)،
-   * لكنها مش مشكلة عملياً لأن آلية إعادة المحاولة في create() بتكتشف أي
-   * تعارض فعلي على مستوى الكود الكامل وتولّد رقم تسلسلي مختلف تلقائياً.
+   * ✅ بادئة رقمية بالكامل مشتقة بشكل ثابت من tenantId
    */
   private getTenantPrefix(tenantId: string): string {
     const mod = 10 ** this.TENANT_PREFIX_DIGITS;
@@ -63,12 +55,7 @@ export class EmployeesService {
   }
 
   /**
-   * توليد كود الموظف التالي: كود رقمي بالكامل = بادئة الشركة + رقم تسلسلي
-   * مثال: "2350001" (بادئة 235 + رقم 0001)
-   *
-   * الترقيم لسه مستقل لكل شركة (بيبدأ من 0001 لكل tenant)، والبحث عن
-   * أعلى رقم بيشمل الموظفين المحذوفين (withDeleted) عشان منولّدش كود
-   * مُستخدم بالفعل سواء فعّال أو محذوف soft-delete.
+   * توليد كود الموظف التالي
    */
   private async generateEmployeeCode(tenantId: string): Promise<string> {
     const prefix = this.getTenantPrefix(tenantId);
@@ -85,8 +72,6 @@ export class EmployeesService {
       const code = emp.employeeCode;
       if (!code) continue;
 
-      // نهتم بس بالأكواد اللي بنفس بادئة الشركة الحالية وبنفس الطول المتوقع
-      // (أي أكواد قديمة بصيغة مختلفة بنتجاهلها هنا ومش بنستخدمها في الحساب)
       if (code.length === totalLength && code.startsWith(prefix)) {
         const num = parseInt(code.slice(this.TENANT_PREFIX_DIGITS), 10);
         if (!isNaN(num) && num > maxNumber) maxNumber = num;
@@ -112,13 +97,18 @@ export class EmployeesService {
         throw new NotFoundException('المستخدم غير موجود أو لا ينتمي لشركتك');
     }
 
-    // 2. آلية إعادة المحاولة: حماية إضافية ضد أي تزامن نادر بين طلبين
-    // بيوصلوا في نفس اللحظة، أو تطابق نادر في البادئة بين شركتين مختلفتين
+    // 2. آلية إعادة المحاولة لتوليد الكود
     const MAX_RETRIES = 3;
     let lastError: unknown;
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       const employeeCode = await this.generateEmployeeCode(tenantId);
+
+      // ✅ معالجة تواريخ المؤهلات التعليمية قبل الحفظ
+      const processedEducations = dto.educations?.map((edu) => ({
+        ...edu,
+        expiryDate: edu.expiryDate ? new Date(edu.expiryDate) : undefined,
+      }));
 
       const employee = this.repo.create({
         ...dto,
@@ -128,6 +118,8 @@ export class EmployeesService {
         iqamaExpiryDate: dto.iqamaExpiryDate
           ? new Date(dto.iqamaExpiryDate)
           : undefined,
+        // ✅ إضافة المؤهلات المعالجة
+        educations: processedEducations,
       });
 
       try {
@@ -139,9 +131,8 @@ export class EmployeesService {
           (pgError.detail?.includes('employeeCode') ||
             pgError.detail?.includes('employee_code'));
 
-        if (!isEmployeeCodeConflict) throw error; // أي خطأ آخر يُرمى فوراً كما هو
+        if (!isEmployeeCodeConflict) throw error;
         lastError = error;
-        // وإلا أعد المحاولة بكود جديد
       }
     }
 
@@ -151,7 +142,7 @@ export class EmployeesService {
   async findAll(tenantId: string): Promise<Employee[]> {
     return this.repo.find({
       where: { tenantId },
-      relations: ['user'],
+      relations: ['user', 'educations'], // ✅ إضافة educations للعلاقات
       order: { createdAt: 'DESC' },
     });
   }
@@ -159,7 +150,7 @@ export class EmployeesService {
   async findOne(id: string, tenantId: string): Promise<Employee> {
     const employee = await this.repo.findOne({
       where: { id, tenantId },
-      relations: ['user', 'contract'],
+      relations: ['user', 'contract', 'educations'], // ✅ إضافة educations للعلاقات
     });
     if (!employee) throw new NotFoundException('الموظف غير موجود');
     return employee;
@@ -181,6 +172,15 @@ export class EmployeesService {
       const user = await this.userRepo.findOneBy({ id: dto.userId, tenantId });
       if (!user) throw new NotFoundException('المستخدم المحدد غير موجود');
       employee.user = user;
+    }
+
+    // ✅ معالجة المؤهلات التعليمية يدوياً لضمان الاستبدال الصحيح
+    if (dto.educations !== undefined) {
+      employee.educations = dto.educations.map((edu) => ({
+        ...edu,
+        expiryDate: edu.expiryDate ? new Date(edu.expiryDate) : undefined,
+        employeeId: employee.id,
+      })) as Employee['educations'];
     }
 
     Object.assign(employee, dto);

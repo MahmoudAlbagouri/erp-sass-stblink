@@ -221,7 +221,7 @@ export class SettlementsService {
         notes:
           dto.notes ??
           (dto.settlementType === SettlementType.FULL
-            ? 'تسوية كاملة لنهاية الخدمة'
+            ? 'تسوية كاملة بدل الاجازة'
             : `تسوية جزئية (${roundedDays} يوم)`),
       });
       const saved = await queryRunner.manager.save(Settlement, settlement);

@@ -1,4 +1,3 @@
-// src/modules/contracts/entities/contract.entity.ts
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -18,6 +17,25 @@ export enum ContractType {
   OTHER = 'أخرى',
 }
 
+export enum TicketType {
+  NONE = 'بدون',
+  ONE_WAY = 'ذهاب فقط',
+  ROUND_TRIP = 'ذهاب وعودة',
+}
+
+export enum ProbationPeriod {
+  NONE = 'بدون',
+  THREE_MONTHS = '3 شهور',
+  SIX_MONTHS = '6 شهور',
+}
+
+// ✅ إضافة Enum للتأمين الطبي
+export enum MedicalInsuranceType {
+  NONE = 'بدون',
+  INDIVIDUAL = 'فردي',
+  FAMILY = 'عائلي',
+}
+
 @Entity('employee_contracts')
 export class Contract {
   @PrimaryGeneratedColumn('uuid')
@@ -30,7 +48,6 @@ export class Contract {
   })
   contractType!: ContractType;
 
-  /** تاريخ التعيين — نقطة البداية الافتراضية لحساب الاستحقاق اليومي */
   @Column({ type: 'date' })
   startDate!: Date;
 
@@ -40,9 +57,37 @@ export class Contract {
   @Column({ type: 'int', default: 30 })
   annualLeaveDays!: number;
 
-  /** مدة العقد بالسنوات (اختياري، للعقود محددة المدة) */
   @Column({ name: 'contract_duration_years', type: 'int', nullable: true })
   contractDurationYears?: number;
+
+  @Column({
+    type: 'enum',
+    enum: TicketType,
+    default: TicketType.NONE,
+    nullable: true,
+  })
+  ticketType?: TicketType;
+
+  @Column({
+    type: 'enum',
+    enum: ProbationPeriod,
+    default: ProbationPeriod.NONE,
+    nullable: true,
+  })
+  probationPeriod?: ProbationPeriod;
+
+  // ✅ حقل التأمين الطبي
+  @Column({
+    type: 'enum',
+    enum: MedicalInsuranceType,
+    default: MedicalInsuranceType.NONE,
+    nullable: true,
+  })
+  medicalInsurance?: MedicalInsuranceType;
+
+  // ✅ حقل الجنسية (للعقود)
+  @Column({ name: 'nationality', nullable: true, length: 100 })
+  nationality?: string;
 
   @Column({ type: 'text', nullable: true })
   notes?: string;

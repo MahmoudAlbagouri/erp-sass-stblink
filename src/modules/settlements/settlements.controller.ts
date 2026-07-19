@@ -74,7 +74,7 @@ export class SettlementsController {
       { header: 'كود الموظف', key: 'employeeCode' },
       { header: 'تاريخ التسوية', key: 'settlementDate' },
       { header: 'عدد الأيام', key: 'unusedLeaveDays' },
-      { header: 'أجر اليوم', key: 'dailyRate' },
+      // { header: 'أجر اليوم', key: 'dailyRate' },
       { header: 'إجمالي المبلغ', key: 'totalAmount' },
       { header: 'ملاحظات', key: 'notes' },
     ];
@@ -114,7 +114,7 @@ export class SettlementsController {
       const buffer = await this.reportService.generatePdf(
         formattedData,
         columns,
-        'تقرير تسويات نهاية الخدمة',
+        'تقرير تسويات بدل الاجازة',
       );
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader(

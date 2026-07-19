@@ -1,4 +1,3 @@
-// src/modules/employees/employees-onboarding.service.ts
 import {
   Injectable,
   ConflictException,
@@ -137,6 +136,12 @@ export class EmployeesOnboardingService {
 
       const employeeCode = await this.generateEmployeeCode(tenantId, manager);
 
+      // ✅ معالجة تواريخ المؤهلات التعليمية
+      const processedEducations = dto.educations?.map((edu) => ({
+        ...edu,
+        expiryDate: edu.expiryDate ? new Date(edu.expiryDate) : undefined,
+      }));
+
       const newEmployee = manager.create(Employee, {
         fullName: dto.fullName,
         nationalityType: dto.nationalityType,
@@ -153,12 +158,14 @@ export class EmployeesOnboardingService {
         employeeCode,
         tenantId,
         user: user,
+        // ✅ إضافة المؤهلات للموظف الجديد
+        educations: processedEducations,
       });
 
       const savedEmployee = await manager.save(Employee, newEmployee);
       result.employee = savedEmployee;
 
-      // ✅ إنشاء العقد مع المرفقات ومدة العقد
+      // ✅ إنشاء العقد مع المرفقات ومدة العقد والتذكرة وفترة التجربة والتأمين والجنسية
       if (dto.contract) {
         const newContract = manager.create(Contract, {
           contractType: dto.contract.contractType,
@@ -167,7 +174,14 @@ export class EmployeesOnboardingService {
             ? new Date(dto.contract.endDate)
             : undefined,
           annualLeaveDays: dto.contract.annualLeaveDays ?? 30,
-          contractDurationYears: dto.contract.contractDurationYears, // ✅ تمرير القيمة الجديدة
+          contractDurationYears: dto.contract.contractDurationYears,
+
+          // ✅ إضافة الحقول الجديدة هنا
+          ticketType: dto.contract.ticketType,
+          probationPeriod: dto.contract.probationPeriod,
+          medicalInsurance: dto.contract.medicalInsurance, // ✅ التأمين الطبي
+          nationality: dto.contract.nationality, // ✅ الجنسية
+
           notes: dto.contract.notes,
           attachmentPaths: dto.contract.attachmentPaths,
           employeeId: savedEmployee.id,

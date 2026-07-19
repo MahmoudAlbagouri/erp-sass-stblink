@@ -1,4 +1,3 @@
-// src/modules/employees/dto/onboard-employee.dto.ts
 import {
   IsString,
   IsNotEmpty,
@@ -18,6 +17,14 @@ import {
 import { Type } from 'class-transformer';
 import { NationalityType } from '../entities/employee.entity';
 import { ContractType } from '../../contracts/entities/contract.entity';
+// استيراد الـ Enums الجديدة من موديول العقود
+import {
+  TicketType,
+  ProbationPeriod,
+  MedicalInsuranceType, // ✅ استيراد Enum التأمين الطبي
+} from '../../contracts/entities/contract.entity';
+// ✅ استيراد DTO المؤهلات
+import { EducationDto } from './education.dto';
 
 export class OnboardUserDto {
   @IsString()
@@ -61,11 +68,29 @@ export class OnboardContractDto {
   @IsOptional()
   annualLeaveDays?: number;
 
-  // ✅ إضافة حقل مدة العقد
   @IsNumber()
   @IsOptional()
   @Min(1)
   contractDurationYears?: number;
+
+  // الحقول الجديدة للتذكرة وفترة التجربة
+  @IsEnum(TicketType)
+  @IsOptional()
+  ticketType?: TicketType;
+
+  @IsEnum(ProbationPeriod)
+  @IsOptional()
+  probationPeriod?: ProbationPeriod;
+
+  // ✅ إضافة حقل التأمين الطبي
+  @IsEnum(MedicalInsuranceType)
+  @IsOptional()
+  medicalInsurance?: MedicalInsuranceType;
+
+  // ✅ إضافة حقل الجنسية (للعقود)
+  @IsString()
+  @IsOptional()
+  nationality?: string;
 
   @IsString()
   @IsOptional()
@@ -107,13 +132,19 @@ export class OnboardEmployeeDto {
   @IsNotEmpty({ message: 'نوع الجنسية مطلوب' })
   nationalityType!: NationalityType;
 
+  // ✅ إضافة حقل المؤهلات التعليمية
+  @ValidateNested({ each: true })
+  @Type(() => EducationDto)
+  @IsArray()
+  @IsOptional()
+  educations?: EducationDto[];
+
   @ValidateIf(
     (o: OnboardEmployeeDto) => o.nationalityType === NationalityType.NON_SAUDI,
   )
   @IsDateString({}, { message: 'تاريخ انتهاء الإقامة مطلوب لغير السعوديين' })
   iqamaExpiryDate?: string;
 
-  // ✅ تحديث رقم الهوية
   @IsString()
   @IsOptional()
   @Length(10, 10, { message: 'رقم الهوية يجب أن يتكون من 10 أرقام' })
@@ -124,7 +155,6 @@ export class OnboardEmployeeDto {
   @IsOptional()
   nationalIdCardPath?: string;
 
-  // ✅ تحديث رقم الهاتف
   @IsString()
   @IsOptional()
   @Length(10, 10, { message: 'رقم الهاتف يجب أن يتكون من 10 أرقام' })

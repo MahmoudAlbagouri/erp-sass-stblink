@@ -1,4 +1,3 @@
-// src/modules/contracts/dto/create-contract.dto.ts
 import {
   IsNotEmpty,
   IsString,
@@ -10,7 +9,12 @@ import {
   IsArray,
   Min,
 } from 'class-validator';
-import { ContractType } from '../entities/contract.entity';
+import {
+  ContractType,
+  TicketType,
+  ProbationPeriod,
+  MedicalInsuranceType, // ✅ استيراد النوع الجديد
+} from '../entities/contract.entity';
 
 export class CreateContractDto {
   @IsUUID()
@@ -33,17 +37,32 @@ export class CreateContractDto {
   @IsNotEmpty()
   annualLeaveDays!: number;
 
-  // ✅ إضافة حقل مدة العقد
   @IsNumber()
   @IsOptional()
   @Min(1)
   contractDurationYears?: number;
 
+  @IsEnum(TicketType)
+  @IsOptional()
+  ticketType?: TicketType;
+
+  @IsEnum(ProbationPeriod)
+  @IsOptional()
+  probationPeriod?: ProbationPeriod;
+
+  // ✅ إضافة الحقول الجديدة للـ DTO
+  @IsEnum(MedicalInsuranceType)
+  @IsOptional()
+  medicalInsurance?: MedicalInsuranceType;
+
+  @IsString()
+  @IsOptional()
+  nationality?: string;
+
   @IsOptional()
   @IsString()
   notes?: string;
 
-  // استقبال مصفوفة الروابط من الـ Frontend
   @IsOptional()
   @IsArray()
   attachmentPaths?: string[];

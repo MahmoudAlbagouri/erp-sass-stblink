@@ -17,6 +17,7 @@ import { Contract } from 'src/modules/contracts/entities/contract.entity';
 import { Loan } from 'src/modules/loans/entities/loan.entity';
 import { Advance } from 'src/modules/advances/entities/advance.entity';
 import { Shift } from 'src/modules/shifts/entities/shift.entity';
+import { Education } from './education.entity';
 
 // تعريف أنواع الجنسية
 export enum NationalityType {
@@ -92,6 +93,8 @@ export class Employee {
   @ManyToOne(() => Tenant, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'tenant_id' })
   tenant?: Tenant;
+  @OneToMany(() => Education, (edu) => edu.employee, { cascade: true })
+  educations?: Education[];
 
   @ManyToOne(() => Shift, { nullable: true })
   @JoinColumn({ name: 'shift_id' })
