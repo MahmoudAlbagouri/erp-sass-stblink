@@ -4,7 +4,7 @@ import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
 export class CreateTenantDto {
   @IsString()
   @IsNotEmpty({ message: 'اسم الشركة مطلوب' })
-  company_name!: string; // camelCase كما يرسلها الفرونت إند
+  companyName!: string; // camelCase كما يرسلها الفرونت إند
 
   @IsOptional()
   @IsString()

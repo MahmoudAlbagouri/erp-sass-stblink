@@ -41,7 +41,7 @@ export class AuthService {
       // 1. إنشاء الشركة والاشتراك التجريبي تلقائياً عبر TenantsService
       const tenant = await this.tenantsService.create(
         {
-          company_name: dto.company_name,
+          companyName: dto.companyName,
           phone: dto.phone,
           address: dto.address,
           language: 'ar',

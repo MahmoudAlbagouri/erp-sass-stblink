@@ -31,7 +31,7 @@ export class TenantsService {
 
     // ✅ تحويل البيانات لتطابق الـ Entity (snake_case) بدون أي حقول حالة قديمة
     const tenantData = {
-      company_name: createTenantDto.company_name,
+      companyName: createTenantDto.companyName,
       phone: createTenantDto.phone,
       address: createTenantDto.address,
       country: createTenantDto.country,

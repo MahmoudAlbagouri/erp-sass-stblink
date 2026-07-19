@@ -16,7 +16,7 @@ export class Tenant {
   id!: string;
 
   @Column({ unique: true })
-  company_name!: string;
+  companyName!: string;
 
   @Column({ nullable: true })
   logo_url?: string;
