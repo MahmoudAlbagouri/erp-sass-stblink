@@ -26,8 +26,22 @@ export class SalariesService {
     return await this.repo.save(salary);
   }
 
+  // ✅ تحديث findAll لجلب بيانات الموظف
   async findAll(tenantId: string) {
-    return await this.repo.find({ where: { tenantId } });
+    return await this.repo.find({
+      where: { tenantId },
+      relations: ['employee'], // ✅ جلب بيانات الموظف للتصدير الجماعي
+    });
+  }
+
+  // ✅ إضافة دالة findOne المفقودة
+  async findOne(id: string, tenantId: string) {
+    const salary = await this.repo.findOne({
+      where: { id, tenantId },
+      relations: ['employee'], // ✅ ضروري للتصدير الفردي
+    });
+    if (!salary) throw new NotFoundException('الراتب غير موجود');
+    return salary;
   }
 
   async update(id: string, dto: UpdateSalaryDto, tenantId: string) {
@@ -38,6 +52,7 @@ export class SalariesService {
     salary.totalSalary = this.calculateTotal(salary);
     return await this.repo.save(salary);
   }
+
   async findByEmployeeIds(ids: string[]) {
     if (!ids.length) return [];
     return await this.repo.find({

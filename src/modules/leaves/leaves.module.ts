@@ -16,6 +16,7 @@ import { LeaveBalanceHistory } from './entities/leave-balance-history.entity';
 import { ContractsModule } from '../contracts/contracts.module';
 import { DateUtils } from 'src/common/utils/date.utils';
 import { LeavePolicyService } from './config/leave-policy.config';
+import { ReportService } from 'src/common/reports/report.service';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { LeavePolicyService } from './config/leave-policy.config';
     LeaveCarryoverCronService,
     DateUtils, // ✅ إضافة الموديول الذي يحتوي على DateUtils
     LeavePolicyService,
+    ReportService,
   ],
   exports: [LeavesService, DateUtils, LeaveAccrualService],
 })

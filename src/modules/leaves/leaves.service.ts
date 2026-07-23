@@ -1,3 +1,4 @@
+// src/modules/leaves/leaves.service.ts
 import {
   Injectable,
   NotFoundException,
@@ -34,10 +35,6 @@ export class LeavesService {
     private readonly dateUtils: DateUtils,
   ) {}
 
-  /**
-   * تفاصيل الرصيد الديناميكي للعرض في الفرونت إند — تتضمن الآن أيضاً
-   * الحد الأقصى المسموح به لطلب إجازة (الرصيد + الهامش الائتماني).
-   */
   async getAccrualDetails(employeeId: string, tenantId: string) {
     const contract = await this.contractsService.getByEmployeeId(
       employeeId,
@@ -53,7 +50,6 @@ export class LeavesService {
     );
     const accrualStartDate = balance.accrualStartDate ?? contract.startDate;
 
-    // ✅ تمرير consumedDays لضمان عرض الرصيد الصحيح بعد التسويات
     const accrual = await this.accrualService.calculateAccrual({
       employeeId,
       tenantId,
@@ -68,14 +64,9 @@ export class LeavesService {
       accrual,
       balance.totalAllowance,
     );
-
     return { ...accrual, allowedRequestLimit };
   }
 
-  /**
-   * ✅ محسّنة: تستخدم QueryBuilder بدل repo.find() مع where متعدد الأشكال،
-   * ما يقلل الحمل على قاعدة البيانات ويستفيد من الفهارس على employeeId/status.
-   */
   private async checkDateOverlap(
     employeeId: string,
     startDate: Date,
@@ -104,7 +95,6 @@ export class LeavesService {
     }
   }
 
-  /** يجلب سجل الرصيد الحالي، أو يُنشئه تلقائياً بناءً على العقد */
   private async getOrCreateCurrentBalance(
     employeeId: string,
     tenantId: string,
@@ -119,12 +109,10 @@ export class LeavesService {
       employeeId,
       tenantId,
     );
-
-    if (!contract) {
+    if (!contract)
       throw new BadRequestException(
         'لا يمكن إنشاء رصيد إجازات: لا يوجد عقد نشط لهذا الموظف',
       );
-    }
 
     const balance = this.balanceRepo.create({
       employeeId,
@@ -135,22 +123,18 @@ export class LeavesService {
       carriedOverDays: 0,
       accrualStartDate: contract.startDate,
     });
-
     return await this.balanceRepo.save(balance);
   }
 
   async create(dto: CreateLeaveDto, employeeId: string, tenantId: string) {
     const start = new Date(dto.startDate);
     const end = new Date(dto.endDate);
-
-    if (end < start) {
+    if (end < start)
       throw new BadRequestException(
         'تاريخ النهاية يجب أن يكون بعد تاريخ البداية',
       );
-    }
 
     await this.checkDateOverlap(employeeId, start, end);
-
     const diffDays = this.dateUtils.calculateDurationDays(start, end, true);
 
     if (dto.type === LeaveType.ANNUAL) {
@@ -160,10 +144,8 @@ export class LeavesService {
         tenantId,
         year,
       );
-
       const accrualStartDate = balance.accrualStartDate ?? start;
 
-      // ✅ تمرير consumedDays للتحقق من الرصيد المتاح الحقيقي (بعد خصم التسويات)
       const accrual = await this.accrualService.calculateAccrual({
         employeeId,
         tenantId,
@@ -174,19 +156,13 @@ export class LeavesService {
         consumedDaysFromBalance: balance.consumedDays,
       });
 
-      // ✅ سياسة الحد الائتماني القابل للإعداد
       const allowedLimit = this.accrualService.getAllowedRequestLimit(
         accrual,
         balance.totalAllowance,
       );
-
       if (allowedLimit.lessThan(diffDays)) {
         throw new BadRequestException(
-          `رصيد الإجازات غير كافٍ. الرصيد المكتسب فعلياً: ${accrual.availableDays.toFixed(
-            2,
-          )} يوم، الحد الأقصى المسموح به شاملاً الهامش الائتماني: ${allowedLimit.toFixed(
-            2,
-          )} يوم، المطلوب: ${diffDays} يوم`,
+          `رصيد الإجازات غير كافٍ. الرصيد المكتسب فعلياً: ${accrual.availableDays.toFixed(2)} يوم، الحد الأقصى المسموح به شاملاً الهامش الائتماني: ${allowedLimit.toFixed(2)} يوم، المطلوب: ${diffDays} يوم`,
         );
       }
     }
@@ -199,24 +175,31 @@ export class LeavesService {
       tenantId,
       status: LeaveStatus.PENDING,
     });
-
     return await this.repo.save(leave);
   }
 
+  // ✅ تحديث findAll لجلب بيانات الموظف
   async findAll(tenantId: string) {
     return await this.repo.find({
       where: { tenantId },
-      relations: { employee: true },
+      relations: ['employee'],
       order: { createdAt: 'DESC' },
     });
   }
 
+  // ✅ إضافة findOne المفقودة للتصدير الفردي
+  async findOne(id: string, tenantId: string) {
+    const leave = await this.repo.findOne({
+      where: { id, tenantId },
+      relations: ['employee'],
+    });
+    if (!leave) throw new NotFoundException('طلب الإجازة غير موجود');
+    return leave;
+  }
+
   async updateStatus(id: string, status: LeaveStatus, tenantId: string) {
     const leave = await this.repo.findOne({ where: { id, tenantId } });
-
-    if (!leave) {
-      throw new NotFoundException('طلب الإجازة غير موجود في مؤسستك');
-    }
+    if (!leave) throw new NotFoundException('طلب الإجازة غير موجود في مؤسستك');
 
     if (
       status === LeaveStatus.APPROVED &&
@@ -237,7 +220,6 @@ export class LeavesService {
     const existing = await this.balanceRepo.findOne({
       where: { employeeId: dto.employeeId, year: dto.year, tenantId },
     });
-
     if (existing) {
       existing.totalAllowance = dto.amount;
       return await this.balanceRepo.save(existing);
@@ -247,7 +229,6 @@ export class LeavesService {
       dto.employeeId,
       tenantId,
     );
-
     const balance = this.balanceRepo.create({
       employeeId: dto.employeeId,
       year: dto.year,
@@ -258,26 +239,20 @@ export class LeavesService {
     return await this.balanceRepo.save(balance);
   }
 
-  /** يخصم الرصيد ويسجّل الحركة في سجل التدقيق */
   private async deductBalance(leave: LeaveRequest, tenantId: string) {
     const diffDays = this.dateUtils.calculateDurationDays(
       leave.startDate,
       leave.endDate,
       true,
     );
-
     const year = new Date(leave.startDate).getFullYear();
     const balance = await this.balanceRepo.findOne({
       where: { employeeId: leave.employeeId, tenantId, year },
     });
-
-    if (!balance) {
+    if (!balance)
       throw new BadRequestException('خطأ في نظام الرصيد: السجل غير موجود');
-    }
 
     const accrualStartDate = balance.accrualStartDate ?? leave.startDate;
-
-    // ✅ تمرير consumedDays لحساب الرصيد المتبقي بدقة قبل وبعد الخصم
     const accrual = await this.accrualService.calculateAccrual({
       employeeId: leave.employeeId,
       tenantId,
@@ -288,13 +263,10 @@ export class LeavesService {
       consumedDaysFromBalance: balance.consumedDays,
     });
 
-    // ملاحظة: التحقق من كفاية الرصيد يحدث في create() عند تقديم الطلب
-    // (عبر سياسة الحد الائتماني). هنا نخصم فعلياً عند الموافقة.
     balance.consumedDays += diffDays;
     await this.balanceRepo.save(balance);
 
     const finalAvailable = accrual.availableDays.minus(diffDays);
-
     const formattedStartDate = new Date(leave.startDate)
       .toISOString()
       .split('T')[0];

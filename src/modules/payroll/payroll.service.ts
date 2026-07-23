@@ -1,7 +1,7 @@
 // src/modules/payroll/payroll.service.ts
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, Between, In } from 'typeorm';
+import { Repository, DataSource, Between, In, LessThanOrEqual } from 'typeorm';
 import { Payroll } from './entities/payroll.entity';
 import { PayrollItem } from './entities/payroll-item.entity';
 import { Salary } from '../salaries/entities/salary.entity';
@@ -14,9 +14,9 @@ import {
 } from '../leaves/entities/leave-request.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { Bonus } from '../bonuses/entities/bonus.entity';
-import { Deduction } from '../deduction/entities/deduction.entity'; // ✅ تصحيح مسار الخصومات
-import { Settlement } from '../settlements/entities/settlement.entity'; // ✅ استيراد تسوية الإجازات
-import { EndOfService } from '../eos/entities/eos.entity'; // ✅ استيراد نهاية الخدمة
+import { Deduction } from '../deduction/entities/deduction.entity';
+import { Settlement } from '../settlements/entities/settlement.entity';
+import { EndOfService } from '../eos/entities/eos.entity';
 
 @Injectable()
 export class PayrollService {
@@ -27,145 +27,123 @@ export class PayrollService {
   ) {}
 
   async generateMonthlyPayroll(month: number, year: number, tenantId: string) {
-    // ✅ 1. التحقق الزمني الصارم
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1;
 
-    if (year > currentYear) {
-      throw new BadRequestException(
-        `لا يمكن توليد مسير رواتب لسنة ${year}. السنة الحالية هي ${currentYear}`,
-      );
+    if (year > currentYear || (year === currentYear && month > currentMonth)) {
+      throw new BadRequestException('لا يمكن توليد مسير رواتب لتاريخ مستقبلي');
     }
 
-    if (year === currentYear && month > currentMonth) {
-      throw new BadRequestException(
-        `لا يمكن توليد مسير لشهر ${month}/${year}. الشهر الحالي هو ${currentMonth}/${currentYear}`,
-      );
-    }
-
-    // ✅ 2. التحقق من عدم التكرار
     const existing = await this.payrollRepo.findOne({
       where: { month, year, tenantId },
     });
-    if (existing) {
+    if (existing)
       throw new BadRequestException('تم إعداد مسير هذا الشهر مسبقاً');
-    }
 
-    // ✅ 3. تحديد نطاق الشهر بدقة
     const monthStart = new Date(year, month - 1, 1);
     const monthEnd = new Date(year, month, 0, 23, 59, 59);
 
-    // ✅ 4. جلب البيانات الأساسية مرة واحدة
-    const employees = await this.dataSource.getRepository(Employee).find({
-      where: { tenantId, status: 'active' },
-    });
+    const employees = await this.dataSource
+      .getRepository(Employee)
+      .find({ where: { tenantId, status: 'active' } });
 
-    // ✅ 5. جلب المكافآت الخاصة بهذا الشهر
-    const bonuses = await this.dataSource.getRepository(Bonus).find({
-      where: {
-        tenantId,
-        payoutDate: Between(monthStart, monthEnd),
-      },
-    });
-
+    // جلب المكافآت
+    const bonuses = await this.dataSource
+      .getRepository(Bonus)
+      .find({ where: { tenantId, payoutDate: Between(monthStart, monthEnd) } });
     const bonusMap = new Map<string, number>();
-    for (const b of bonuses) {
-      const current = bonusMap.get(b.employeeId) || 0;
-      bonusMap.set(b.employeeId, current + Number(b.amount));
-    }
+    for (const b of bonuses)
+      bonusMap.set(
+        b.employeeId,
+        (bonusMap.get(b.employeeId) || 0) + Number(b.amount),
+      );
 
-    // ✅ 6. جلب الخصومات النشطة لهذا الشهر
+    // جلب الخصومات النشطة
     const allActiveDeductions = await this.dataSource
       .getRepository(Deduction)
       .find({
-        where: {
-          tenantId,
-          startDate: Between(new Date(2000, 0, 1), monthEnd),
-        },
+        where: { tenantId, startDate: Between(new Date(2000, 0, 1), monthEnd) },
       });
-
     const deductionMap = new Map<string, number>();
     const deductionsToProcess: Deduction[] = [];
-
     for (const d of allActiveDeductions) {
       if (d.paidInstallments < d.installmentsCount) {
-        const current = deductionMap.get(d.employeeId) || 0;
-        deductionMap.set(d.employeeId, current + Number(d.monthlyAmount));
-
-        if (!deductionsToProcess.some((existing) => existing.id === d.id)) {
+        deductionMap.set(
+          d.employeeId,
+          (deductionMap.get(d.employeeId) || 0) + Number(d.monthlyAmount),
+        );
+        if (!deductionsToProcess.some((ex) => ex.id === d.id))
           deductionsToProcess.push(d);
-        }
       }
     }
 
-    // ✅ 7. جلب تسويات الإجازات (بدل الإجازات) لهذا الشهر
+    // جلب التسويات ونهاية الخدمة
     const settlements = await this.dataSource.getRepository(Settlement).find({
-      where: {
-        tenantId,
-        settlementDate: Between(monthStart, monthEnd),
-      },
+      where: { tenantId, settlementDate: Between(monthStart, monthEnd) },
     });
-
     const settlementMap = new Map<string, number>();
-    for (const s of settlements) {
-      const current = settlementMap.get(s.employeeId) || 0;
-      settlementMap.set(s.employeeId, current + Number(s.totalAmount));
-    }
+    for (const s of settlements)
+      settlementMap.set(
+        s.employeeId,
+        (settlementMap.get(s.employeeId) || 0) + Number(s.totalAmount),
+      );
 
-    // ✅ 8. جلب نهايات الخدمة التي تم صرفها في هذا الشهر
-    const eosRecords = await this.dataSource.getRepository(EndOfService).find({
-      where: {
-        tenantId,
-        payoutDate: Between(monthStart, monthEnd),
-      },
-    });
-
+    const eosRecords = await this.dataSource
+      .getRepository(EndOfService)
+      .find({ where: { tenantId, payoutDate: Between(monthStart, monthEnd) } });
     const eosMap = new Map<string, number>();
-    for (const e of eosRecords) {
-      const current = eosMap.get(e.employeeId) || 0;
-      eosMap.set(e.employeeId, current + Number(e.eosAmount));
-    }
+    for (const e of eosRecords)
+      eosMap.set(
+        e.employeeId,
+        (eosMap.get(e.employeeId) || 0) + Number(e.eosAmount),
+      );
 
     const payrollItems: Partial<PayrollItem>[] = [];
     let grandTotal = 0;
 
+    // ✅ قائمة لتجميع القروض التي سيتم زيادة عداد السداد لها
+    const loansToIncrement: Loan[] = [];
+
     for (const emp of employees) {
-      // جلب الراتب
-      const salary = await this.dataSource.getRepository(Salary).findOne({
-        where: { employeeId: emp.id, tenantId },
-      });
-
+      const salary = await this.dataSource
+        .getRepository(Salary)
+        .findOne({ where: { employeeId: emp.id, tenantId } });
       const basic = Number(salary?.basicSalary || 0);
-
-      // ✅ تجميع جميع الإضافات (البدلات + المكافآت + بدل الإجازات + نهاية الخدمة)
-      const bonusAmount = bonusMap.get(emp.id) || 0;
-      const leaveSettlementAmount = settlementMap.get(emp.id) || 0;
-      const eosAmount = eosMap.get(emp.id) || 0;
 
       const allowances =
         Number(salary?.housingAllowance || 0) +
         Number(salary?.transportAllowance || 0) +
         Number(salary?.otherAllowances || 0) +
-        bonusAmount +
-        leaveSettlementAmount + // ✅ بدل الإجازات
-        eosAmount; // ✅ نهاية الخدمة
+        (bonusMap.get(emp.id) || 0) +
+        (settlementMap.get(emp.id) || 0) +
+        (eosMap.get(emp.id) || 0);
 
-      // جلب القروض المعتمدة
-      const loans = await this.dataSource.getRepository(Loan).find({
-        where: { employeeId: emp.id, tenantId, status: LoanStatus.APPROVED },
+      // ✅ جلب القروض المعتمدة والتي لم تكتمل أقساطها بعد
+      // ✅ التعديل هنا: إضافة شرط LessThanOrEqual للتأكد من أن تاريخ البدء ليس في المستقبل بالنسبة لهذا الشهر
+      const activeLoans = await this.dataSource.getRepository(Loan).find({
+        where: {
+          employeeId: emp.id,
+          tenantId,
+          status: LoanStatus.APPROVED,
+          startDate: LessThanOrEqual(monthEnd), // ✅ التأكد من أن القرض بدأ قبل أو خلال هذا الشهر
+        },
       });
-      const loanDeduction = loans.reduce(
-        (sum, l) => sum + Number(l.monthlyInstallment),
-        0,
-      );
 
-      // جلب السلف المستحقة لهذا الشهر
+      let loanDeduction = 0;
+      for (const loan of activeLoans) {
+        // ✅ فقط إذا كان عدد الدفعات المسددة أقل من الكلي، نقوم بالخصم وتجميع القرض للمعالجة
+        if (loan.paidInstallments < loan.installmentsCount) {
+          loanDeduction += Number(loan.monthlyInstallment);
+          loansToIncrement.push(loan);
+        }
+      }
+
       const advances = await this.dataSource.getRepository(Advance).find({
         where: {
           employeeId: emp.id,
           tenantId,
-          status: In([AdvanceStatus.APPROVED]),
+          status: AdvanceStatus.APPROVED,
           repaymentDate: Between(monthStart, monthEnd),
         },
       });
@@ -174,7 +152,6 @@ export class PayrollService {
         0,
       );
 
-      // جلب الإجازات غير مدفوعة الأجر
       const unpaidLeaves = await this.dataSource
         .getRepository(LeaveRequest)
         .find({
@@ -186,39 +163,33 @@ export class PayrollService {
             startDate: Between(monthStart, monthEnd),
           },
         });
-
       const unpaidDays = unpaidLeaves.length;
       const dailyRate = basic > 0 ? basic / 30 : 0;
       const unpaidLeaveDeduction = unpaidDays * dailyRate;
 
-      // ✅ إضافة الخصومات المخصصة
       const customDeductionAmount = deductionMap.get(emp.id) || 0;
-
-      // ✅ الحساب النهائي
       const gross = basic + allowances;
       const totalDeductions =
         loanDeduction +
         advanceDeduction +
         unpaidLeaveDeduction +
         customDeductionAmount;
-
       const net = Math.max(0, gross - totalDeductions);
 
       payrollItems.push({
         employeeId: emp.id,
         basicSalary: basic,
-        allowances, // ✅ يحتوي الآن على البدلات + المكافآت + بدل الإجازات + نهاية الخدمة
+        allowances,
         loanDeduction,
         advanceDeduction,
         unpaidLeaveDeduction,
         otherDeductions: customDeductionAmount,
         netSalary: net,
       });
-
       grandTotal += net;
     }
 
-    // ✅ 9. حفظ البيانات ضمن Transaction لضمان السلامة الذرية
+    // ✅ حفظ البيانات وزيادة العدادات ضمن Transaction
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -231,14 +202,12 @@ export class PayrollService {
         totalNetSalary: grandTotal,
         paymentDate: new Date(),
       });
+      await queryRunner.manager.save(
+        PayrollItem,
+        payrollItems.map((item) => ({ ...item, payrollId: payroll.id })),
+      );
 
-      const savedItems = payrollItems.map((item) => ({
-        ...item,
-        payrollId: payroll.id,
-      }));
-      await queryRunner.manager.save(PayrollItem, savedItems);
-
-      // ✅ 10. زيادة عداد الدفعات المدفوعة للخصومات بعد نجاح حفظ المسير
+      // ✅ زيادة عداد الدفعات للخصومات
       if (deductionsToProcess.length > 0) {
         await queryRunner.manager.increment(
           Deduction,
@@ -246,6 +215,24 @@ export class PayrollService {
           'paidInstallments',
           1,
         );
+      }
+
+      // ✅ زيادة عداد الدفعات للقروض وتحديث الحالة عند الاكتمال
+      if (loansToIncrement.length > 0) {
+        await queryRunner.manager.increment(
+          Loan,
+          { id: In(loansToIncrement.map((l) => l.id)) },
+          'paidInstallments',
+          1,
+        );
+
+        for (const loan of loansToIncrement) {
+          if (loan.paidInstallments + 1 >= loan.installmentsCount) {
+            await queryRunner.manager.update(Loan, loan.id, {
+              status: LoanStatus.COMPLETED,
+            });
+          }
+        }
       }
 
       await queryRunner.commitTransaction();
@@ -258,12 +245,10 @@ export class PayrollService {
     }
   }
 
-  // ✅ جديدة: جلب كل المسيرات مع فلاتر اختيارية
   async findAllPayrolls(tenantId: string, year?: number, month?: number) {
     const where: any = { tenantId };
     if (year) where.year = year;
     if (month && year) where.month = month;
-
     return this.payrollRepo.find({
       where,
       relations: ['items', 'items.employee'],
@@ -271,11 +256,8 @@ export class PayrollService {
     });
   }
 
-  // ✅ محسنة: جلب مسير محدد للشهر/السنة
   async findByMonth(month: number, year: number, tenantId: string) {
-    return this.payrollRepo.find({
-      where: { month, year, tenantId },
-    });
+    return this.payrollRepo.find({ where: { month, year, tenantId } });
   }
 
   async findOneWithDetails(id: string, tenantId: string) {

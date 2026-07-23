@@ -10,7 +10,6 @@ export class LoansService {
   constructor(@InjectRepository(Loan) private repo: Repository<Loan>) {}
 
   async create(dto: CreateLoanDto, employeeId: string, tenantId: string) {
-    // حساب القسط الشهري بدقة
     const monthlyInstallment =
       Number(dto.totalAmount) / Number(dto.installmentsCount);
 
@@ -31,6 +30,16 @@ export class LoansService {
       relations: ['employee'],
       order: { createdAt: 'DESC' },
     });
+  }
+
+  // ✅ إضافة findOne لدعم التصدير الفردي
+  async findOne(id: string, tenantId: string) {
+    const loan = await this.repo.findOne({
+      where: { id, tenantId },
+      relations: ['employee'],
+    });
+    if (!loan) throw new NotFoundException('القرض غير موجود');
+    return loan;
   }
 
   async updateStatus(id: string, status: LoanStatus, tenantId: string) {

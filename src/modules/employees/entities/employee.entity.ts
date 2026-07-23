@@ -13,17 +13,26 @@ import {
 } from 'typeorm';
 import { Tenant } from '../../tenants/entities/tenant.entity';
 import { User } from '../../users/entities/user.entity';
-import { Contract } from 'src/modules/contracts/entities/contract.entity';
-import { Loan } from 'src/modules/loans/entities/loan.entity';
-import { Advance } from 'src/modules/advances/entities/advance.entity';
-import { Shift } from 'src/modules/shifts/entities/shift.entity';
+import { Contract } from '../../contracts/entities/contract.entity';
+import { Loan } from '../../loans/entities/loan.entity';
+import { Advance } from '../../advances/entities/advance.entity';
+import { Shift } from '../../shifts/entities/shift.entity';
 import { Education } from './education.entity';
 
-// تعريف أنواع الجنسية
+// استيراد الكيانات الجديدة لربطها
+// تأكد من صحة مسارات المجلدات التالية حسب هيكل مشروعك
+import { Bonus } from '../../bonuses/entities/bonus.entity';
+import { Deduction } from '../../deduction/entities/deduction.entity'; // تأكد من اسم المجلد (deductions أم deduction)
+import { EndOfService } from '../../eos/entities/eos.entity'; // تأكد من اسم المجلد والكيان
+import { ResignationRequest } from '../../resignations/entities/resignation.entity'; // تأكد من المسار
+import { Salary } from '../../salaries/entities/salary.entity';
+import { Settlement } from '../../settlements/entities/settlement.entity';
+import { LeaveRequest } from '../../leaves/entities/leave-request.entity';
+
 export enum NationalityType {
-  SAUDI = 'saudi', // سعودي
-  NON_SAUDI = 'non_saudi', // غير سعودي
-  OUTSIDE_SPONSORSHIP = 'outside_sponsorship', // خارج الكفالة
+  SAUDI = 'saudi',
+  NON_SAUDI = 'non_saudi',
+  OUTSIDE_SPONSORSHIP = 'outside_sponsorship',
 }
 
 @Entity('employees')
@@ -37,7 +46,6 @@ export class Employee {
   @Column({ unique: true, length: 50 })
   employeeCode!: string;
 
-  // ✅ إضافة نوع الجنسية
   @Column({
     type: 'enum',
     enum: NationalityType,
@@ -45,16 +53,14 @@ export class Employee {
   })
   nationalityType!: NationalityType;
 
-  // ✅ تاريخ انتهاء الإقامة (يظهر فقط لغير السعوديين)
   @Column({ type: 'date', nullable: true })
-  iqamaExpiryDate?: Date | null; // ✅ أضف | null هنا
+  iqamaExpiryDate?: Date | null;
 
-  // حقول الهوية الجديدة
   @Column({ nullable: true })
   nationalId?: string;
 
   @Column({ nullable: true })
-  nationalIdCardPath?: string; // مسار ملف PDF أو صورة الهوية
+  nationalIdCardPath?: string;
 
   @Column({ nullable: true, length: 20 })
   phone?: string;
@@ -65,8 +71,6 @@ export class Employee {
   @Column({ nullable: true, length: 100 })
   department?: string;
 
-  // ❌ تم حذف hireDate حسب الطلب
-
   @Column({
     type: 'enum',
     enum: ['active', 'inactive', 'terminated'],
@@ -74,27 +78,15 @@ export class Employee {
   })
   status!: 'active' | 'inactive' | 'terminated';
 
+  // --- العلاقات (Relations) ---
+
   @OneToOne(() => User, (user) => user.employee)
-  @JoinColumn({ name: 'user_id' })
+  @JoinColumn({ name: 'user_id' }) // الموظف يملك مفتاح المستخدم
   user?: User;
 
-  @Column({ name: 'tenant_id' })
-  tenantId!: string;
-
   @OneToOne(() => Contract, (contract) => contract.employee)
+  // ✅ تم إزالة JoinColumn هنا لأن العقد هو صاحب العلاقة (يحتوي على employee_id)
   contract?: Contract;
-
-  @OneToMany(() => Advance, (advance) => advance.employee)
-  advances!: Advance[];
-
-  @OneToMany(() => Loan, (loan) => loan.employee)
-  loans!: Loan[];
-
-  @ManyToOne(() => Tenant, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'tenant_id' })
-  tenant?: Tenant;
-  @OneToMany(() => Education, (edu) => edu.employee, { cascade: true })
-  educations?: Education[];
 
   @ManyToOne(() => Shift, { nullable: true })
   @JoinColumn({ name: 'shift_id' })
@@ -102,6 +94,48 @@ export class Employee {
 
   @Column({ name: 'shift_id', nullable: true })
   shiftId?: string;
+
+  // ✅ العلاقات العكسية الجديدة (OneToMany)
+  // ملاحظة: هذه العلاقات تسمح لك بجلب البيانات عبر employee.educations مثلاً
+
+  @OneToMany(() => Education, (edu) => edu.employee, { cascade: true })
+  educations?: Education[];
+
+  @OneToMany(() => Advance, (advance) => advance.employee)
+  advances?: Advance[];
+
+  @OneToMany(() => Loan, (loan) => loan.employee)
+  loans?: Loan[];
+
+  @OneToMany(() => Bonus, (bonus) => bonus.employee)
+  bonuses?: Bonus[];
+
+  @OneToMany(() => Deduction, (deduction) => deduction.employee)
+  deductions?: Deduction[];
+
+  @OneToMany(() => EndOfService, (eos) => eos.employee)
+  endOfServices?: EndOfService[];
+
+  @OneToMany(() => ResignationRequest, (req) => req.employee)
+  resignationRequests?: ResignationRequest[];
+
+  @OneToMany(() => LeaveRequest, (leave) => leave.employee)
+  leaveRequests?: LeaveRequest[];
+
+  @OneToMany(() => Settlement, (settlement) => settlement.employee)
+  settlements?: Settlement[];
+
+  @OneToMany(() => Salary, (salary) => salary.employee)
+  salaries?: Salary[];
+
+  // --- بيانات النظام ---
+
+  @Column({ name: 'tenant_id' })
+  tenantId!: string;
+
+  @ManyToOne(() => Tenant, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'tenant_id' })
+  tenant?: Tenant;
 
   @CreateDateColumn()
   createdAt!: Date;

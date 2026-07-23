@@ -142,16 +142,41 @@ export class EmployeesService {
   async findAll(tenantId: string): Promise<Employee[]> {
     return this.repo.find({
       where: { tenantId },
-      relations: ['user', 'educations'], // ✅ إضافة educations للعلاقات
+      relations: ['user', 'educations'],
       order: { createdAt: 'DESC' },
     });
   }
 
+  /**
+   * ✅ جلب موظف واحد مع كل البيانات المرتبطة (شامل جداً)
+   */
   async findOne(id: string, tenantId: string): Promise<Employee> {
     const employee = await this.repo.findOne({
       where: { id, tenantId },
-      relations: ['user', 'contract', 'educations'], // ✅ إضافة educations للعلاقات
+      relations: [
+        'user', // بيانات الدخول
+        'user.role', // دور المستخدم وصلاحياته
+        'contract', // العقد الحالي
+        'educations', // المؤهلات العلمية
+        'advances', // السلف
+        'loans', // القروض
+        'bonuses', // المكافآت
+        'deductions', // الخصومات
+        'leaveRequests', // طلبات الإجازة
+        'settlements', // التسويات المالية
+        'endOfServices', // سجلات نهاية الخدمة
+        'resignationRequests', // طلبات الاستقالة
+        'salaries', // تاريخ الرواتب (أو الراتب الحالي)
+        'shift', // المناوبة الحالية
+      ],
+      order: {
+        createdAt: 'DESC', // ترتيب عام
+        // يمكن ترتيب الجداول الفرعية أيضاً إذا لزم الأمر
+        leaveRequests: { startDate: 'DESC' },
+        salaries: { createdAt: 'DESC' },
+      },
     });
+
     if (!employee) throw new NotFoundException('الموظف غير موجود');
     return employee;
   }
@@ -161,7 +186,14 @@ export class EmployeesService {
     dto: UpdateEmployeeDto,
     tenantId: string,
   ): Promise<Employee> {
-    const employee = await this.findOne(id, tenantId);
+    // نستخدم findOne الأساسي هنا لتجنب تحميل كل البيانات الثقيلة أثناء التحديث البسيط
+    // أو يمكنك استخدام findWithOptions إذا كنت تحتاج للتحقق من علاقات معينة
+    const employee = await this.repo.findOne({
+      where: { id, tenantId },
+      relations: ['user', 'educations'],
+    });
+
+    if (!employee) throw new NotFoundException('الموظف غير موجود');
 
     // التحقق من تكرار رقم الهوية عند التحديث
     if (dto.nationalId && dto.nationalId !== employee.nationalId) {
@@ -176,11 +208,16 @@ export class EmployeesService {
 
     // ✅ معالجة المؤهلات التعليمية يدوياً لضمان الاستبدال الصحيح
     if (dto.educations !== undefined) {
-      employee.educations = dto.educations.map((edu) => ({
+      // ملاحظة: TypeORM يحتاج أحياناً إلى إدارة دقيقة للمصفوفات عند التحديث
+      // الطريقة الآمنة هي حذف القديم وإضافة الجديد أو تحديث الموجود
+      // لكن هنا سنعتمد على أن الـ DTO يرسل القائمة الكاملة المطلوبة
+      const updatedEducations = dto.educations.map((edu) => ({
         ...edu,
         expiryDate: edu.expiryDate ? new Date(edu.expiryDate) : undefined,
         employeeId: employee.id,
-      })) as Employee['educations'];
+      }));
+
+      employee.educations = updatedEducations as Employee['educations'];
     }
 
     Object.assign(employee, dto);

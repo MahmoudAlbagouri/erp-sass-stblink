@@ -18,7 +18,6 @@ export class AdvancesService {
   ) {}
 
   async create(dto: CreateAdvanceDto, employeeId: string, tenantId: string) {
-    // 1. جلب الراتب
     const salary = await this.salariesService.findByEmployee(
       employeeId,
       tenantId,
@@ -29,15 +28,12 @@ export class AdvancesService {
     const totalSalary = Number(salary.totalSalary);
     const requestedAmount = Number(dto.amount);
 
-    // 2. التحقق من أن السلفة لا تزيد عن الراتب
     if (requestedAmount > totalSalary) {
       throw new BadRequestException(
         'قيمة السلفة لا يمكن أن تتجاوز إجمالي الراتب',
       );
     }
 
-    // 3. حساب مجموع السلف المعلقة (التي لم تسدد بعد)
-    // نعتبر السلفة "معلقة" إذا كانت حالتها pending أو approved ولم تصل لـ paid
     const existingAdvances = await this.repo.find({
       where: {
         employeeId,
@@ -51,14 +47,12 @@ export class AdvancesService {
       0,
     );
 
-    // 4. التحقق من أن المجموع لا يتجاوز الراتب
     if (totalPendingAdvances + requestedAmount > totalSalary) {
       throw new BadRequestException(
         `لا يمكن طلب هذه السلفة. لديك سلف معلقة بقيمة (${totalPendingAdvances}) والحد الأقصى هو راتبك (${totalSalary})`,
       );
     }
 
-    // إنشاء السلفة
     const advance = this.repo.create({
       ...dto,
       employeeId,
@@ -69,12 +63,23 @@ export class AdvancesService {
     return await this.repo.save(advance);
   }
 
+  // ✅ تحديث findAll لجلب بيانات الموظف
   async findAll(tenantId: string) {
     return await this.repo.find({
       where: { tenantId },
       relations: ['employee'],
-      order: { repaymentDate: 'ASC' }, // ترتيب حسب تاريخ السداد
+      order: { repaymentDate: 'ASC' },
     });
+  }
+
+  // ✅ إضافة findOne لدعم التصدير الفردي
+  async findOne(id: string, tenantId: string) {
+    const advance = await this.repo.findOne({
+      where: { id, tenantId },
+      relations: ['employee'],
+    });
+    if (!advance) throw new NotFoundException('السلفة غير موجودة');
+    return advance;
   }
 
   async updateStatus(id: string, status: AdvanceStatus, tenantId: string) {

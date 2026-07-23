@@ -2,20 +2,20 @@
 import {
   IsNotEmpty,
   IsNumber,
-  IsPositive,
   IsOptional,
   IsString,
   IsDateString,
+  Min,
 } from 'class-validator';
 
 export class CreateLoanDto {
   @IsNumber()
-  @IsPositive()
+  @Min(500, { message: 'قيمة القرض يجب أن تكون 500 على الأقل' }) // ✅ الشرط الجديد
   @IsNotEmpty()
   totalAmount!: number;
 
   @IsNumber()
-  @IsPositive()
+  @Min(2, { message: 'عدد الأقساط يجب أن يكون 2 على الأقل' }) // ✅ الشرط الجديد
   @IsNotEmpty()
   installmentsCount!: number;
 
@@ -25,5 +25,5 @@ export class CreateLoanDto {
 
   @IsDateString()
   @IsNotEmpty()
-  startDate!: string; // تاريخ بداية الخصم
+  startDate!: string;
 }

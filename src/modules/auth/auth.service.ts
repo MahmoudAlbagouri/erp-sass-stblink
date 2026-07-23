@@ -37,11 +37,11 @@ export class AuthService {
     let createdUser!: User;
 
     // ✅ استخدام Transaction لضمان تكامل البيانات بين المستخدم والشركة والاشتراك
-    await this.entityManager.transaction(async (manager) => {
+    await this.entityManager.transaction(async (manager: EntityManager) => {
       // 1. إنشاء الشركة والاشتراك التجريبي تلقائياً عبر TenantsService
       const tenant = await this.tenantsService.create(
         {
-          companyName: dto.companyName,
+          companyName: String(dto.companyName),
           phone: dto.phone,
           address: dto.address,
           language: 'ar',

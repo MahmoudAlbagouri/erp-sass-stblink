@@ -5,6 +5,7 @@ import { AdvancesController } from './advances.controller';
 import { Advance } from './entities/advance.entity';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SalariesModule } from '../salaries/salaries.module'; // استيراد موديول الرواتب
+import { ReportService } from 'src/common/reports/report.service';
 
 @Module({
   imports: [
@@ -12,7 +13,7 @@ import { SalariesModule } from '../salaries/salaries.module'; // استيراد 
     SalariesModule, // مهم للوصول لـ SalariesService
   ],
   controllers: [AdvancesController],
-  providers: [AdvancesService],
+  providers: [AdvancesService, ReportService], // إضافة ReportService إذا كنت بحاجة لتوليد تقارير
   exports: [AdvancesService],
 })
 export class AdvancesModule {}

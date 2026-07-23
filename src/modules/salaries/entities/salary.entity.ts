@@ -1,10 +1,13 @@
 // src/modules/salaries/entities/salary.entity.ts
+import { Employee } from 'src/modules/employees/entities/employee.entity';
 import {
   Entity,
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  ManyToOne,
+  JoinColumn,
 } from 'typeorm';
 
 @Entity('salaries')
@@ -29,6 +32,9 @@ export class Salary {
 
   @Column({ type: 'decimal', precision: 12, scale: 2 })
   totalSalary!: number;
+  @ManyToOne(() => Employee, (employee) => employee.id) // أو employee.salaries إذا عرفتها في Employee
+  @JoinColumn({ name: 'employee_id' })
+  employee?: Employee;
 
   @Column({ name: 'tenant_id' })
   tenantId!: string;

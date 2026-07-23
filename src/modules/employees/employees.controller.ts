@@ -26,7 +26,6 @@ import {
   type CurrentUserData,
 } from '../../common/decorators/current-user.decorator';
 import { ReportService } from '../../common/reports/report.service';
-// ✅ استيراد الثوابت
 import { PERMS } from 'src/common/constants/permissions';
 
 @Controller('employees')
@@ -38,7 +37,6 @@ export class EmployeesController {
     private readonly employeesOnboardingService: EmployeesOnboardingService,
   ) {}
 
-  // ─── مسار الـ Onboarding المجمع ──────────────────────────────────────────
   @Post('onboard')
   @Permissions(PERMS.EMPLOYEE_ONBOARD)
   @UseGuards(PermissionsGuard)
@@ -47,9 +45,7 @@ export class EmployeesController {
     @CurrentTenantId() tenantId: string,
     @CurrentUser() currentUser: CurrentUserData,
   ) {
-    console.log('Received tenantId:', tenantId);
     if (!tenantId) throw new BadRequestException('Tenant ID is missing');
-
     return await this.employeesOnboardingService.onboard(
       dto,
       tenantId,
@@ -57,7 +53,6 @@ export class EmployeesController {
     );
   }
 
-  // ─── المسارات التقليدية ──────────────────────────────────────────────────
   @Post()
   @Permissions(PERMS.EMPLOYEE_CREATE)
   @UseGuards(PermissionsGuard)
@@ -74,14 +69,13 @@ export class EmployeesController {
     @Res() res: Response,
   ) {
     const data = await this.employeesService.findAll(tenantId);
-
     const columns = [
       { header: 'الاسم الكامل', key: 'fullName' },
       { header: 'كود الموظف', key: 'employeeCode' },
-      { header: 'نوع الجنسية', key: 'nationalityTypeLabel' },
-      { header: 'تاريخ انتهاء الإقامة', key: 'iqamaExpiryDate' },
+      { header: 'حالة الموظف', key: 'nationalityTypeLabel' },
+      { header: 'تاريخ انتهاء الهوية', key: 'iqamaExpiryDate' },
       { header: 'رقم الهوية', key: 'nationalId' },
-      { header: 'رقم الهاتف', key: 'phone' },
+      // { header: 'رقم الهاتف', key: 'phone' },
       { header: 'المسمى الوظيفي', key: 'jobTitle' },
       { header: 'القسم', key: 'department' },
       { header: 'الحالة', key: 'statusLabel' },
@@ -140,6 +134,147 @@ export class EmployeesController {
       );
       return res.send(buffer);
     }
+  }
+
+  // ✅ مسار تصدير ملف موظف واحد شامل (يجب أن يكون قبل findOne)
+  @Get(':id/export/:type')
+  @Permissions(PERMS.EMPLOYEE_EXPORT)
+  @UseGuards(PermissionsGuard)
+  async exportSingleEmployee(
+    @Param('id') id: string,
+    @Param('type') type: 'excel' | 'pdf',
+    @CurrentTenantId() tenantId: string,
+    @Res() res: Response,
+  ) {
+    const employee = await this.employeesService.findOne(id, tenantId);
+    if (!employee) throw new BadRequestException('الموظف غير موجود');
+
+    const reportData: any[] = [
+      { label: 'الاسم الكامل', value: employee.fullName },
+      { label: 'كود الموظف', value: employee.employeeCode },
+      {
+        label: 'الحالة',
+        value:
+          employee.status === 'active'
+            ? 'نشط'
+            : employee.status === 'inactive'
+              ? 'غير نشط'
+              : 'منتهي الخدمة',
+      },
+      { label: 'رقم الهوية', value: employee.nationalId || '-' },
+      { label: 'الهاتف', value: employee.phone || '-' },
+      { label: 'المسمى الوظيفي', value: employee.jobTitle || '-' },
+      { label: 'القسم', value: employee.department || '-' },
+
+      ...(employee.contract
+        ? [
+            { label: 'نوع العقد', value: employee.contract.contractType },
+            {
+              label: 'تاريخ البداية',
+              value: new Date(employee.contract.startDate).toLocaleDateString(
+                'ar-SA',
+              ),
+            },
+            {
+              label: 'مدة العقد',
+              value: `${employee.contract.contractDurationYears || '-'} سنوات`,
+            },
+            {
+              label: 'التأمين الطبي',
+              value: employee.contract.medicalInsurance || '-',
+            },
+            { label: 'التذكرة', value: employee.contract.ticketType || '-' },
+            {
+              label: 'فترة التجربة',
+              value: employee.contract.probationPeriod || '-',
+            },
+          ]
+        : []),
+
+      ...(employee.salaries && employee.salaries.length > 0
+        ? [
+            {
+              label: 'الراتب الأساسي',
+              value: `${Number(employee.salaries[0].basicSalary).toLocaleString('ar-SA')} ر.س`,
+            },
+            {
+              label: 'بدل السكن',
+              value: `${Number(employee.salaries[0].housingAllowance).toLocaleString('ar-SA')} ر.س`,
+            },
+            {
+              label: 'إجمالي الراتب',
+              value: `${Number(employee.salaries[0].totalSalary).toLocaleString('ar-SA')} ر.س`,
+            },
+          ]
+        : []),
+    ];
+
+    if (employee.educations?.length) {
+      reportData.push({ label: '--- المؤهلات العلمية ---', value: '' });
+      employee.educations.forEach((edu, i) => {
+        reportData.push({
+          label: `#${i + 1} ${edu.degree}`,
+          value: `${edu.issuingAuthority || ''} - ${edu.certificateNumber || ''}`,
+        });
+      });
+    }
+
+    if (employee.advances?.length) {
+      reportData.push({ label: '--- السلف المالية ---', value: '' });
+      employee.advances.forEach((adv) => {
+        reportData.push({
+          label: `سلفة (${new Date(adv.createdAt).toLocaleDateString('ar-SA')})`,
+          value: `${Number(adv.amount).toLocaleString('ar-SA')} ر.س (${adv.status})`,
+        });
+      });
+    }
+
+    if (employee.loans?.length) {
+      reportData.push({ label: '--- القروض ---', value: '' });
+      employee.loans.forEach((loan) => {
+        reportData.push({
+          label: `قرض (${new Date(loan.startDate).toLocaleDateString('ar-SA')})`,
+          value: `${Number(loan.totalAmount).toLocaleString('ar-SA')} ر.س / ${loan.installmentsCount} قسط`,
+        });
+      });
+    }
+
+    const columns = [
+      { header: 'البيان', key: 'label' },
+      { header: 'القيمة', key: 'value' },
+    ];
+
+    if (type === 'excel') {
+      const buffer = await this.reportService.generateExcel(
+        reportData,
+        columns,
+      );
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename=employee_${employee.employeeCode}.xlsx`,
+      );
+      return res.send(buffer);
+    }
+
+    if (type === 'pdf') {
+      const buffer = await this.reportService.generatePdf(
+        reportData,
+        columns,
+        `ملف الموظف: ${employee.fullName}`,
+      );
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename=employee_${employee.employeeCode}.pdf`,
+      );
+      return res.send(buffer);
+    }
+
+    throw new BadRequestException('نوع التصدير غير مدعوم');
   }
 
   @Get()

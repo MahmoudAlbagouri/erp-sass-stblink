@@ -15,16 +15,20 @@ export class Education {
   id!: string;
 
   @Column({ length: 255 })
-  degree!: string; // درجة الشهادة (مثال: بكالوريوس، ماجستير)
+  degree!: string;
 
   @Column({ name: 'certificate_number', nullable: true, length: 100 })
-  certificateNumber?: string; // رقم الشهادة
+  certificateNumber?: string;
+
+  // ✅ إضافة حقل مصدر/جهة إصدار الشهادة
+  @Column({ name: 'issuing_authority', nullable: true, length: 255 })
+  issuingAuthority?: string;
 
   @Column({ name: 'expiry_date', type: 'date', nullable: true })
-  expiryDate?: Date | null; // تاريخ الانتهاء (اختياري)
+  expiryDate?: Date | null;
 
   @Column({ name: 'attachment_path', nullable: true })
-  attachmentPath?: string; // مسار المرفق
+  attachmentPath?: string;
 
   @Column({ name: 'employee_id' })
   employeeId!: string;
