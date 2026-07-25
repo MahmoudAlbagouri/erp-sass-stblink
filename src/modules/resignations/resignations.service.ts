@@ -12,8 +12,6 @@ import {
 import { CreateResignationDto } from './dto/create-resignation.dto';
 import { DecisionResignationDto } from './dto/decision-resignation.dto';
 import { Employee } from '../employees/entities/employee.entity';
-import { EOSService } from '../eos/eos.service';
-import { EOSReason } from '../eos/entities/eos.entity'; // ✅ استيراد الـ Enum
 
 @Injectable()
 export class ResignationsService {
@@ -21,8 +19,19 @@ export class ResignationsService {
     @InjectRepository(ResignationRequest)
     private reqRepo: Repository<ResignationRequest>,
     @InjectRepository(Employee) private empRepo: Repository<Employee>,
-    private eosService: EOSService,
   ) {}
+
+  // ✅ دالة جديدة لجلب طلبات الموظف الحالي
+  async findMyRequests(
+    employeeId: string,
+    tenantId: string,
+  ): Promise<ResignationRequest[]> {
+    return this.reqRepo.find({
+      where: { employeeId, tenantId },
+      relations: ['employee'],
+      order: { createdAt: 'DESC' },
+    });
+  }
 
   async create(
     dto: CreateResignationDto,
@@ -77,29 +86,6 @@ export class ResignationsService {
     request.managerNotes = dto.managerNotes;
     request.decisionDate = new Date();
 
-    if (dto.newStatus === ResignationStatus.APPROVED) {
-      try {
-        await this.eosService.create(
-          {
-            employeeId: request.employeeId,
-            terminationDate: request.lastWorkingDay.toISOString().split('T')[0],
-            reason: EOSReason.RESIGNATION, // ✅ التصحيح: استخدام المفتاح الإنجليزي للـ Enum
-            payoutDate: request.lastWorkingDay.toISOString().split('T')[0],
-            notes: `تمت الموافقة على الاستقالة بتاريخ ${new Date().toLocaleDateString('ar-SA')} - ملاحظات المدير: ${dto.managerNotes || '-'}`,
-          },
-          tenantId,
-        );
-      } catch (eosError: unknown) {
-        // امن التعامل مع خطأ غير معروف واستخراج رسالة بشكل آمن
-        request.status = ResignationStatus.PENDING;
-        const errMsg =
-          eosError instanceof Error ? eosError.message : String(eosError);
-        throw new BadRequestException(
-          `تمت الموافقة إدارياً لكن فشل إنشاء سجل نهاية الخدمة: ${errMsg}`,
-        );
-      }
-    }
-
     return this.reqRepo.save(request);
   }
 
@@ -121,7 +107,6 @@ export class ResignationsService {
     tenantId: string,
     status?: ResignationStatus,
   ): Promise<ResignationRequest[]> {
-    // ✅ التصحيح: استخدام TypeORM FindOptionsWhere بدلاً من any
     const where: any = { tenantId };
     if (status) where.status = status;
 

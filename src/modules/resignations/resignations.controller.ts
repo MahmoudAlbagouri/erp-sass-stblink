@@ -29,11 +29,23 @@ interface CurrentUserData {
 export class ResignationsController {
   constructor(private readonly resignationsService: ResignationsService) {}
 
+  // ✅ مسار جديد لجلب طلبات الموظف الحالي
+  @Get('my-requests')
+  @Permissions(PERMS.RESIGNATION_REQUEST_SELF)
+  @UseGuards(PermissionsGuard)
+  findMyRequests(
+    @CurrentUser() user: CurrentUserData,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    if (!user.employeeId) throw new Error('حسابك غير مرتبط بموظف');
+    return this.resignationsService.findMyRequests(user.employeeId, tenantId);
+  }
+
   @Post('my-request')
   @Permissions(PERMS.RESIGNATION_REQUEST_SELF)
   @UseGuards(PermissionsGuard)
   createMyRequest(
-    @CurrentUser() user: CurrentUserData, // ✅ تم التصحيح
+    @CurrentUser() user: CurrentUserData,
     @CurrentTenantId() tenantId: string,
     @Body() dto: CreateResignationDto,
   ) {
@@ -45,7 +57,7 @@ export class ResignationsController {
   @Permissions(PERMS.RESIGNATION_REQUEST_SELF)
   @UseGuards(PermissionsGuard)
   cancelMyRequest(
-    @CurrentUser() user: CurrentUserData, // ✅ تم التصحيح
+    @CurrentUser() user: CurrentUserData,
     @CurrentTenantId() tenantId: string,
   ) {
     if (!user.employeeId) throw new Error('حسابك غير مرتبط بموظف');
@@ -58,7 +70,7 @@ export class ResignationsController {
   makeDecision(
     @Param('id') id: string,
     @Body() dto: DecisionResignationDto,
-    @CurrentUser() user: CurrentUserData, // ✅ تم التصحيح
+    @CurrentUser() user: CurrentUserData,
     @CurrentTenantId() tenantId: string,
   ) {
     return this.resignationsService.makeDecision(id, dto, user.id, tenantId);

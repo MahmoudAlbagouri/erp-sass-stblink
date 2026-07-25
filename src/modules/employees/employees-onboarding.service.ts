@@ -7,6 +7,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository, In, EntityManager } from 'typeorm';
 import * as argon2 from 'argon2';
+// ✅ استيراد دوال التعامل مع التواريخ
+import { addMonths } from 'date-fns';
 
 import { Employee } from './entities/employee.entity';
 import { User } from '../users/entities/user.entity';
@@ -18,6 +20,7 @@ import { OnboardEmployeeDto } from './dto/onboard-employee.dto';
 import { CurrentUserData } from '../../common/decorators/current-user.decorator';
 import { UserStatus } from '../../common/enums/user.enums';
 import { PermissionScope } from '../permissions/entities/permission.entity';
+import { ProbationPeriod } from '../contracts/entities/contract.entity';
 
 export interface OnboardingResult {
   employee: Employee;
@@ -167,18 +170,47 @@ export class EmployeesOnboardingService {
 
       // ✅ إنشاء العقد مع المرفقات ومدة العقد والتذكرة وفترة التجربة والتأمين والجنسية
       if (dto.contract) {
+        const startDate = new Date(dto.contract.startDate);
+
+        // 1. حساب تاريخ نهاية فترة التجربة تلقائياً
+        let probationEndDate: Date | undefined = undefined;
+        if (
+          dto.contract.probationPeriod &&
+          dto.contract.probationPeriod !== ProbationPeriod.NONE
+        ) {
+          if (dto.contract.probationPeriod === ProbationPeriod.THREE_MONTHS) {
+            probationEndDate = addMonths(startDate, 3);
+          } else if (
+            dto.contract.probationPeriod === ProbationPeriod.SIX_MONTHS
+          ) {
+            probationEndDate = addMonths(startDate, 6);
+          }
+        }
+
+        // 2. حساب تاريخ نهاية العقد تلقائياً إذا لم يتم إدخاله يدوياً وكان هناك مدة محددة
+        let calculatedEndDate: Date | undefined = undefined;
+        if (dto.contract.endDate) {
+          calculatedEndDate = new Date(dto.contract.endDate);
+        } else if (dto.contract.contractDurationMonths) {
+          calculatedEndDate = addMonths(
+            startDate,
+            dto.contract.contractDurationMonths,
+          );
+        }
+
         const newContract = manager.create(Contract, {
           contractType: dto.contract.contractType,
-          startDate: new Date(dto.contract.startDate),
-          endDate: dto.contract.endDate
-            ? new Date(dto.contract.endDate)
-            : undefined,
+          startDate: startDate,
+          endDate: calculatedEndDate, // التاريخ المحسوب أو المدخل يدوياً
           annualLeaveDays: dto.contract.annualLeaveDays ?? 30,
-          contractDurationYears: dto.contract.contractDurationYears,
+          contractDurationYears: dto.contract.contractDurationMonths
+            ? Math.floor(dto.contract.contractDurationMonths / 12) // حفظ تقريبي للسنوات إذا لزم الأمر، أو يمكن الاعتماد على الشهور فقط
+            : undefined,
 
           // ✅ إضافة الحقول الجديدة هنا
           ticketType: dto.contract.ticketType,
           probationPeriod: dto.contract.probationPeriod,
+          probationEndDate: probationEndDate, // ✅ حفظ تاريخ نهاية التجربة المحسوب
           medicalInsurance: dto.contract.medicalInsurance, // ✅ التأمين الطبي
           nationality: dto.contract.nationality, // ✅ الجنسية
 

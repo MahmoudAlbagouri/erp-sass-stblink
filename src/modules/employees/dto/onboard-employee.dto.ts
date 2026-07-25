@@ -68,10 +68,11 @@ export class OnboardContractDto {
   @IsOptional()
   annualLeaveDays?: number;
 
+  // ✅ تغيير المدة من سنوات إلى شهور
   @IsNumber()
   @IsOptional()
   @Min(1)
-  contractDurationYears?: number;
+  contractDurationMonths?: number;
 
   // الحقول الجديدة للتذكرة وفترة التجربة
   @IsEnum(TicketType)

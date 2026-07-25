@@ -37,10 +37,11 @@ export class CreateContractDto {
   @IsNotEmpty()
   annualLeaveDays!: number;
 
+  // ✅ تغيير المدة إلى شهور ليتوافق مع منطق الحساب الجديد
   @IsNumber()
   @IsOptional()
   @Min(1)
-  contractDurationYears?: number;
+  contractDurationMonths?: number;
 
   @IsEnum(TicketType)
   @IsOptional()
