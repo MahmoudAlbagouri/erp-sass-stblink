@@ -151,10 +151,11 @@ export class ProfileService {
         salary: salary
           ? {
               basic: salary.basicSalary,
+              // ✅ إصلاح مشكلة جمع البدلات (تحويل النصوص إلى أرقام قبل الجمع)
               allowances:
-                salary.housingAllowance +
-                salary.transportAllowance +
-                salary.otherAllowances,
+                Number(salary.housingAllowance || 0) +
+                Number(salary.transportAllowance || 0) +
+                Number(salary.otherAllowances || 0),
               total: salary.totalSalary,
             }
           : null,

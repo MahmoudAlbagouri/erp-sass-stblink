@@ -6,7 +6,9 @@ import {
   IsString,
   Min,
   IsInt,
+  IsEnum,
 } from 'class-validator';
+import { DeductionStatus } from '../entities/deduction.entity';
 
 export class CreateDeductionDto {
   @IsUUID()
@@ -29,4 +31,9 @@ export class CreateDeductionDto {
   @IsString()
   @IsOptional()
   notes?: string;
+
+  // ✅ السماح بتحديد الحالة عند الإنشاء (اختياري)
+  @IsEnum(DeductionStatus)
+  @IsOptional()
+  status?: DeductionStatus;
 }

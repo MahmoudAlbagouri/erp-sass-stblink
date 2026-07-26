@@ -1,7 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
-import { Deduction } from './entities/deduction.entity';
+import { Deduction, DeductionStatus } from './entities/deduction.entity';
 import { CreateDeductionDto } from './dto/create-deduction.dto';
 import { UpdateDeductionDto } from './dto/update-deduction.dto';
 import { Employee } from '../employees/entities/employee.entity';
@@ -31,6 +35,8 @@ export class DeductionsService {
       startDate: new Date(dto.startDate),
       monthlyAmount,
       paidInstallments: 0,
+      // ✅ تعيين الحالة الافتراضية
+      status: dto.status || DeductionStatus.PENDING,
       tenantId,
     });
 
@@ -81,6 +87,22 @@ export class DeductionsService {
     return this.deductionRepo.save(deduction);
   }
 
+  // ✅ دالة جديدة لتحديث حالة الخصم يدوياً
+  async updateStatus(
+    id: string,
+    status: DeductionStatus,
+    tenantId: string,
+  ): Promise<Deduction> {
+    const deduction = await this.findOne(id, tenantId);
+
+    if (!Object.values(DeductionStatus).includes(status)) {
+      throw new BadRequestException('حالة غير صالحة');
+    }
+
+    deduction.status = status;
+    return this.deductionRepo.save(deduction);
+  }
+
   async remove(id: string, tenantId: string): Promise<void> {
     const deduction = await this.findOne(id, tenantId);
     await this.deductionRepo.remove(deduction);
@@ -97,13 +119,14 @@ export class DeductionsService {
 
     // جلب الخصومات التي:
     // 1. بدأت قبل أو خلال هذا الشهر
-    // 2. لم تنتهِ دفعاتها بعد (paidInstallments < installmentsCount)
-    // 3. تنتمي للشركة الحالية
+    // 2. حالتها نشطة (أو يمكن الاعتماد على paidInstallments < installmentsCount)
+    // 3. لم تنتهِ دفعاتها بعد
     return this.deductionRepo
       .find({
         where: {
           tenantId,
-          startDate: Between(new Date(2000, 0, 1), monthEnd), // أي خصم بدأ في الماضي
+          startDate: Between(new Date(2000, 0, 1), monthEnd),
+          status: DeductionStatus.ACTIVE, // ✅ جلب النشط فقط
         },
         relations: ['employee'],
       })

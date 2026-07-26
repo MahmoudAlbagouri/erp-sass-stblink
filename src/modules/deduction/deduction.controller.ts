@@ -1,4 +1,3 @@
-// src/modules/deductions/deduction.controller.ts
 import {
   Controller,
   Get,
@@ -21,6 +20,7 @@ import { Permissions } from '../../common/decorators/permissions.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 import { ReportService } from '../../common/reports/report.service';
 import { PERMS } from '../../common/constants/permissions';
+import { DeductionStatus } from './entities/deduction.entity';
 
 @Controller('deductions')
 @UseGuards(JwtAuthGuard)
@@ -51,6 +51,7 @@ export class DeductionsController {
     const columns = [
       { header: 'اسم الموظف', key: 'employeeName' },
       { header: 'نوع الخصم', key: 'name' },
+      { header: 'الحالة', key: 'status' }, // ✅ إضافة عمود الحالة
       { header: 'إجمالي المبلغ', key: 'totalAmount' },
       { header: 'القسط الشهري', key: 'monthlyAmount' },
       { header: 'عدد الدفعات', key: 'installmentsCount' },
@@ -62,6 +63,7 @@ export class DeductionsController {
     const formattedData = data.map((d) => ({
       employeeName: d.employee?.fullName || '-',
       name: d.name,
+      status: this.getStatusLabel(d.status), // ✅ ترجمة الحالة
       totalAmount: Number(d.totalAmount).toLocaleString('ar-SA'),
       monthlyAmount: Number(d.monthlyAmount).toLocaleString('ar-SA'),
       installmentsCount: d.installmentsCount,
@@ -119,6 +121,7 @@ export class DeductionsController {
       { label: 'كود الموظف', value: deduction.employee?.employeeCode || '-' },
       { label: 'المسمى الوظيفي', value: deduction.employee?.jobTitle || '-' },
       { label: 'نوع الخصم', value: deduction.name },
+      { label: 'الحالة', value: this.getStatusLabel(deduction.status) }, // ✅ إضافة الحالة
       {
         label: 'إجمالي المبلغ',
         value: `${Number(deduction.totalAmount).toLocaleString('ar-SA')} ر.س`,
@@ -203,10 +206,38 @@ export class DeductionsController {
     return this.deductionsService.update(id, dto, tenantId);
   }
 
+  // ✅ Endpoint جديد لتغيير حالة الخصم
+  @Patch(':id/status')
+  @Permissions(PERMS.DEDUCTION_UPDATE)
+  @UseGuards(PermissionsGuard)
+  updateStatus(
+    @Param('id') id: string,
+    @Body('status') status: DeductionStatus,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.deductionsService.updateStatus(id, status, tenantId);
+  }
+
   @Delete(':id')
   @Permissions(PERMS.DEDUCTION_DELETE)
   @UseGuards(PermissionsGuard)
   remove(@Param('id') id: string, @CurrentTenantId() tenantId: string) {
     return this.deductionsService.remove(id, tenantId);
+  }
+
+  // ✅ دالة مساعدة لترجمة الحالة
+  private getStatusLabel(status: DeductionStatus): string {
+    switch (status) {
+      case DeductionStatus.PENDING:
+        return 'معلق';
+      case DeductionStatus.ACTIVE:
+        return 'نشط';
+      case DeductionStatus.COMPLETED:
+        return 'مكتمل';
+      case DeductionStatus.CANCELLED:
+        return 'ملغي';
+      default:
+        return status;
+    }
   }
 }

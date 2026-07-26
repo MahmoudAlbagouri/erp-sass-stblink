@@ -10,6 +10,14 @@ import {
 import { Employee } from '../../employees/entities/employee.entity';
 import { Tenant } from '../../tenants/entities/tenant.entity';
 
+// ✅ تعريف حالات المكافأة
+export enum BonusStatus {
+  PENDING = 'pending', // معلقة
+  APPROVED = 'approved', // موافق عليها
+  REJECTED = 'rejected', // مرفوضة
+  PAID = 'paid', // تم الصرف (اختياري للمستقبل)
+}
+
 @Entity('bonuses')
 export class Bonus {
   @PrimaryGeneratedColumn('uuid')
@@ -31,6 +39,14 @@ export class Bonus {
 
   @Column({ type: 'text', nullable: true })
   notes?: string;
+
+  // ✅ حقل الحالة مع قيمة افتراضية "معلقة"
+  @Column({
+    type: 'enum',
+    enum: BonusStatus,
+    default: BonusStatus.PENDING,
+  })
+  status!: BonusStatus;
 
   @ManyToOne(() => Tenant, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'tenant_id' })

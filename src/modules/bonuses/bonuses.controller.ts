@@ -1,4 +1,3 @@
-// src/modules/bonuses/bonuses.controller.ts
 import {
   Controller,
   Get,
@@ -21,6 +20,7 @@ import { Permissions } from '../../common/decorators/permissions.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 import { ReportService } from '../../common/reports/report.service';
 import { PERMS } from '../../common/constants/permissions';
+import { BonusStatus } from './entities/bonus.entity';
 
 @Controller('bonuses')
 @UseGuards(JwtAuthGuard)
@@ -53,6 +53,7 @@ export class BonusesController {
       { header: 'كود الموظف', key: 'employeeCode' },
       { header: 'المبلغ', key: 'amount' },
       { header: 'تاريخ الصرف', key: 'payoutDate' },
+      { header: 'الحالة', key: 'status' }, // ✅ إضافة عمود الحالة
       { header: 'ملاحظات', key: 'notes' },
       { header: 'تاريخ التسجيل', key: 'createdAt' },
     ];
@@ -62,6 +63,7 @@ export class BonusesController {
       employeeCode: b.employee?.employeeCode || '-',
       amount: Number(b.amount).toLocaleString('ar-SA'),
       payoutDate: new Date(b.payoutDate).toLocaleDateString('ar-SA'),
+      status: this.getStatusLabel(b.status), // ✅ ترجمة الحالة
       notes: b.notes || '-',
       createdAt: new Date(b.createdAt).toLocaleDateString('ar-SA'),
     }));
@@ -116,6 +118,7 @@ export class BonusesController {
         label: 'تاريخ الصرف',
         value: new Date(bonus.payoutDate).toLocaleDateString('ar-SA'),
       },
+      { label: 'الحالة', value: this.getStatusLabel(bonus.status) }, // ✅ إضافة الحالة
       { label: 'ملاحظات', value: bonus.notes || '-' },
       {
         label: 'تاريخ التسجيل',
@@ -186,10 +189,38 @@ export class BonusesController {
     return this.bonusesService.update(id, dto, tenantId);
   }
 
+  // ✅ Endpoint جديد لتغيير حالة المكافأة
+  @Patch(':id/status')
+  @Permissions(PERMS.BONUS_UPDATE) // أو صلاحية خاصة مثل BONUS_APPROVE
+  @UseGuards(PermissionsGuard)
+  updateStatus(
+    @Param('id') id: string,
+    @Body('status') status: BonusStatus,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.bonusesService.updateStatus(id, status, tenantId);
+  }
+
   @Delete(':id')
   @Permissions(PERMS.BONUS_DELETE)
   @UseGuards(PermissionsGuard)
   remove(@Param('id') id: string, @CurrentTenantId() tenantId: string) {
     return this.bonusesService.remove(id, tenantId);
+  }
+
+  // ✅ دالة مساعدة لترجمة الحالة للعربية في التقارير
+  private getStatusLabel(status: BonusStatus): string {
+    switch (status) {
+      case BonusStatus.PENDING:
+        return 'معلقة';
+      case BonusStatus.APPROVED:
+        return 'موافق عليها';
+      case BonusStatus.REJECTED:
+        return 'مرفوضة';
+      case BonusStatus.PAID:
+        return 'تم الصرف';
+      default:
+        return status;
+    }
   }
 }

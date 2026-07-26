@@ -5,7 +5,9 @@ import {
   IsOptional,
   IsString,
   Min,
+  IsEnum,
 } from 'class-validator';
+import { BonusStatus } from '../entities/bonus.entity';
 
 export class CreateBonusDto {
   @IsUUID()
@@ -21,4 +23,9 @@ export class CreateBonusDto {
   @IsString()
   @IsOptional()
   notes?: string;
+
+  // ✅ السماح بتحديد الحالة عند الإنشاء (اختياري، الافتراضي pending)
+  @IsEnum(BonusStatus)
+  @IsOptional()
+  status?: BonusStatus;
 }

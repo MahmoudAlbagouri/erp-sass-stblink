@@ -10,6 +10,14 @@ import {
 import { Employee } from '../../employees/entities/employee.entity';
 import { Tenant } from '../../tenants/entities/tenant.entity';
 
+// ✅ تعريف حالات الخصم
+export enum DeductionStatus {
+  PENDING = 'pending', // معلق (لم يبدأ بعد)
+  ACTIVE = 'active', // نشط (يتم خصمه حالياً)
+  COMPLETED = 'completed', // مكتمل (تم سداد كل الأقساط)
+  CANCELLED = 'cancelled', // ملغي
+}
+
 @Entity('deductions')
 export class Deduction {
   @PrimaryGeneratedColumn('uuid')
@@ -45,6 +53,14 @@ export class Deduction {
   // عدد الدفعات التي تم صرفها فعلياً حتى الآن
   @Column({ default: 0 })
   paidInstallments!: number;
+
+  // ✅ حقل الحالة
+  @Column({
+    type: 'enum',
+    enum: DeductionStatus,
+    default: DeductionStatus.PENDING,
+  })
+  status!: DeductionStatus;
 
   @Column({ type: 'text', nullable: true })
   notes?: string;

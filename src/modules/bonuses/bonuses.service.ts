@@ -1,7 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Repository } from 'typeorm';
-import { Bonus } from './entities/bonus.entity';
+import { Bonus, BonusStatus } from './entities/bonus.entity';
 import { CreateBonusDto } from './dto/create-bonus.dto';
 import { UpdateBonusDto } from './dto/update-bonus.dto';
 import { Employee } from '../employees/entities/employee.entity';
@@ -24,6 +28,8 @@ export class BonusesService {
     const bonus = this.bonusRepo.create({
       ...dto,
       payoutDate: new Date(dto.payoutDate),
+      // ✅ تعيين الحالة الافتراضية إذا لم يتم تحديدها
+      status: dto.status || BonusStatus.PENDING,
       tenantId,
     });
 
@@ -64,6 +70,23 @@ export class BonusesService {
     Object.assign(bonus, dto);
     if (dto.payoutDate) bonus.payoutDate = new Date(dto.payoutDate);
 
+    return this.bonusRepo.save(bonus);
+  }
+
+  // ✅ دالة جديدة لتحديث حالة المكافأة (موافقة / رفض)
+  async updateStatus(
+    id: string,
+    status: BonusStatus,
+    tenantId: string,
+  ): Promise<Bonus> {
+    const bonus = await this.findOne(id, tenantId);
+
+    // التحقق من أن الحالة الجديدة صحيحة
+    if (!Object.values(BonusStatus).includes(status)) {
+      throw new BadRequestException('حالة غير صالحة');
+    }
+
+    bonus.status = status;
     return this.bonusRepo.save(bonus);
   }
 
