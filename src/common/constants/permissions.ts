@@ -143,8 +143,13 @@ export const PERMS: Record<string, PermissionMetadata> = {
   // ─── Loans (القروض) ─────────────────────────────────
   LOAN_REQUEST_SELF: { name: 'request_loan_self', labelAr: 'طلب قرض ذاتي' },
   LOAN_VIEW: { name: 'view_loans', labelAr: 'عرض القروض' },
+
   LOAN_APPROVE: { name: 'approve_loan', labelAr: 'اعتماد القروض' },
 
+  LOAN_CREATE_ADMIN: {
+    name: 'create_loan_admin',
+    labelAr: 'إنشاء قرض (إداري)',
+  },
   // ─── Permissions Management (إدارة الصلاحيات) ──────
   PERMISSION_CREATE: {
     name: 'create_permission',

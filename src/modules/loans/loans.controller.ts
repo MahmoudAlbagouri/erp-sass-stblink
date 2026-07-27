@@ -1,4 +1,3 @@
-// src/modules/loans/loans.controller.ts
 import {
   Controller,
   Get,
@@ -48,6 +47,18 @@ export class LoansController {
     return this.loansService.create(dto, user.employeeId, tenantId);
   }
 
+  // ✅ مسار جديد: إنشاء قرض لموظف من قبل المدير
+  @Post('admin/:employeeId')
+  @Permissions(PERMS.LOAN_CREATE_ADMIN)
+  @UseGuards(PermissionsGuard)
+  createForEmployee(
+    @Param('employeeId') employeeId: string,
+    @CurrentTenantId() tenantId: string,
+    @Body() dto: CreateLoanDto,
+  ) {
+    return this.loansService.create(dto, employeeId, tenantId);
+  }
+
   // ✅ مسار التصدير الجماعي للقروض
   @Get('export/:type')
   @Permissions(PERMS.LOAN_VIEW)
@@ -64,8 +75,8 @@ export class LoansController {
       { header: 'إجمالي القرض', key: 'totalAmount' },
       { header: 'القسط الشهري', key: 'monthlyInstallment' },
       { header: 'عدد الأقساط الكلي', key: 'installmentsCount' },
-      { header: 'الأقساط المسددة', key: 'paidInstallments' }, // ✅ جديد
-      { header: 'الأقساط المتبقية', key: 'remainingInstallments' }, // ✅ جديد
+      { header: 'الأقساط المسددة', key: 'paidInstallments' },
+      { header: 'الأقساط المتبقية', key: 'remainingInstallments' },
       { header: 'الحالة', key: 'status' },
       { header: 'تاريخ البداية', key: 'startDate' },
       { header: 'السبب', key: 'reason' },
@@ -76,8 +87,8 @@ export class LoansController {
       totalAmount: Number(l.totalAmount).toLocaleString('ar-SA'),
       monthlyInstallment: Number(l.monthlyInstallment).toLocaleString('ar-SA'),
       installmentsCount: l.installmentsCount,
-      paidInstallments: l.paidInstallments || 0, // ✅ عرض القيمة الفعلية
-      remainingInstallments: l.installmentsCount - (l.paidInstallments || 0), // ✅ حساب المتبقي
+      paidInstallments: l.paidInstallments || 0,
+      remainingInstallments: l.installmentsCount - (l.paidInstallments || 0),
       status:
         String(l.status) === 'pending'
           ? 'معلق'
@@ -144,12 +155,12 @@ export class LoansController {
         value: `${Number(loan.monthlyInstallment).toLocaleString('ar-SA')} ر.س`,
       },
       { label: 'عدد الأقساط الكلي', value: loan.installmentsCount },
-      { label: 'الأقساط المسددة', value: paid }, // ✅ جديد
-      { label: 'الأقساط المتبقية', value: remaining }, // ✅ جديد
+      { label: 'الأقساط المسددة', value: paid },
+      { label: 'الأقساط المتبقية', value: remaining },
       {
         label: 'نسبة السداد',
         value: `${Math.round((paid / loan.installmentsCount) * 100)}%`,
-      }, // ✅ جديد
+      },
       {
         label: 'الحالة',
         value:

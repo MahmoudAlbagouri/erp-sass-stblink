@@ -1,4 +1,3 @@
-// src/modules/loans/loans.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -19,6 +18,7 @@ export class LoansService {
       tenantId,
       monthlyInstallment,
       startDate: new Date(dto.startDate),
+      paidInstallments: 0, // تهيئة القيمة افتراضياً
     });
 
     return await this.repo.save(loan);
@@ -32,7 +32,6 @@ export class LoansService {
     });
   }
 
-  // ✅ إضافة findOne لدعم التصدير الفردي
   async findOne(id: string, tenantId: string) {
     const loan = await this.repo.findOne({
       where: { id, tenantId },
