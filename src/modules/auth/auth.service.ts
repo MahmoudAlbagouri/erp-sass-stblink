@@ -11,19 +11,23 @@ import { EntityManager } from 'typeorm';
 import * as argon2 from 'argon2';
 import { MailerService } from '@nestjs-modules/mailer';
 import { UsersService } from '../users/users.service';
-import { TenantsService } from '../tenants/tenants.service'; // ✅ استيراد الخدمة الجديدة
+import { TenantsService } from '../tenants/tenants.service';
+import { SubscriptionManagerService } from '../subscriptions/subscription-manager.service';
+import { Subscription } from '../subscriptions/entities/subscription.entity'; // ✅ استيراد Entity الاشتراك
 import { User } from '../users/entities/user.entity';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UserStatus } from '../../common/enums/user.enums';
+import { SubscriptionStatus } from '../../common/enums/subscription.enums'; // ✅ استيراد Enum الحالات
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly usersService: UsersService,
-    private readonly tenantsService: TenantsService, // ✅ حقن الخدمة الجديدة
+    private readonly tenantsService: TenantsService,
+    private readonly subscriptionManager: SubscriptionManagerService,
     private readonly jwtService: JwtService,
     private readonly mailerService: MailerService,
     @InjectEntityManager() private readonly entityManager: EntityManager,
@@ -36,9 +40,7 @@ export class AuthService {
 
     let createdUser!: User;
 
-    // ✅ استخدام Transaction لضمان تكامل البيانات بين المستخدم والشركة والاشتراك
     await this.entityManager.transaction(async (manager: EntityManager) => {
-      // 1. إنشاء الشركة والاشتراك التجريبي تلقائياً عبر TenantsService
       const tenant = await this.tenantsService.create(
         {
           companyName: String(dto.companyName),
@@ -47,10 +49,9 @@ export class AuthService {
           language: 'ar',
           timezone: 'UTC+3',
         },
-        manager, // ✅ تمرير الـ EntityManager للحفاظ على نفس الـ Transaction
+        manager,
       );
 
-      // 2. تشفير كلمة المرور وإنشاء المدير الأول
       const hashedPassword = await argon2.hash(dto.password);
       const admin = manager.create(User, {
         username: dto.username,
@@ -82,6 +83,55 @@ export class AuthService {
       throw new ForbiddenException(
         'البريد الإلكتروني أو كلمة المرور غير صحيحة',
       );
+    }
+
+    // ✅ التحقق الدقيق من حالة الاشتراك وعرض رسالة مخصصة
+    if (!user.isSystemAdmin && user.tenantId) {
+      try {
+        // جلب آخر اشتراك للشركة لمعرفة حالته الدقيقة
+        const subRepo = this.entityManager.getRepository(Subscription);
+        const subscription = await subRepo.findOne({
+          where: { tenantId: user.tenantId },
+          order: { created_at: 'DESC' },
+        });
+
+        if (!subscription) {
+          throw new ForbiddenException(
+            'لا يوجد اشتراك مسجل لهذه الشركة. يرجى التواصل مع الإدارة.',
+          );
+        }
+
+        // منع الدخول بناءً على الحالة المحددة برسائل واضحة
+        switch (subscription.status) {
+          case SubscriptionStatus.CANCELLED:
+            throw new ForbiddenException(
+              'عذراً، حساب شركتكم ملغي نهائياً. لا يمكن تسجيل الدخول.',
+            );
+
+          case SubscriptionStatus.SUSPENDED:
+            throw new ForbiddenException(
+              'حساب شركتكم معلق حالياً. يرجى التواصل مع الإدارة لحل المشكلة.',
+            );
+
+          case SubscriptionStatus.PENDING:
+            throw new ForbiddenException(
+              'اشتراك شركتكم قيد المراجعة/الانتظار. يرجى الانتظار حتى يتم التفعيل.',
+            );
+
+          case SubscriptionStatus.EXPIRED:
+            throw new ForbiddenException(
+              'انتهت صلاحية اشتراك شركتكم. يرجى التجديد للمتابعة.',
+            );
+        }
+
+        // إذا وصلنا هنا، فالحالة إما ACTIVE أو TRIAL، ونسمح بالدخول
+      } catch (error) {
+        // إعادة رمي الخطأ إذا كان ForbiddenException، وإلا نعتبره خطأ تقني
+        if (error instanceof ForbiddenException) {
+          throw error;
+        }
+        throw new ForbiddenException('حدث خطأ أثناء التحقق من حالة الاشتراك.');
+      }
     }
 
     return { userId: user.id, ...(await this.getTokens(user.id)) };

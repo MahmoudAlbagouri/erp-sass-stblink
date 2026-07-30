@@ -8,7 +8,7 @@ import { User } from '../users/entities/user.entity';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
-import { SubscriptionManagerService } from '../subscriptions/subscription-manager.service'; // ✅ استيراد خدمة إدارة الاشتراكات
+import { SubscriptionManagerService } from '../subscriptions/subscription-manager.service';
 
 @Injectable()
 export class TenantsService {
@@ -18,7 +18,7 @@ export class TenantsService {
     @InjectEntityManager()
     private readonly entityManager: EntityManager,
     private readonly subscriptionsService: SubscriptionsService,
-    private readonly subscriptionManager: SubscriptionManagerService, // ✅ حقن الخدمة للتحقق من الحالة
+    private readonly subscriptionManager: SubscriptionManagerService,
   ) {}
 
   async create(
@@ -42,10 +42,10 @@ export class TenantsService {
     const tenant = repo.create(tenantData);
     const savedTenant = await repo.save(tenant);
 
-    // ✅ إنشاء الاشتراك التجريبي هو المسؤول الوحيد عن تحديد حالة الحساب
+    // ✅ تم تعديل المدة من 14 إلى 3 أيام هنا
     await this.subscriptionsService.createTrialSubscription(
       savedTenant.id,
-      14,
+      3,
       manager,
     );
 
@@ -84,7 +84,6 @@ export class TenantsService {
 
   /**
    * ✅ التحقق من نشاط الحساب يعتمد الآن كلياً على حالة الاشتراك
-   * بدلاً من الاعتماد على حقل status المحذوف في جدول tenants
    */
   async isAccountActive(tenantId: string): Promise<boolean> {
     try {

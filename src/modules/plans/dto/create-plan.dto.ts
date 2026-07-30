@@ -1,14 +1,15 @@
+// src/modules/plans/dto/create-plan.dto.ts
 import {
   IsString,
   IsNotEmpty,
   IsOptional,
-  IsNumberString,
   IsEnum,
   IsArray,
   IsBoolean,
   IsInt,
   IsObject,
 } from 'class-validator';
+import { Transform } from 'class-transformer'; // ✅ استيراد Transform
 import { BillingCycle } from '../../../common/enums/subscription.enums';
 import type { PlanQuotas } from '../entities/plan.entity';
 
@@ -25,7 +26,10 @@ export class CreatePlanDto {
   @IsOptional()
   description?: string;
 
-  @IsNumberString()
+  // ✅ التعديل هنا: قبول أي قيمة وتحويلها لنص لضمان الدقة
+  @Transform(({ value }) => String(value))
+  @IsString()
+  @IsNotEmpty({ message: 'السعر مطلوب' })
   price!: string;
 
   @IsEnum(BillingCycle)

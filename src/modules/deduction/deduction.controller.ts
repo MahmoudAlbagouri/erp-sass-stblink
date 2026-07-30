@@ -1,3 +1,4 @@
+// src/modules/deductions/deductions.controller.ts
 import {
   Controller,
   Get,
@@ -16,14 +17,17 @@ import { CreateDeductionDto } from './dto/create-deduction.dto';
 import { UpdateDeductionDto } from './dto/update-deduction.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { SubscriptionGuard } from '../../common/guards/subscription.guard'; // ✅ استيراد الحارس
 import { Permissions } from '../../common/decorators/permissions.decorator';
+import { RequiresFeature } from '../../common/decorators/requires-feature.decorator'; // ✅ استيراد ديكوراتور الميزة
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 import { ReportService } from '../../common/reports/report.service';
 import { PERMS } from '../../common/constants/permissions';
+import { FEATURES } from '../../common/constants/features'; // ✅ استيراد الثوابت
 import { DeductionStatus } from './entities/deduction.entity';
 
 @Controller('deductions')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
 export class DeductionsController {
   constructor(
     private readonly deductionsService: DeductionsService,
@@ -32,6 +36,7 @@ export class DeductionsController {
 
   @Post()
   @Permissions(PERMS.DEDUCTION_CREATE)
+  @RequiresFeature(FEATURES.DEDUCTIONS_MODULE || FEATURES.PAYROLL_MODULE) // ✅ التحقق من توفر الموديول
   @UseGuards(PermissionsGuard)
   create(@Body() dto: CreateDeductionDto, @CurrentTenantId() tenantId: string) {
     return this.deductionsService.create(dto, tenantId);
@@ -40,6 +45,7 @@ export class DeductionsController {
   // ✅ مسار التصدير الجماعي للخصومات
   @Get('export/:type')
   @Permissions(PERMS.DEDUCTION_VIEW)
+  @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
   @UseGuards(PermissionsGuard)
   async exportDeductions(
     @Param('type') type: 'excel' | 'pdf',
@@ -51,7 +57,7 @@ export class DeductionsController {
     const columns = [
       { header: 'اسم الموظف', key: 'employeeName' },
       { header: 'نوع الخصم', key: 'name' },
-      { header: 'الحالة', key: 'status' }, // ✅ إضافة عمود الحالة
+      { header: 'الحالة', key: 'status' },
       { header: 'إجمالي المبلغ', key: 'totalAmount' },
       { header: 'القسط الشهري', key: 'monthlyAmount' },
       { header: 'عدد الدفعات', key: 'installmentsCount' },
@@ -63,7 +69,7 @@ export class DeductionsController {
     const formattedData = data.map((d) => ({
       employeeName: d.employee?.fullName || '-',
       name: d.name,
-      status: this.getStatusLabel(d.status), // ✅ ترجمة الحالة
+      status: this.getStatusLabel(d.status),
       totalAmount: Number(d.totalAmount).toLocaleString('ar-SA'),
       monthlyAmount: Number(d.monthlyAmount).toLocaleString('ar-SA'),
       installmentsCount: d.installmentsCount,
@@ -106,6 +112,7 @@ export class DeductionsController {
   // ✅ مسار التصدير الفردي للخصم
   @Get(':id/export/:type')
   @Permissions(PERMS.DEDUCTION_VIEW)
+  @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
   @UseGuards(PermissionsGuard)
   async exportSingleDeduction(
     @Param('id') id: string,
@@ -121,7 +128,7 @@ export class DeductionsController {
       { label: 'كود الموظف', value: deduction.employee?.employeeCode || '-' },
       { label: 'المسمى الوظيفي', value: deduction.employee?.jobTitle || '-' },
       { label: 'نوع الخصم', value: deduction.name },
-      { label: 'الحالة', value: this.getStatusLabel(deduction.status) }, // ✅ إضافة الحالة
+      { label: 'الحالة', value: this.getStatusLabel(deduction.status) },
       {
         label: 'إجمالي المبلغ',
         value: `${Number(deduction.totalAmount).toLocaleString('ar-SA')} ر.س`,
@@ -183,6 +190,7 @@ export class DeductionsController {
 
   @Get()
   @Permissions(PERMS.DEDUCTION_VIEW)
+  @RequiresFeature(FEATURES.DEDUCTIONS_MODULE || FEATURES.PAYROLL_MODULE) // ✅ حماية عرض القائمة
   @UseGuards(PermissionsGuard)
   findAll(@CurrentTenantId() tenantId: string) {
     return this.deductionsService.findAll(tenantId);
@@ -190,6 +198,7 @@ export class DeductionsController {
 
   @Get(':id')
   @Permissions(PERMS.DEDUCTION_VIEW)
+  @RequiresFeature(FEATURES.DEDUCTIONS_MODULE || FEATURES.PAYROLL_MODULE) // ✅ حماية عرض التفاصيل
   @UseGuards(PermissionsGuard)
   findOne(@Param('id') id: string, @CurrentTenantId() tenantId: string) {
     return this.deductionsService.findOne(id, tenantId);
@@ -197,6 +206,7 @@ export class DeductionsController {
 
   @Patch(':id')
   @Permissions(PERMS.DEDUCTION_UPDATE)
+  @RequiresFeature(FEATURES.DEDUCTIONS_MODULE || FEATURES.PAYROLL_MODULE) // ✅ حماية التعديل
   @UseGuards(PermissionsGuard)
   update(
     @Param('id') id: string,
@@ -209,6 +219,7 @@ export class DeductionsController {
   // ✅ Endpoint جديد لتغيير حالة الخصم
   @Patch(':id/status')
   @Permissions(PERMS.DEDUCTION_UPDATE)
+  @RequiresFeature(FEATURES.DEDUCTIONS_MODULE || FEATURES.PAYROLL_MODULE) // ✅ حماية تغيير الحالة
   @UseGuards(PermissionsGuard)
   updateStatus(
     @Param('id') id: string,
@@ -220,6 +231,7 @@ export class DeductionsController {
 
   @Delete(':id')
   @Permissions(PERMS.DEDUCTION_DELETE)
+  @RequiresFeature(FEATURES.DEDUCTIONS_MODULE || FEATURES.PAYROLL_MODULE) // ✅ حماية الحذف
   @UseGuards(PermissionsGuard)
   remove(@Param('id') id: string, @CurrentTenantId() tenantId: string) {
     return this.deductionsService.remove(id, tenantId);

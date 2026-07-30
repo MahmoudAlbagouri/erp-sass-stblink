@@ -16,13 +16,16 @@ import { CreateSalaryDto } from './dto/create-salary.dto';
 import { UpdateSalaryDto } from './dto/update-salary.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { SubscriptionGuard } from '../../common/guards/subscription.guard'; // ✅ استيراد الحارس
 import { Permissions } from '../../common/decorators/permissions.decorator';
+import { RequiresFeature } from '../../common/decorators/requires-feature.decorator'; // ✅ استيراد ديكوراتور الميزة
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 import { ReportService } from '../../common/reports/report.service';
 import { PERMS } from 'src/common/constants/permissions';
+import { FEATURES } from 'src/common/constants/features'; // ✅ استيراد الثوابت
 
 @Controller('salaries')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
 export class SalariesController {
   constructor(
     private readonly salariesService: SalariesService,
@@ -31,6 +34,8 @@ export class SalariesController {
 
   @Post()
   @Permissions(PERMS.SALARY_MANAGE)
+  @RequiresFeature(FEATURES.EMPLOYEES_MODULE) // ✅ الراتب جزء من موديول الموظفين الأساسي
+  @UseGuards(PermissionsGuard)
   create(@Body() dto: CreateSalaryDto, @CurrentTenantId() tenantId: string) {
     return this.salariesService.create(dto, tenantId);
   }
@@ -38,6 +43,8 @@ export class SalariesController {
   // ✅ مسار التصدير الجماعي
   @Get('export/:type')
   @Permissions(PERMS.SALARY_VIEW)
+  @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
+  @UseGuards(PermissionsGuard)
   async exportSalaries(
     @Param('type') type: 'excel' | 'pdf',
     @CurrentTenantId() tenantId: string,
@@ -98,6 +105,8 @@ export class SalariesController {
   // ✅ مسار التصدير الفردي (يجب أن يكون قبل findOne)
   @Get(':id/export/:type')
   @Permissions(PERMS.SALARY_VIEW)
+  @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
+  @UseGuards(PermissionsGuard)
   async exportSingleSalary(
     @Param('id') id: string,
     @Param('type') type: 'excel' | 'pdf',
@@ -179,12 +188,16 @@ export class SalariesController {
 
   @Get()
   @Permissions(PERMS.SALARY_VIEW)
+  @RequiresFeature(FEATURES.EMPLOYEES_MODULE) // ✅ حماية عرض القائمة كجزء من الموظفين
+  @UseGuards(PermissionsGuard)
   findAll(@CurrentTenantId() tenantId: string) {
     return this.salariesService.findAll(tenantId);
   }
 
   @Patch(':id')
   @Permissions(PERMS.SALARY_MANAGE)
+  @RequiresFeature(FEATURES.EMPLOYEES_MODULE) // ✅ حماية التعديل كجزء من الموظفين
+  @UseGuards(PermissionsGuard)
   update(
     @Param('id') id: string,
     @Body() dto: UpdateSalaryDto,

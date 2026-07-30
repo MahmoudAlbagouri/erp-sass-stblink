@@ -17,11 +17,13 @@ import { ContractsModule } from '../contracts/contracts.module';
 import { DateUtils } from 'src/common/utils/date.utils';
 import { LeavePolicyService } from './config/leave-policy.config';
 import { ReportService } from 'src/common/reports/report.service';
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([LeaveRequest, LeaveBalance, LeaveBalanceHistory]),
     ContractsModule,
+    SubscriptionsModule, // استيراد موديول الاشتراكات
   ],
   controllers: [LeavesController],
   providers: [

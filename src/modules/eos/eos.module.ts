@@ -8,12 +8,14 @@ import { EOSController } from './eos.controller';
 import { ContractsModule } from '../contracts/contracts.module';
 import { SalariesModule } from '../salaries/salaries.module';
 import { DateUtils } from '../../common/utils/date.utils'; // ✅ تأكد من صحة المسار حسب مشروعك
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([EndOfService, Employee]),
     ContractsModule,
     SalariesModule,
+    SubscriptionsModule, // استيراد موديول الاشتراكات
   ],
   controllers: [EOSController],
   providers: [

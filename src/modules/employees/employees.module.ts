@@ -14,6 +14,8 @@ import { EmployeesService } from './employees.service';
 import { EmployeesOnboardingService } from './employees-onboarding.service'; // تأكد من استيراد الخدمة الجديدة
 import { EmployeesController } from './employees.controller';
 import { ReportService } from '../../common/reports/report.service';
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { EmployeesQuotaResolver } from './employees-quota.resolver';
 
 @Module({
   imports: [
@@ -25,12 +27,14 @@ import { ReportService } from '../../common/reports/report.service';
       Contract,
       Salary,
     ]),
+    SubscriptionsModule,
   ],
   controllers: [EmployeesController],
   providers: [
     EmployeesService,
     EmployeesOnboardingService, // أضف الخدمة هنا
     ReportService,
+    EmployeesQuotaResolver,
   ],
   exports: [
     EmployeesService,

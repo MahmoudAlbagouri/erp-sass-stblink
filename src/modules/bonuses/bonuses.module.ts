@@ -5,9 +5,10 @@ import { Employee } from '../employees/entities/employee.entity';
 import { BonusesService } from './bonuses.service';
 import { BonusesController } from './bonuses.controller';
 import { ReportService } from 'src/common/reports/report.service';
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Bonus, Employee])],
+  imports: [TypeOrmModule.forFeature([Bonus, Employee]), SubscriptionsModule],
   controllers: [BonusesController],
   providers: [BonusesService, ReportService],
   exports: [BonusesService], // ✅ مهم لاستخدامه داخل PayrollModule

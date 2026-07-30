@@ -27,14 +27,13 @@ export class SubscriptionsService {
 
   async createTrialSubscription(
     tenantId: string,
-    trialDays: number = 14,
+    trialDays: number = 3, // ✅ تم التغيير من 14 إلى 3
     manager?: EntityManager,
   ): Promise<Subscription> {
     const subRepo = manager
       ? manager.getRepository(Subscription)
       : this.subscriptionRepo;
 
-    // ✅ استخدام PlansService للبحث عن الخطة المجانية (آمن هنا لأننا لا نكتب بيانات خطة)
     const freePlan = await this.plansService.getPlanByName('FREE');
 
     const subscription = subRepo.create({
@@ -154,6 +153,9 @@ export class SubscriptionsService {
   }
 
   // ✅ دالة مساعدة لمنع التحولات غير المنطقية
+  // src/modules/subscriptions/services/subscriptions.service.ts
+
+  // ✅ دالة مساعدة لمنع التحولات غير المنطقية
   private validateStatusTransition(
     current: SubscriptionStatus,
     next: SubscriptionStatus,
@@ -163,6 +165,8 @@ export class SubscriptionsService {
         SubscriptionStatus.ACTIVE,
         SubscriptionStatus.EXPIRED,
         SubscriptionStatus.CANCELLED,
+        SubscriptionStatus.SUSPENDED,
+        SubscriptionStatus.PENDING, // ✅ السماح بنقل التجربة لانتظار الدفع
       ],
       [SubscriptionStatus.ACTIVE]: [
         SubscriptionStatus.SUSPENDED,
@@ -173,13 +177,24 @@ export class SubscriptionsService {
       [SubscriptionStatus.PENDING]: [
         SubscriptionStatus.ACTIVE,
         SubscriptionStatus.CANCELLED,
+        SubscriptionStatus.SUSPENDED,
       ],
       [SubscriptionStatus.SUSPENDED]: [
         SubscriptionStatus.ACTIVE,
         SubscriptionStatus.CANCELLED,
+        SubscriptionStatus.EXPIRED,
+        SubscriptionStatus.PENDING,
       ],
-      [SubscriptionStatus.EXPIRED]: [SubscriptionStatus.ACTIVE], // التجديد بعد الانتهاء
-      [SubscriptionStatus.CANCELLED]: [], // ❌ لا يمكن الخروج من الإلغاء
+      [SubscriptionStatus.EXPIRED]: [
+        SubscriptionStatus.ACTIVE,
+        SubscriptionStatus.PENDING,
+        SubscriptionStatus.SUSPENDED,
+      ],
+      // ✅ التعديل هنا: السماح بالخروج من الإلغاء للتفعيل أو الانتظار
+      [SubscriptionStatus.CANCELLED]: [
+        SubscriptionStatus.ACTIVE,
+        SubscriptionStatus.PENDING,
+      ],
     };
 
     if (!validTransitions[current].includes(next)) {

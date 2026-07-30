@@ -17,7 +17,9 @@ import { CreateAdvanceDto } from './dto/create-advance.dto';
 import { AdvanceStatus } from './entities/advance.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { SubscriptionGuard } from '../../common/guards/subscription.guard'; // ✅ استيراد الحارس
 import { Permissions } from '../../common/decorators/permissions.decorator';
+import { RequiresFeature } from '../../common/decorators/requires-feature.decorator'; // ✅ استيراد ديكوراتور الميزة
 import {
   CurrentUser,
   type CurrentUserData,
@@ -25,9 +27,10 @@ import {
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 import { ReportService } from '../../common/reports/report.service';
 import { PERMS } from 'src/common/constants/permissions';
+import { FEATURES } from 'src/common/constants/features'; // ✅ استيراد الثوابت
 
 @Controller('advances')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
 export class AdvancesController {
   constructor(
     private readonly advancesService: AdvancesService,
@@ -36,6 +39,7 @@ export class AdvancesController {
 
   @Post('my-advances')
   @Permissions(PERMS.ADVANCE_REQUEST_SELF)
+  @RequiresFeature(FEATURES.ADVANCES_MODULE) // ✅ التحقق من توفر الموديول
   @UseGuards(PermissionsGuard)
   createMyAdvance(
     @CurrentUser() user: CurrentUserData,
@@ -49,6 +53,7 @@ export class AdvancesController {
 
   @Post('admin/:employeeId')
   @Permissions(PERMS.ADVANCE_CREATE_ADMIN)
+  @RequiresFeature(FEATURES.ADVANCES_MODULE) // ✅ التحقق من توفر الموديول
   @UseGuards(PermissionsGuard)
   createForEmployee(
     @Param('employeeId') employeeId: string,
@@ -61,6 +66,7 @@ export class AdvancesController {
   // ✅ مسار التصدير الجماعي للسلف
   @Get('export/:type')
   @Permissions(PERMS.ADVANCE_VIEW)
+  @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
   @UseGuards(PermissionsGuard)
   async exportAdvances(
     @Param('type') type: 'excel' | 'pdf',
@@ -130,6 +136,7 @@ export class AdvancesController {
   // ✅ مسار التصدير الفردي لسلفة واحدة
   @Get(':id/export/:type')
   @Permissions(PERMS.ADVANCE_VIEW)
+  @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
   @UseGuards(PermissionsGuard)
   async exportSingleAdvance(
     @Param('id') id: string,
@@ -214,6 +221,7 @@ export class AdvancesController {
 
   @Get()
   @Permissions(PERMS.ADVANCE_VIEW)
+  @RequiresFeature(FEATURES.ADVANCES_MODULE) // ✅ حماية عرض القائمة
   @UseGuards(PermissionsGuard)
   findAll(@CurrentTenantId() tenantId: string) {
     return this.advancesService.findAll(tenantId);
@@ -221,6 +229,7 @@ export class AdvancesController {
 
   @Patch(':id/status')
   @Permissions(PERMS.ADVANCE_APPROVE)
+  @RequiresFeature(FEATURES.ADVANCES_MODULE) // ✅ حماية الموافقة
   @UseGuards(PermissionsGuard)
   updateStatus(
     @Param('id') id: string,

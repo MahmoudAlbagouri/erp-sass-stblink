@@ -1,3 +1,4 @@
+// src/modules/loans/loans.controller.ts
 import {
   Controller,
   Get,
@@ -16,7 +17,9 @@ import { CreateLoanDto } from './dto/create-loan.dto';
 import { LoanStatus } from './entities/loan.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { SubscriptionGuard } from '../../common/guards/subscription.guard'; // ✅ استيراد الحارس
 import { Permissions } from '../../common/decorators/permissions.decorator';
+import { RequiresFeature } from '../../common/decorators/requires-feature.decorator'; // ✅ استيراد ديكوراتور الميزة
 import {
   CurrentUser,
   type CurrentUserData,
@@ -24,9 +27,10 @@ import {
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 import { ReportService } from '../../common/reports/report.service';
 import { PERMS } from 'src/common/constants/permissions';
+import { FEATURES } from 'src/common/constants/features'; // ✅ استيراد الثوابت
 
 @Controller('loans')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
 export class LoansController {
   constructor(
     private readonly loansService: LoansService,
@@ -35,6 +39,8 @@ export class LoansController {
 
   @Post('my-loans')
   @Permissions(PERMS.LOAN_REQUEST_SELF)
+  @RequiresFeature(FEATURES.LOANS_MODULE) // ✅ التحقق من توفر الموديول
+  @UseGuards(PermissionsGuard)
   createMyLoan(
     @CurrentUser() user: CurrentUserData,
     @CurrentTenantId() tenantId: string,
@@ -50,6 +56,7 @@ export class LoansController {
   // ✅ مسار جديد: إنشاء قرض لموظف من قبل المدير
   @Post('admin/:employeeId')
   @Permissions(PERMS.LOAN_CREATE_ADMIN)
+  @RequiresFeature(FEATURES.LOANS_MODULE) // ✅ التحقق من توفر الموديول
   @UseGuards(PermissionsGuard)
   createForEmployee(
     @Param('employeeId') employeeId: string,
@@ -62,6 +69,7 @@ export class LoansController {
   // ✅ مسار التصدير الجماعي للقروض
   @Get('export/:type')
   @Permissions(PERMS.LOAN_VIEW)
+  @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
   @UseGuards(PermissionsGuard)
   async exportLoans(
     @Param('type') type: 'excel' | 'pdf',
@@ -129,6 +137,7 @@ export class LoansController {
   // ✅ مسار التصدير الفردي للقرض
   @Get(':id/export/:type')
   @Permissions(PERMS.LOAN_VIEW)
+  @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
   @UseGuards(PermissionsGuard)
   async exportSingleLoan(
     @Param('id') id: string,
@@ -219,12 +228,16 @@ export class LoansController {
 
   @Get()
   @Permissions(PERMS.LOAN_VIEW)
+  @RequiresFeature(FEATURES.LOANS_MODULE) // ✅ حماية عرض القائمة
+  @UseGuards(PermissionsGuard)
   findAll(@CurrentTenantId() tenantId: string) {
     return this.loansService.findAll(tenantId);
   }
 
   @Patch(':id/status')
   @Permissions(PERMS.LOAN_APPROVE)
+  @RequiresFeature(FEATURES.LOANS_MODULE) // ✅ حماية الموافقة على القرض
+  @UseGuards(PermissionsGuard)
   updateStatus(
     @Param('id') id: string,
     @Body('status') status: LoanStatus,

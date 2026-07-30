@@ -16,10 +16,12 @@ import type { Response } from 'express';
 import { LeavesService } from './leaves.service';
 import { LeaveCarryoverCronService } from './leave-carryover.cron.service';
 import { CreateLeaveDto } from './dto/create-leave.dto';
-import { LeaveStatus } from './entities/leave-request.entity'; // ✅ استيراد LeaveType
+import { LeaveStatus } from './entities/leave-request.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { SubscriptionGuard } from '../../common/guards/subscription.guard'; // ✅ استيراد الحارس
 import { Permissions } from '../../common/decorators/permissions.decorator';
+import { RequiresFeature } from '../../common/decorators/requires-feature.decorator'; // ✅ استيراد ديكوراتور الميزة
 import {
   CurrentUser,
   type CurrentUserData,
@@ -27,9 +29,10 @@ import {
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 import { ReportService } from '../../common/reports/report.service';
 import { PERMS } from 'src/common/constants/permissions';
+import { FEATURES } from 'src/common/constants/features'; // ✅ استيراد الثوابت
 
 @Controller('leaves')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
 export class LeavesController {
   constructor(
     private readonly leavesService: LeavesService,
@@ -39,6 +42,7 @@ export class LeavesController {
 
   @Post('my-leaves')
   @Permissions(PERMS.LEAVE_REQUEST_SELF)
+  @RequiresFeature(FEATURES.LEAVES_MODULE) // ✅ التحقق من توفر الموديول
   @UseGuards(PermissionsGuard)
   createMyLeave(
     @CurrentUser() user: CurrentUserData,
@@ -52,6 +56,7 @@ export class LeavesController {
 
   @Get('accrual/:employeeId')
   @Permissions(PERMS.LEAVE_VIEW)
+  @RequiresFeature(FEATURES.LEAVES_MODULE) // ✅ حماية عرض تفاصيل الاستحقاق
   @UseGuards(PermissionsGuard)
   async getAccrualDetails(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
@@ -62,6 +67,7 @@ export class LeavesController {
 
   @Post('balance')
   @Permissions(PERMS.LEAVE_BALANCE_MANAGE)
+  @RequiresFeature(FEATURES.LEAVES_MODULE) // ✅ حماية إدارة الرصيد
   @UseGuards(PermissionsGuard)
   async setBalance(
     @Body() dto: { employeeId: string; year: number; amount: number },
@@ -72,6 +78,7 @@ export class LeavesController {
 
   @Post('carryover/recalculate/:employeeId')
   @Permissions(PERMS.LEAVE_BALANCE_MANAGE)
+  @RequiresFeature(FEATURES.LEAVES_MODULE) // ✅ حماية إعادة حساب الترحيل
   @UseGuards(PermissionsGuard)
   recalculateCarryOverForEmployee(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
@@ -85,6 +92,7 @@ export class LeavesController {
 
   @Post('carryover/recalculate-all')
   @Permissions(PERMS.LEAVE_BALANCE_MANAGE)
+  @RequiresFeature(FEATURES.LEAVES_MODULE) // ✅ حماية إعادة حساب الترحيل للجميع
   @UseGuards(PermissionsGuard)
   recalculateCarryOverForAll() {
     return this.carryoverCronService.recalculateAll();
@@ -92,6 +100,7 @@ export class LeavesController {
 
   @Post('admin/:employeeId')
   @Permissions(PERMS.LEAVE_CREATE_ADMIN)
+  @RequiresFeature(FEATURES.LEAVES_MODULE) // ✅ التحقق من توفر الموديول
   @UseGuards(PermissionsGuard)
   createForEmployee(
     @Param('employeeId') employeeId: string,
@@ -104,6 +113,7 @@ export class LeavesController {
   // ✅ مسار التصدير الجماعي للإجازات
   @Get('export/:type')
   @Permissions(PERMS.LEAVE_VIEW)
+  @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
   @UseGuards(PermissionsGuard)
   async exportLeaves(
     @Param('type') type: 'excel' | 'pdf',
@@ -180,6 +190,7 @@ export class LeavesController {
   // ✅ مسار التصدير الفردي لإجازة واحدة
   @Get(':id/export/:type')
   @Permissions(PERMS.LEAVE_VIEW)
+  @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
   @UseGuards(PermissionsGuard)
   async exportSingleLeave(
     @Param('id') id: string,
@@ -277,6 +288,7 @@ export class LeavesController {
 
   @Get()
   @Permissions(PERMS.LEAVE_VIEW)
+  @RequiresFeature(FEATURES.LEAVES_MODULE) // ✅ حماية عرض القائمة
   @UseGuards(PermissionsGuard)
   findAll(@CurrentTenantId() tenantId: string) {
     return this.leavesService.findAll(tenantId);
@@ -284,6 +296,7 @@ export class LeavesController {
 
   @Patch(':id/status')
   @Permissions(PERMS.LEAVE_APPROVE)
+  @RequiresFeature(FEATURES.LEAVES_MODULE) // ✅ حماية الموافقة على الإجازة
   @UseGuards(PermissionsGuard)
   updateStatus(
     @Param('id') id: string,

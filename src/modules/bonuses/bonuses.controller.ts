@@ -1,3 +1,4 @@
+// src/modules/bonuses/bonuses.controller.ts
 import {
   Controller,
   Get,
@@ -16,14 +17,17 @@ import { CreateBonusDto } from './dto/create-bonus.dto';
 import { UpdateBonusDto } from './dto/update-bonus.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { SubscriptionGuard } from '../../common/guards/subscription.guard'; // ✅ استيراد الحارس
 import { Permissions } from '../../common/decorators/permissions.decorator';
+import { RequiresFeature } from '../../common/decorators/requires-feature.decorator'; // ✅ استيراد ديكوراتور الميزة
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 import { ReportService } from '../../common/reports/report.service';
 import { PERMS } from '../../common/constants/permissions';
+import { FEATURES } from '../../common/constants/features'; // ✅ استيراد الثوابت
 import { BonusStatus } from './entities/bonus.entity';
 
 @Controller('bonuses')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
 export class BonusesController {
   constructor(
     private readonly bonusesService: BonusesService,
@@ -32,6 +36,7 @@ export class BonusesController {
 
   @Post()
   @Permissions(PERMS.BONUS_CREATE)
+  @RequiresFeature(FEATURES.BONUSES_MODULE || FEATURES.PAYROLL_MODULE) // ✅ التحقق من توفر الموديول (يفضل إضافة BONUSES_MODULE للثوابت)
   @UseGuards(PermissionsGuard)
   create(@Body() dto: CreateBonusDto, @CurrentTenantId() tenantId: string) {
     return this.bonusesService.create(dto, tenantId);
@@ -40,6 +45,7 @@ export class BonusesController {
   // ✅ مسار التصدير الجماعي للمكافآت
   @Get('export/:type')
   @Permissions(PERMS.BONUS_VIEW)
+  @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
   @UseGuards(PermissionsGuard)
   async exportBonuses(
     @Param('type') type: 'excel' | 'pdf',
@@ -53,7 +59,7 @@ export class BonusesController {
       { header: 'كود الموظف', key: 'employeeCode' },
       { header: 'المبلغ', key: 'amount' },
       { header: 'تاريخ الصرف', key: 'payoutDate' },
-      { header: 'الحالة', key: 'status' }, // ✅ إضافة عمود الحالة
+      { header: 'الحالة', key: 'status' },
       { header: 'ملاحظات', key: 'notes' },
       { header: 'تاريخ التسجيل', key: 'createdAt' },
     ];
@@ -63,7 +69,7 @@ export class BonusesController {
       employeeCode: b.employee?.employeeCode || '-',
       amount: Number(b.amount).toLocaleString('ar-SA'),
       payoutDate: new Date(b.payoutDate).toLocaleDateString('ar-SA'),
-      status: this.getStatusLabel(b.status), // ✅ ترجمة الحالة
+      status: this.getStatusLabel(b.status),
       notes: b.notes || '-',
       createdAt: new Date(b.createdAt).toLocaleDateString('ar-SA'),
     }));
@@ -96,6 +102,7 @@ export class BonusesController {
   // ✅ مسار التصدير الفردي للمكافأة
   @Get(':id/export/:type')
   @Permissions(PERMS.BONUS_VIEW)
+  @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
   @UseGuards(PermissionsGuard)
   async exportSingleBonus(
     @Param('id') id: string,
@@ -118,7 +125,7 @@ export class BonusesController {
         label: 'تاريخ الصرف',
         value: new Date(bonus.payoutDate).toLocaleDateString('ar-SA'),
       },
-      { label: 'الحالة', value: this.getStatusLabel(bonus.status) }, // ✅ إضافة الحالة
+      { label: 'الحالة', value: this.getStatusLabel(bonus.status) },
       { label: 'ملاحظات', value: bonus.notes || '-' },
       {
         label: 'تاريخ التسجيل',
@@ -166,6 +173,7 @@ export class BonusesController {
 
   @Get()
   @Permissions(PERMS.BONUS_VIEW)
+  @RequiresFeature(FEATURES.BONUSES_MODULE || FEATURES.PAYROLL_MODULE) // ✅ حماية عرض القائمة
   @UseGuards(PermissionsGuard)
   findAll(@CurrentTenantId() tenantId: string) {
     return this.bonusesService.findAll(tenantId);
@@ -173,6 +181,7 @@ export class BonusesController {
 
   @Get(':id')
   @Permissions(PERMS.BONUS_VIEW)
+  @RequiresFeature(FEATURES.BONUSES_MODULE || FEATURES.PAYROLL_MODULE) // ✅ حماية عرض التفاصيل
   @UseGuards(PermissionsGuard)
   findOne(@Param('id') id: string, @CurrentTenantId() tenantId: string) {
     return this.bonusesService.findOne(id, tenantId);
@@ -180,6 +189,7 @@ export class BonusesController {
 
   @Patch(':id')
   @Permissions(PERMS.BONUS_UPDATE)
+  @RequiresFeature(FEATURES.BONUSES_MODULE || FEATURES.PAYROLL_MODULE) // ✅ حماية التعديل
   @UseGuards(PermissionsGuard)
   update(
     @Param('id') id: string,
@@ -191,7 +201,8 @@ export class BonusesController {
 
   // ✅ Endpoint جديد لتغيير حالة المكافأة
   @Patch(':id/status')
-  @Permissions(PERMS.BONUS_UPDATE) // أو صلاحية خاصة مثل BONUS_APPROVE
+  @Permissions(PERMS.BONUS_UPDATE)
+  @RequiresFeature(FEATURES.BONUSES_MODULE || FEATURES.PAYROLL_MODULE) // ✅ حماية تغيير الحالة
   @UseGuards(PermissionsGuard)
   updateStatus(
     @Param('id') id: string,
@@ -203,6 +214,7 @@ export class BonusesController {
 
   @Delete(':id')
   @Permissions(PERMS.BONUS_DELETE)
+  @RequiresFeature(FEATURES.BONUSES_MODULE || FEATURES.PAYROLL_MODULE) // ✅ حماية الحذف
   @UseGuards(PermissionsGuard)
   remove(@Param('id') id: string, @CurrentTenantId() tenantId: string) {
     return this.bonusesService.remove(id, tenantId);

@@ -1,4 +1,3 @@
-// src/modules/employees/employees.controller.ts
 import {
   Controller,
   Get,
@@ -19,7 +18,10 @@ import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { OnboardEmployeeDto } from './dto/onboard-employee.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { SubscriptionGuard } from '../../common/guards/subscription.guard';
 import { Permissions } from '../../common/decorators/permissions.decorator';
+import { RequiresFeature } from '../../common/decorators/requires-feature.decorator';
+import { CheckQuota } from '../../common/decorators/check-quota.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 import {
   CurrentUser,
@@ -27,9 +29,10 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { ReportService } from '../../common/reports/report.service';
 import { PERMS } from 'src/common/constants/permissions';
+import { FEATURES } from 'src/common/constants/features';
 
 @Controller('employees')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, SubscriptionGuard, PermissionsGuard) // ✅ ترتيب صحيح وشامل للـ Guards
 export class EmployeesController {
   constructor(
     private readonly employeesService: EmployeesService,
@@ -39,7 +42,8 @@ export class EmployeesController {
 
   @Post('onboard')
   @Permissions(PERMS.EMPLOYEE_ONBOARD)
-  @UseGuards(PermissionsGuard)
+  @RequiresFeature(FEATURES.EMPLOYEES_MODULE)
+  @CheckQuota('max_employees')
   async onboard(
     @Body() dto: OnboardEmployeeDto,
     @CurrentTenantId() tenantId: string,
@@ -55,14 +59,15 @@ export class EmployeesController {
 
   @Post()
   @Permissions(PERMS.EMPLOYEE_CREATE)
-  @UseGuards(PermissionsGuard)
+  @RequiresFeature(FEATURES.EMPLOYEES_MODULE)
+  @CheckQuota('max_employees')
   create(@Body() dto: CreateEmployeeDto, @CurrentTenantId() tenantId: string) {
     return this.employeesService.create(dto, tenantId);
   }
 
   @Get('export/:type')
   @Permissions(PERMS.EMPLOYEE_EXPORT)
-  @UseGuards(PermissionsGuard)
+  @RequiresFeature(FEATURES.REPORTS_EXPORT)
   async exportEmployees(
     @Param('type') type: 'excel' | 'pdf',
     @CurrentTenantId() tenantId: string,
@@ -75,7 +80,6 @@ export class EmployeesController {
       { header: 'حالة الموظف', key: 'nationalityTypeLabel' },
       { header: 'تاريخ انتهاء الهوية', key: 'iqamaExpiryDate' },
       { header: 'رقم الهوية', key: 'nationalId' },
-      // { header: 'رقم الهاتف', key: 'phone' },
       { header: 'المسمى الوظيفي', key: 'jobTitle' },
       { header: 'القسم', key: 'department' },
       { header: 'الحالة', key: 'statusLabel' },
@@ -136,10 +140,9 @@ export class EmployeesController {
     }
   }
 
-  // ✅ مسار تصدير ملف موظف واحد شامل (يجب أن يكون قبل findOne)
   @Get(':id/export/:type')
   @Permissions(PERMS.EMPLOYEE_EXPORT)
-  @UseGuards(PermissionsGuard)
+  @RequiresFeature(FEATURES.REPORTS_EXPORT)
   async exportSingleEmployee(
     @Param('id') id: string,
     @Param('type') type: 'excel' | 'pdf',
@@ -159,7 +162,7 @@ export class EmployeesController {
             ? 'نشط'
             : employee.status === 'inactive'
               ? 'غير نشط'
-              : 'منتهي الخدمة',
+              : 'منهي الخدمة',
       },
       { label: 'رقم الهوية', value: employee.nationalId || '-' },
       { label: 'الهاتف', value: employee.phone || '-' },
@@ -279,21 +282,21 @@ export class EmployeesController {
 
   @Get()
   @Permissions(PERMS.EMPLOYEE_VIEW)
-  @UseGuards(PermissionsGuard)
+  @RequiresFeature(FEATURES.EMPLOYEES_MODULE)
   findAll(@CurrentTenantId() tenantId: string) {
     return this.employeesService.findAll(tenantId);
   }
 
   @Get(':id')
   @Permissions(PERMS.EMPLOYEE_VIEW)
-  @UseGuards(PermissionsGuard)
+  @RequiresFeature(FEATURES.EMPLOYEES_MODULE)
   findOne(@Param('id') id: string, @CurrentTenantId() tenantId: string) {
     return this.employeesService.findOne(id, tenantId);
   }
 
   @Patch(':id')
   @Permissions(PERMS.EMPLOYEE_UPDATE)
-  @UseGuards(PermissionsGuard)
+  @RequiresFeature(FEATURES.EMPLOYEES_MODULE)
   update(
     @Param('id') id: string,
     @Body() dto: UpdateEmployeeDto,
@@ -304,7 +307,7 @@ export class EmployeesController {
 
   @Delete(':id')
   @Permissions(PERMS.EMPLOYEE_DELETE)
-  @UseGuards(PermissionsGuard)
+  @RequiresFeature(FEATURES.EMPLOYEES_MODULE)
   remove(@Param('id') id: string, @CurrentTenantId() tenantId: string) {
     return this.employeesService.remove(id, tenantId);
   }

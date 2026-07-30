@@ -18,7 +18,7 @@ export const seedSystemOwner = async (dataSource: DataSource) => {
   }
 
   // 2. تشفير كلمة المرور
-  const hashedPassword = await argon2.hash('SuperSecurePass123!');
+  const hashedPassword = await argon2.hash('s6');
 
   // 3. إنشاء المالك بدون ربطه بأي دور
   const systemOwner = userRepository.create({

@@ -16,6 +16,7 @@ import { SalariesModule } from '../salaries/salaries.module';
 import { ContractsModule } from '../contracts/contracts.module'; // ✅ لجلب بيانات العقد
 import { LeavesModule } from '../leaves/leaves.module'; // ✅ لاستخدام LeaveAccrualService
 import { CommonModule } from 'src/common/common.module';
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { CommonModule } from 'src/common/common.module';
     ContractsModule,
     LeavesModule, // ✅ لاستحقاق الوصول إلى LeaveAccrualService المُصدَّرة منه
     CommonModule,
+    SubscriptionsModule, // استيراد موديول الاشتراكات
   ],
   controllers: [SettlementsController],
   providers: [SettlementsService],

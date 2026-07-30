@@ -14,23 +14,26 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { SubscriptionGuard } from '../../common/guards/subscription.guard'; // ✅ استيراد الحارس
 import { Permissions } from '../../common/decorators/permissions.decorator';
+import { RequiresFeature } from '../../common/decorators/requires-feature.decorator'; // ✅ استيراد ديكوراتور الميزة
+import { CheckQuota } from '../../common/decorators/check-quota.decorator'; // ✅ استيراد ديكوراتور الحصة
 import {
   CurrentUser,
   type CurrentUserData,
 } from '../../common/decorators/current-user.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
-// ✅ استيراد الثوابت
 import { PERMS } from 'src/common/constants/permissions';
+import { FEATURES } from 'src/common/constants/features'; // ✅ استيراد الثوابت
 
 @Controller('users')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Get('system-stats')
-  // ✅ استخدام الثابت بدلاً من النص المباشر
   @Permissions(PERMS.SYSTEM_STATS)
+  @RequiresFeature(FEATURES.EMPLOYEES_MODULE) // ✅ إحصائيات النظام عادة مرتبطة بالموظفين أو الإدارة العامة
   @UseGuards(PermissionsGuard)
   getSystemStats() {
     return this.usersService.getSystemStats();
@@ -38,6 +41,8 @@ export class UsersController {
 
   @Post()
   @Permissions(PERMS.USER_CREATE)
+  @RequiresFeature(FEATURES.EMPLOYEES_MODULE) // ✅ إدارة المستخدمين جزء من البنية الأساسية للموظفين
+  @CheckQuota('max_users') // ✅ التحقق من حصة المستخدمين قبل الإنشاء
   @UseGuards(PermissionsGuard)
   create(
     @Body() dto: CreateUserDto,
@@ -49,6 +54,7 @@ export class UsersController {
 
   @Get()
   @Permissions(PERMS.USER_VIEW)
+  @RequiresFeature(FEATURES.EMPLOYEES_MODULE) // ✅ حماية عرض القائمة
   @UseGuards(PermissionsGuard)
   findAll(
     @CurrentUser() user: CurrentUserData,
@@ -58,15 +64,16 @@ export class UsersController {
   }
 
   @Get(':id')
-  @Permissions(PERMS.USER_VIEW) // ✅ توحيد صلاحية العرض (أو يمكن إنشاء USER_VIEW_ONE إذا لزم الأمر)
+  @Permissions(PERMS.USER_VIEW)
+  @RequiresFeature(FEATURES.EMPLOYEES_MODULE) // ✅ حماية عرض التفاصيل
   @UseGuards(PermissionsGuard)
   findOne(@Param('id') id: string) {
     return this.usersService.findOne(id);
   }
 
   @Patch(':id')
-  // ✅ استخدام الثابت الجديد
   @Permissions(PERMS.USER_UPDATE)
+  @RequiresFeature(FEATURES.EMPLOYEES_MODULE) // ✅ حماية التعديل
   @UseGuards(PermissionsGuard)
   update(
     @Param('id') id: string,
@@ -78,8 +85,8 @@ export class UsersController {
 
   @Delete(':id')
   @Permissions(PERMS.USER_DELETE)
+  @RequiresFeature(FEATURES.EMPLOYEES_MODULE) // ✅ حماية الحذف
   @UseGuards(PermissionsGuard)
-  // ✅ تصحيح اسم الدالة من remo//... إلى remove
   remove(@Param('id') id: string) {
     return this.usersService.remove(id);
   }

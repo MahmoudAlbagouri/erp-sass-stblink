@@ -1,3 +1,4 @@
+// src/modules/settlements/settlements.controller.ts
 import {
   Controller,
   Get,
@@ -13,17 +14,20 @@ import { SettlementsService } from './settlements.service';
 import { ConfirmSettlementDto } from './dto/confirm-settlement.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { SubscriptionGuard } from '../../common/guards/subscription.guard'; // ✅ استيراد الحارس
 import { Permissions } from '../../common/decorators/permissions.decorator';
+import { RequiresFeature } from '../../common/decorators/requires-feature.decorator'; // ✅ استيراد ديكوراتور الميزة
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 import { ReportService } from '../../common/reports/report.service';
 import { PERMS } from 'src/common/constants/permissions';
+import { FEATURES } from 'src/common/constants/features'; // ✅ استيراد الثوابت
 
 @Controller('settlements')
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
 export class SettlementsController {
   constructor(
     private readonly settlementsService: SettlementsService,
-    private readonly reportService: ReportService, // ✅ تم الحقن هنا
+    private readonly reportService: ReportService,
   ) {}
 
   /**
@@ -33,6 +37,8 @@ export class SettlementsController {
    */
   @Post('calculate/:employeeId')
   @Permissions(PERMS.SETTLEMENT_VIEW)
+  @RequiresFeature(FEATURES.SETTLEMENTS_MODULE) // ✅ التحقق من توفر الموديول
+  @UseGuards(PermissionsGuard)
   calculate(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @CurrentTenantId() tenantId: string,
@@ -47,6 +53,8 @@ export class SettlementsController {
    */
   @Post('confirm')
   @Permissions(PERMS.SETTLEMENT_CREATE)
+  @RequiresFeature(FEATURES.SETTLEMENTS_MODULE) // ✅ التحقق من توفر الموديول
+  @UseGuards(PermissionsGuard)
   confirm(
     @Body() dto: ConfirmSettlementDto,
     @CurrentTenantId() tenantId: string,
@@ -59,7 +67,8 @@ export class SettlementsController {
    * ✅ مسار جديد لتصدير أرشيف التسويات بصيغة Excel أو PDF
    */
   @Get('export/:type')
-  @Permissions(PERMS.SETTLEMENT_EXPORT) // تأكد من وجود هذا الصلاحية في ثوابتك
+  @Permissions(PERMS.SETTLEMENT_EXPORT)
+  @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
   @UseGuards(PermissionsGuard)
   async exportSettlements(
     @Param('type') type: 'excel' | 'pdf',
@@ -131,6 +140,8 @@ export class SettlementsController {
    */
   @Get()
   @Permissions(PERMS.SETTLEMENT_VIEW)
+  @RequiresFeature(FEATURES.SETTLEMENTS_MODULE) // ✅ حماية عرض القائمة
+  @UseGuards(PermissionsGuard)
   findAll(@CurrentTenantId() tenantId: string) {
     return this.settlementsService.findAll(tenantId);
   }
@@ -141,6 +152,8 @@ export class SettlementsController {
    */
   @Get('employee/:employeeId')
   @Permissions(PERMS.SETTLEMENT_VIEW)
+  @RequiresFeature(FEATURES.SETTLEMENTS_MODULE) // ✅ حماية عرض تفاصيل الموظف
+  @UseGuards(PermissionsGuard)
   findByEmployee(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,
     @CurrentTenantId() tenantId: string,

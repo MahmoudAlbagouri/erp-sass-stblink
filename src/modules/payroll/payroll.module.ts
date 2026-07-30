@@ -12,6 +12,7 @@ import { Advance } from '../advances/entities/advance.entity';
 import { LeaveRequest } from '../leaves/entities/leave-request.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { SalariesModule } from '../salaries/salaries.module'; // ✅ استيراد الموديول
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { SalariesModule } from '../salaries/salaries.module'; // ✅ استير�
 
     // 2. استيراد الموديولات الخارجية هنا (خارج forFeature)
     SalariesModule,
+    SubscriptionsModule, // استيراد موديول الاشتراكات
   ],
   controllers: [PayrollController],
   providers: [PayrollService, ReportService],

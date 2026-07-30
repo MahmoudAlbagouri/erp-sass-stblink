@@ -11,25 +11,29 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { PayrollService } from './payroll.service';
-import { SalariesService } from '../salaries/salaries.service'; // ✅ استيراد خدمة الرواتب
+import { SalariesService } from '../salaries/salaries.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
+import { SubscriptionGuard } from '../../common/guards/subscription.guard'; // ✅ استيراد الحارس
 import { Permissions } from '../../common/decorators/permissions.decorator';
+import { RequiresFeature } from '../../common/decorators/requires-feature.decorator'; // ✅ استيراد ديكوراتور الميزة
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 import { ReportService } from '../../common/reports/report.service';
 import { PERMS } from 'src/common/constants/permissions';
+import { FEATURES } from 'src/common/constants/features'; // ✅ استيراد الثوابت
 
 @Controller('payroll')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
 export class PayrollController {
   constructor(
     private readonly payrollService: PayrollService,
-    private readonly salariesService: SalariesService, // ✅ إضافة الخدمة
+    private readonly salariesService: SalariesService,
     private readonly reportService: ReportService,
   ) {}
 
   @Get()
   @Permissions(PERMS.PAYROLL_VIEW)
+  @RequiresFeature(FEATURES.PAYROLL_MODULE) // ✅ التحقق من توفر الموديول
   @UseGuards(PermissionsGuard)
   getAllPayrolls(
     @CurrentTenantId() tenantId: string,
@@ -45,6 +49,7 @@ export class PayrollController {
 
   @Post('generate/:month/:year')
   @Permissions(PERMS.PAYROLL_GENERATE)
+  @RequiresFeature(FEATURES.PAYROLL_MODULE) // ✅ التحقق من توفر الموديول للتوليد
   @UseGuards(PermissionsGuard)
   generate(
     @Param('month') month: number,
@@ -61,6 +66,7 @@ export class PayrollController {
 
   @Get(':id')
   @Permissions(PERMS.PAYROLL_VIEW)
+  @RequiresFeature(FEATURES.PAYROLL_MODULE) // ✅ حماية عرض التفاصيل
   @UseGuards(PermissionsGuard)
   getDetails(@Param('id') id: string, @CurrentTenantId() tenantId: string) {
     return this.payrollService.findOneWithDetails(id, tenantId);
@@ -68,6 +74,7 @@ export class PayrollController {
 
   @Get('export/:type/:month/:year')
   @Permissions(PERMS.PAYROLL_EXPORT)
+  @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
   @UseGuards(PermissionsGuard)
   async exportPayroll(
     @Param('type') type: 'excel' | 'pdf',

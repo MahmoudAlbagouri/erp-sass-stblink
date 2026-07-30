@@ -5,10 +5,11 @@ import { SalariesService } from './salaries.service';
 import { SalariesController } from './salaries.controller';
 import { Salary } from './entities/salary.entity';
 import { ReportService } from 'src/common/reports/report.service';
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({
   // تسجيل الـ Entity في TypeOrm لإنشاء الجدول في قاعدة البيانات
-  imports: [TypeOrmModule.forFeature([Salary])],
+  imports: [TypeOrmModule.forFeature([Salary]), SubscriptionsModule], // استيراد موديول الاشتراكات
   controllers: [SalariesController],
   providers: [SalariesService, ReportService],
   // تصدير الخدمة إذا كنت ستحتاج لاستخدامها في موديولات أخرى مستقبلاً (مثل PayrollModule)
