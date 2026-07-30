@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindOptionsWhere } from 'typeorm';
 import * as argon2 from 'argon2';
@@ -21,32 +26,16 @@ export class UsersService {
     const user = await this.userRepository.findOne({
       where: { id },
       relations: ['role', 'role.permissions', 'employee'],
-      // ✅ الحل: أضف select صريحة لجلب الـ tenantId وجميع الحقول الضرورية للـ Payload
-      // select: {
-      //   id: true,
-      //   tenantId: true, // تأكد من وجود هذا الحقل
-      //   isSuperAdmin: true,
-      //   isSystemAdmin: true,
-      //   role: {
-      //     id: true,
-      //     name: true,
-      //     permissions: {
-      //       name: true,
-      //     },
-      //   },
-      // },
     });
 
     if (!user) throw new NotFoundException('User not found');
     return user;
   }
-  // ✅ الدالة التي كانت مفقودة وأعادناها
-  // ✅ الدالة التي كانت مفقودة وأعدناها
+
   async findOneByEmail(email: string): Promise<User | null> {
     return await this.userRepository.findOne({
       where: { email },
       relations: ['role', 'role.permissions'],
-      // ✅ الحل: أضف حقول استعادة كلمة المرور إلى قائمة select
       select: {
         id: true,
         email: true,
@@ -56,8 +45,8 @@ export class UsersService {
         isSuperAdmin: true,
         isSystemAdmin: true,
         status: true,
-        resetPasswordToken: true, // ✅ تمت الإضافة
-        resetPasswordExpires: true, // ✅ تمت الإضافة
+        resetPasswordToken: true,
+        resetPasswordExpires: true,
         role: {
           id: true,
           name: true,
@@ -126,9 +115,34 @@ export class UsersService {
     return this.userRepository.save(user);
   }
 
-  async remove(id: string): Promise<void> {
-    const user = await this.findOne(id);
-    await this.userRepository.softRemove(user);
+  async remove(id: string, currentUser: CurrentUserData): Promise<void> {
+    // 1. حماية النفس: يمنع المستخدم من حذف حسابه الخاص
+    if (id === currentUser.id) {
+      throw new BadRequestException('لا يمكنك حذف حسابك الشخصي');
+    }
+
+    // 2. البحث عن المستخدم المراد حذفه
+    const userToDelete = await this.findOne(id);
+
+    // 3. عزل الشركات: التأكد من أن المستخدم ينتمي لشركة المستعلم نفسها
+    const isSystemAdmin =
+      currentUser.permissions?.includes('system:admin') ?? false;
+    if (!isSystemAdmin && userToDelete.tenantId !== currentUser.tenantId) {
+      throw new ForbiddenException('لا تملك صلاحية الوصول لهذا المستخدم');
+    }
+
+    // 4. حماية مالك المنصة (System Admin)
+    if (userToDelete.isSystemAdmin) {
+      throw new ForbiddenException('لا يمكن حذف مالك المنصة (System Admin)');
+    }
+
+    // 5. حماية مدير الشركة (Super Admin)
+    if (userToDelete.isSuperAdmin && !isSystemAdmin) {
+      throw new ForbiddenException('لا يمكنك حذف مدير الشركة (Super Admin)');
+    }
+
+    // 6. تنفيذ الحذف اللطيف (Soft Delete)
+    await this.userRepository.softRemove(userToDelete);
   }
 
   async getSystemStats() {
