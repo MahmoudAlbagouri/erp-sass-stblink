@@ -25,6 +25,43 @@ export class EOSService {
     private dateUtils: DateUtils,
   ) {}
 
+  /**
+   * ✅ حساب دقيق تقويمياً لمدة الخدمة (سنوات كاملة + شهور + أيام متبقية)
+   * بدلاً من قسمة إجمالي الأيام على 365 مباشرة، وده بيحمي من مشكلة
+   * وقوع الموظف في الشريحة القانونية الخطأ (2 أو 5 أو 10 سنين) بسبب
+   * فروق تقريب بسيطة ناتجة عن السنوات الكبيسة.
+   */
+  private calculatePreciseServiceDuration(
+    startDate: Date,
+    endDate: Date,
+  ): { years: number; months: number; days: number; serviceYears: Decimal } {
+    let years = endDate.getFullYear() - startDate.getFullYear();
+    let months = endDate.getMonth() - startDate.getMonth();
+    let days = endDate.getDate() - startDate.getDate();
+
+    if (days < 0) {
+      months -= 1;
+      // ✅ عدد أيام الشهر السابق لشهر تاريخ الانتهاء (يراعي فبراير/الكبيسة تلقائياً)
+      const prevMonthLastDay = new Date(
+        endDate.getFullYear(),
+        endDate.getMonth(),
+        0,
+      ).getDate();
+      days += prevMonthLastDay;
+    }
+    if (months < 0) {
+      years -= 1;
+      months += 12;
+    }
+
+    // السنوات الكاملة + كسر الشهور (÷12) + كسر الأيام المتبقية (÷365) لدقة أعلى
+    const serviceYears = new Decimal(years)
+      .plus(new Decimal(months).dividedBy(12))
+      .plus(new Decimal(days).dividedBy(365));
+
+    return { years, months, days, serviceYears };
+  }
+
   async create(dto: CreateEOSDto, tenantId: string): Promise<EndOfService> {
     const employee = await this.empRepo.findOne({
       where: { id: dto.employeeId, tenantId },
@@ -76,24 +113,25 @@ export class EOSService {
       );
     }
 
-    // ✅ 3. حساب مدة الخدمة بالسنوات بدقة
-    const serviceDays = this.dateUtils.calculateDurationDays(
+    // ✅ 3. حساب مدة الخدمة بدقة تقويمية (سنوات/شهور/أيام) بدل days/365 المباشرة
+    // هذا يمنع وقوع الموظف في شريحة قانونية خاطئة (2 أو 5 أو 10 سنين)
+    // بسبب فروق تقريب بسيطة ناتجة عن السنوات الكبيسة
+    const { serviceYears } = this.calculatePreciseServiceDuration(
       startDate,
       terminationDate,
-      false,
     );
-    const serviceYears = new Decimal(serviceDays).dividedBy(365);
 
     // ✅ 4. حساب مكافأة نهاية الخدمة وفق المادة 84/85
-    const basicSalary = Number(salary.basicSalary);
+    // ✅ التصحيح: استخدام الراتب الكلي (الأساسي + كل البدلات) بدل الأساسي فقط
+    const totalSalaryForCalc = Number(salary.totalSalary);
     let eosAmount = new Decimal(0);
 
     if (serviceYears.lessThanOrEqualTo(5)) {
-      eosAmount = serviceYears.times(basicSalary).times(0.5);
+      eosAmount = serviceYears.times(totalSalaryForCalc).times(0.5);
     } else {
-      const firstFive = new Decimal(5).times(basicSalary).times(0.5);
+      const firstFive = new Decimal(5).times(totalSalaryForCalc).times(0.5);
       const remainingYears = serviceYears.minus(5);
-      eosAmount = firstFive.plus(remainingYears.times(basicSalary));
+      eosAmount = firstFive.plus(remainingYears.times(totalSalaryForCalc));
     }
 
     // ✅ تطبيق نسبة الاستحقاق بناءً على السبب
@@ -119,7 +157,11 @@ export class EOSService {
       payoutDate,
       serviceYears: parseFloat(serviceYears.toFixed(3)),
       eosAmount: parseFloat(eosAmount.toFixed(2)),
-      lastBasicSalary: basicSalary,
+      // ⚠️ ملاحظة: هذا الحقل اسمه lastBasicSalary تاريخياً في الـ schema،
+      // لكنه الآن يخزّن الراتب الكلي (الأساسي + البدلات) المستخدم فعلياً
+      // في الحساب. راجع اقتراح الـ migration لإضافة lastTotalSalary
+      // كحقل منفصل إذا أردت توضيح الاسم مستقبلاً.
+      lastBasicSalary: totalSalaryForCalc,
       tenantId,
     });
 

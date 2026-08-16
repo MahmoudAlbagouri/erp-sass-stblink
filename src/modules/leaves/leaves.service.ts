@@ -263,8 +263,11 @@ export class LeavesService {
       consumedDaysFromBalance: balance.consumedDays,
     });
 
-    balance.consumedDays += diffDays;
-    await this.balanceRepo.save(balance);
+    // ✅ تم حذف: balance.consumedDays += diffDays; await this.balanceRepo.save(balance);
+    // السبب: consumedAnnualDays في calculateAccrual بيحسب الإجازات الموافق عليها
+    // مباشرة من جدول leave_requests، فزيادة consumedDays هنا كانت بتسبب خصم مزدوج.
+    // balance.consumedDays الآن مخصص فقط لاستهلاك خارج نطاق leave_requests
+    // (زي التسويات في settlements.service.ts).
 
     const finalAvailable = accrual.availableDays.minus(diffDays);
     const formattedStartDate = new Date(leave.startDate)
