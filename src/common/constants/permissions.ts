@@ -251,7 +251,31 @@ export const PERMS: Record<string, PermissionMetadata> = {
     name: 'system:plans:delete',
     labelAr: 'حذف خطة اشتراك',
   },
-
+  NOTIFICATION_VIEW: {
+    name: 'view_notifications',
+    labelAr: 'عرض الإشعارات',
+  },
+  NOTIFICATION_VIEW_ALL: {
+    // ✅ جديد
+    name: 'view_all_notifications',
+    labelAr: 'عرض جميع إشعارات النظام (للمديرين)',
+  },
+  NOTIFICATION_UPDATE: {
+    name: 'update_notification_status',
+    labelAr: 'تحديث حالة الإشعار',
+  },
+  NOTIFICATION_CREATE: {
+    name: 'create_notification',
+    labelAr: 'إنشاء إشعار يدوي',
+  },
+  NOTIFICATION_DELETE: {
+    name: 'delete_notification',
+    labelAr: 'حذف الإشعارات',
+  },
+  NOTIFICATION_BROADCAST: {
+    name: 'broadcast_notification',
+    labelAr: 'إرسال إشعار جماعي',
+  },
   // ─── Subscriptions (الاشتراكات) ───────────────────── ✅ جديد
   SUBSCRIPTION_VIEW_OWN: {
     name: 'subscriptions:view-own',

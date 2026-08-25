@@ -1,3 +1,4 @@
+// src/modules/employees/employees-onboarding.service.ts
 import {
   Injectable,
   ConflictException,
@@ -7,7 +8,6 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository, In, EntityManager } from 'typeorm';
 import * as argon2 from 'argon2';
-// ✅ استيراد دوال التعامل مع التواريخ
 import { addMonths } from 'date-fns';
 
 import { Employee } from './entities/employee.entity';
@@ -22,6 +22,10 @@ import { UserStatus } from '../../common/enums/user.enums';
 import { PermissionScope } from '../permissions/entities/permission.entity';
 import { ProbationPeriod } from '../contracts/entities/contract.entity';
 
+// ✅ استيراد خدمة الإشعارات
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationCategory } from '../notifications/entities/notification.entity';
+
 export interface OnboardingResult {
   employee: Employee;
   user?: User;
@@ -34,24 +38,17 @@ export interface OnboardingResult {
 export class EmployeesOnboardingService {
   constructor(
     private readonly dataSource: DataSource,
-
     @InjectRepository(Employee)
     private readonly employeeRepo: Repository<Employee>,
-
-    @InjectRepository(User)
-    private readonly userRepo: Repository<User>,
-
-    @InjectRepository(Role)
-    private readonly roleRepo: Repository<Role>,
-
+    @InjectRepository(User) private readonly userRepo: Repository<User>,
+    @InjectRepository(Role) private readonly roleRepo: Repository<Role>,
     @InjectRepository(Permission)
     private readonly permissionRepo: Repository<Permission>,
-
     @InjectRepository(Contract)
     private readonly contractRepo: Repository<Contract>,
-
-    @InjectRepository(Salary)
-    private readonly salaryRepo: Repository<Salary>,
+    @InjectRepository(Salary) private readonly salaryRepo: Repository<Salary>,
+    // ✅ حقن خدمة الإشعارات
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async onboard(
@@ -59,200 +56,204 @@ export class EmployeesOnboardingService {
     tenantId: string,
     currentUser: CurrentUserData,
   ): Promise<OnboardingResult> {
+    // ... التحقق من البريد والهوية (نفس الكود السابق) ...
+
     if (dto.user?.email) {
       const emailExists = await this.userRepo.findOne({
         where: { email: dto.user.email },
       });
-      if (emailExists) {
+      if (emailExists)
         throw new ConflictException(
           `البريد الإلكتروني "${dto.user.email}" مستخدم بالفعل`,
         );
-      }
     }
 
     if (dto.nationalId) {
       const nationalIdExists = await this.employeeRepo.findOne({
         where: { nationalId: dto.nationalId, tenantId },
       });
-      if (nationalIdExists) {
+      if (nationalIdExists)
         throw new ConflictException(
           `رقم الهوية "${dto.nationalId}" مستخدم بالفعل`,
         );
-      }
     }
 
-    return await this.dataSource.transaction(async (manager: EntityManager) => {
-      const result: OnboardingResult = {} as OnboardingResult;
+    // ✅ تنفيذ الـ Transaction وحفظ النتيجة
+    const result = await this.dataSource.transaction(
+      async (manager: EntityManager) => {
+        // ... كل كود الـ transaction السابق كما هو بدون تغيير ...
+        // (نفس المنطق الموجود عندك تماماً)
 
-      let role: Role | undefined;
+        const result: OnboardingResult = {} as OnboardingResult;
 
-      if (dto.user) {
-        if (dto.user.roleId) {
-          const existingRole = await manager.findOne(Role, {
-            where: { id: dto.user.roleId },
-            relations: ['permissions'],
-          });
-          if (!existingRole) {
-            throw new NotFoundException(
-              `الدور بالمعرف "${dto.user.roleId}" غير موجود`,
-            );
-          }
-          role = existingRole;
-        } else if (dto.user.roleName) {
-          const permissions =
-            dto.user.permissionIds && dto.user.permissionIds.length > 0
+        let role: Role | undefined;
+        if (dto.user) {
+          if (dto.user.roleId) {
+            const existingRole = await manager.findOne(Role, {
+              where: { id: dto.user.roleId },
+              relations: ['permissions'],
+            });
+            if (!existingRole)
+              throw new NotFoundException(
+                `الدور بالمعرف "${dto.user.roleId}" غير موجود`,
+              );
+            role = existingRole;
+          } else if (dto.user.roleName) {
+            const permissions = dto.user.permissionIds?.length
               ? await manager.find(Permission, {
                   where: { id: In(dto.user.permissionIds) },
                 })
               : [];
-
-          const newRole = manager.create(Role, {
-            name: dto.user.roleName,
-            scope: PermissionScope.TENANT,
-            tenantId,
-            permissions,
-          });
-          role = await manager.save(Role, newRole);
-          result.role = role;
-        }
-      }
-
-      let user: User | undefined;
-
-      if (dto.user) {
-        const hashedPassword = await argon2.hash(dto.user.password);
-
-        const newUser = manager.create(User, {
-          username: dto.user.username,
-          email: dto.user.email,
-          password: hashedPassword,
-          tenantId,
-          role: role,
-          status: UserStatus.ACTIVE,
-          isSuperAdmin: false,
-          isSystemAdmin: false,
-        });
-
-        user = await manager.save(User, newUser);
-        result.user = user;
-      }
-
-      const employeeCode = await this.generateEmployeeCode(tenantId, manager);
-
-      // ✅ معالجة تواريخ المؤهلات التعليمية
-      const processedEducations = dto.educations?.map((edu) => ({
-        ...edu,
-        expiryDate: edu.expiryDate ? new Date(edu.expiryDate) : undefined,
-      }));
-
-      const newEmployee = manager.create(Employee, {
-        fullName: dto.fullName,
-        nationalityType: dto.nationalityType,
-        iqamaExpiryDate: dto.iqamaExpiryDate
-          ? new Date(dto.iqamaExpiryDate)
-          : undefined,
-        nationalId: dto.nationalId,
-        nationalIdCardPath: dto.nationalIdCardPath,
-        phone: dto.phone,
-        jobTitle: dto.jobTitle,
-        department: dto.department,
-        shiftId: dto.shiftId,
-        status: dto.status ?? 'active',
-        employeeCode,
-        tenantId,
-        user: user,
-        // ✅ إضافة المؤهلات للموظف الجديد
-        educations: processedEducations,
-      });
-
-      const savedEmployee = await manager.save(Employee, newEmployee);
-      result.employee = savedEmployee;
-
-      // ✅ إنشاء العقد مع المرفقات ومدة العقد والتذكرة وفترة التجربة والتأمين والجنسية
-      if (dto.contract) {
-        const startDate = new Date(dto.contract.startDate);
-
-        // 1. حساب تاريخ نهاية فترة التجربة تلقائياً
-        let probationEndDate: Date | undefined = undefined;
-        if (
-          dto.contract.probationPeriod &&
-          dto.contract.probationPeriod !== ProbationPeriod.NONE
-        ) {
-          if (dto.contract.probationPeriod === ProbationPeriod.THREE_MONTHS) {
-            probationEndDate = addMonths(startDate, 3);
-          } else if (
-            dto.contract.probationPeriod === ProbationPeriod.SIX_MONTHS
-          ) {
-            probationEndDate = addMonths(startDate, 6);
+            const newRole = manager.create(Role, {
+              name: dto.user.roleName,
+              scope: PermissionScope.TENANT,
+              tenantId,
+              permissions,
+            });
+            role = await manager.save(Role, newRole);
+            result.role = role;
           }
         }
 
-        // 2. حساب تاريخ نهاية العقد تلقائياً إذا لم يتم إدخاله يدوياً وكان هناك مدة محددة
-        let calculatedEndDate: Date | undefined = undefined;
-        if (dto.contract.endDate) {
-          calculatedEndDate = new Date(dto.contract.endDate);
-        } else if (dto.contract.contractDurationMonths) {
-          calculatedEndDate = addMonths(
-            startDate,
-            dto.contract.contractDurationMonths,
-          );
+        let user: User | undefined;
+        if (dto.user) {
+          const hashedPassword = await argon2.hash(dto.user.password);
+          const newUser = manager.create(User, {
+            username: dto.user.username,
+            email: dto.user.email,
+            password: hashedPassword,
+            tenantId,
+            role,
+            status: UserStatus.ACTIVE,
+            isSuperAdmin: false,
+            isSystemAdmin: false,
+          });
+          user = await manager.save(User, newUser);
+          result.user = user;
         }
 
-        const newContract = manager.create(Contract, {
-          contractType: dto.contract.contractType,
-          startDate: startDate,
-          endDate: calculatedEndDate, // التاريخ المحسوب أو المدخل يدوياً
-          annualLeaveDays: dto.contract.annualLeaveDays ?? 30,
-          contractDurationYears: dto.contract.contractDurationMonths
-            ? Math.floor(dto.contract.contractDurationMonths / 12) // حفظ تقريبي للسنوات إذا لزم الأمر، أو يمكن الاعتماد على الشهور فقط
+        const employeeCode = await this.generateEmployeeCode(tenantId, manager);
+
+        const processedEducations = dto.educations?.map((edu) => ({
+          ...edu,
+          expiryDate: edu.expiryDate ? new Date(edu.expiryDate) : undefined,
+        }));
+
+        const newEmployee = manager.create(Employee, {
+          fullName: dto.fullName,
+          nationalityType: dto.nationalityType,
+          iqamaExpiryDate: dto.iqamaExpiryDate
+            ? new Date(dto.iqamaExpiryDate)
             : undefined,
-
-          // ✅ إضافة الحقول الجديدة هنا
-          ticketType: dto.contract.ticketType,
-          probationPeriod: dto.contract.probationPeriod,
-          probationEndDate: probationEndDate, // ✅ حفظ تاريخ نهاية التجربة المحسوب
-          medicalInsurance: dto.contract.medicalInsurance, // ✅ التأمين الطبي
-          nationality: dto.contract.nationality, // ✅ الجنسية
-
-          notes: dto.contract.notes,
-          attachmentPaths: dto.contract.attachmentPaths,
-          employeeId: savedEmployee.id,
+          nationalId: dto.nationalId,
+          nationalIdCardPath: dto.nationalIdCardPath,
+          phone: dto.phone,
+          jobTitle: dto.jobTitle,
+          department: dto.department,
+          shiftId: dto.shiftId,
+          status: dto.status ?? 'active',
+          employeeCode,
           tenantId,
+          user,
+          educations: processedEducations,
         });
 
-        result.contract = await manager.save(Contract, newContract);
-      }
+        const savedEmployee = await manager.save(Employee, newEmployee);
+        result.employee = savedEmployee;
 
-      if (dto.salary) {
-        if (!dto.salary.basicSalary || dto.salary.basicSalary <= 0) {
-          throw new BadRequestException(
-            'الراتب الأساسي يجب أن يكون أكبر من صفر',
-          );
+        if (dto.contract) {
+          const startDate = new Date(dto.contract.startDate);
+          let probationEndDate: Date | undefined;
+          if (
+            dto.contract.probationPeriod &&
+            dto.contract.probationPeriod !== ProbationPeriod.NONE
+          ) {
+            probationEndDate =
+              dto.contract.probationPeriod === ProbationPeriod.THREE_MONTHS
+                ? addMonths(startDate, 3)
+                : addMonths(startDate, 6);
+          }
+
+          let calculatedEndDate: Date | undefined;
+          if (dto.contract.endDate) {
+            calculatedEndDate = new Date(dto.contract.endDate);
+          } else if (dto.contract.contractDurationMonths) {
+            calculatedEndDate = addMonths(
+              startDate,
+              dto.contract.contractDurationMonths,
+            );
+          }
+
+          const newContract = manager.create(Contract, {
+            contractType: dto.contract.contractType,
+            startDate,
+            endDate: calculatedEndDate,
+            annualLeaveDays: dto.contract.annualLeaveDays ?? 30,
+            contractDurationYears: dto.contract.contractDurationMonths
+              ? Math.floor(dto.contract.contractDurationMonths / 12)
+              : undefined,
+            ticketType: dto.contract.ticketType,
+            probationPeriod: dto.contract.probationPeriod,
+            probationEndDate,
+            medicalInsurance: dto.contract.medicalInsurance,
+            nationality: dto.contract.nationality,
+            notes: dto.contract.notes,
+            attachmentPaths: dto.contract.attachmentPaths,
+            employeeId: savedEmployee.id,
+            tenantId,
+          });
+          result.contract = await manager.save(Contract, newContract);
         }
 
-        const totalSalary =
-          Number(dto.salary.basicSalary) +
-          Number(dto.salary.housingAllowance ?? 0) +
-          Number(dto.salary.transportAllowance ?? 0) +
-          Number(dto.salary.otherAllowances ?? 0);
+        if (dto.salary) {
+          if (!dto.salary.basicSalary || dto.salary.basicSalary <= 0)
+            throw new BadRequestException(
+              'الراتب الأساسي يجب أن يكون أكبر من صفر',
+            );
 
-        const newSalary = manager.create(Salary, {
-          employeeId: savedEmployee.id,
-          basicSalary: dto.salary.basicSalary,
-          housingAllowance: dto.salary.housingAllowance ?? 0,
-          transportAllowance: dto.salary.transportAllowance ?? 0,
-          otherAllowances: dto.salary.otherAllowances ?? 0,
-          totalSalary,
-          tenantId,
-        });
+          const totalSalary =
+            Number(dto.salary.basicSalary) +
+            Number(dto.salary.housingAllowance ?? 0) +
+            Number(dto.salary.transportAllowance ?? 0) +
+            Number(dto.salary.otherAllowances ?? 0);
 
-        result.salary = await manager.save(Salary, newSalary);
-      }
+          const newSalary = manager.create(Salary, {
+            employeeId: savedEmployee.id,
+            basicSalary: dto.salary.basicSalary,
+            housingAllowance: dto.salary.housingAllowance ?? 0,
+            transportAllowance: dto.salary.transportAllowance ?? 0,
+            otherAllowances: dto.salary.otherAllowances ?? 0,
+            totalSalary,
+            tenantId,
+          });
+          result.salary = await manager.save(Salary, newSalary);
+        }
 
-      return result;
-    });
+        return result;
+      },
+    );
+
+    // ✅ إرسال الإشعار بعد نجاح الـ Transaction
+    // هذا يضمن أن الموظف محفوظ فعلاً في قاعدة البيانات
+    try {
+      await this.notificationsService.create({
+        recipientId: currentUser.id, // الشخص الذي قام بالتشغيل
+        title: 'تم تشغيل موظف جديد بنجاح',
+        message: `تم تسجيل الموظف "${result.employee.fullName}" (${result.employee.employeeCode}) بنجاح في النظام`,
+        category: NotificationCategory.CUSTOM,
+        referenceId: result.employee.id,
+        referenceType: 'employee',
+        actionUrl: `/employees/${result.employee.id}`,
+      });
+    } catch (error) {
+      // ⚠️ لا نفشل العملية بسبب خطأ في الإشعار
+      console.error('Failed to send onboarding notification:', error);
+    }
+
+    return result;
   }
 
+  // ... باقي الدوال (generateEmployeeCode, getTenantPrefix) كما هي ...
   private readonly TENANT_PREFIX_DIGITS = 3;
   private readonly SEQUENCE_DIGITS = 4;
 
@@ -271,13 +272,11 @@ export class EmployeesOnboardingService {
   ): Promise<string> {
     const prefix = this.getTenantPrefix(tenantId);
     const totalLength = this.TENANT_PREFIX_DIGITS + this.SEQUENCE_DIGITS;
-
     const employees = await manager.find(Employee, {
       where: { tenantId },
       select: ['employeeCode'],
       withDeleted: true,
     });
-
     let maxNumber = 0;
     for (const emp of employees) {
       const code = emp.employeeCode;
@@ -287,11 +286,6 @@ export class EmployeesOnboardingService {
         if (!isNaN(num) && num > maxNumber) maxNumber = num;
       }
     }
-
-    const nextNumber = (maxNumber + 1)
-      .toString()
-      .padStart(this.SEQUENCE_DIGITS, '0');
-
-    return `${prefix}${nextNumber}`;
+    return `${prefix}${(maxNumber + 1).toString().padStart(this.SEQUENCE_DIGITS, '0')}`;
   }
 }

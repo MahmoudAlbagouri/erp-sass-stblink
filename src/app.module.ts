@@ -4,10 +4,12 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { I18nModule } from 'nestjs-i18n';
 import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { MailerModule } from '@nestjs-modules/mailer';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ScheduleModule } from '@nestjs/schedule';
 
 // الموديولات الخاصة بك
 import { DatabaseModule } from './database/database.module';
-import { AuthModule } from './modules/auth/auth.module'; // ✅ تم نقله للأعلى
+import { AuthModule } from './modules/auth/auth.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 import { UsersModule } from './modules/users/users.module';
 import { PermissionsModule } from './modules/permissions/permissions.module';
@@ -35,17 +37,20 @@ import { ShiftsModule } from './modules/shifts/shifts.module';
 import { ProfileModule } from './modules/profile/profile.module';
 import { QuotationModule } from './modules/quotation/quotation.module';
 import { PayrollModule } from './modules/payroll/payroll.module';
-import { ScheduleModule } from '@nestjs/schedule';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { PlansModule } from './modules/plans/plans.module';
 import { BonusesModule } from './modules/bonuses/bonuses.module';
 import { DeductionsModule } from './modules/deduction/deduction.module';
 import { EOSModule } from './modules/eos/eos.module';
 import { ResignationsModule } from './modules/resignations/resignations.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
     ScheduleModule.forRoot(),
+    // The package's typings are not resolved by the ESLint type checker.
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
+    EventEmitterModule.forRoot(), // ✅ تم إضافته لتفعيل الـ Event Listeners
     ConfigModule.forRoot({
       isGlobal: true,
       load: [databaseConfig],
@@ -97,6 +102,7 @@ import { ResignationsModule } from './modules/resignations/resignations.module';
     DeductionsModule,
     EOSModule,
     ResignationsModule,
+    NotificationsModule,
   ],
   providers: [
     {
