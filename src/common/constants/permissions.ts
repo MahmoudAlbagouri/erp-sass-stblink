@@ -94,6 +94,15 @@ export const PERMS: Record<string, PermissionMetadata> = {
     name: 'view_attendance_logs',
     labelAr: 'عرض سجلات الحضور',
   },
+  // ✅ الصلاحيات الناقصة التي يجب إضافتها:
+  ATTENDANCE_LOGS_CREATE: {
+    name: 'create_attendance_log',
+    labelAr: 'إضافة سجل حضور يدوي',
+  },
+  ATTENDANCE_LOGS_UPDATE: {
+    name: 'update_attendance_log',
+    labelAr: 'تعديل سجل الحضور',
+  },
   ATTENDANCE_SUMMARY_VIEW: {
     name: 'view_attendance_summary',
     labelAr: 'عرض ملخص الحضور اليومي',

@@ -8,32 +8,36 @@ import {
   Body,
   Param,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { AttendanceService } from './attendance.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
-import { SubscriptionGuard } from '../../common/guards/subscription.guard'; // ✅ استيراد الحارس
+import { SubscriptionGuard } from '../../common/guards/subscription.guard';
 import { Permissions } from '../../common/decorators/permissions.decorator';
-import { RequiresFeature } from '../../common/decorators/requires-feature.decorator'; // ✅ استيراد ديكوراتور الميزة
-import { CheckQuota } from '../../common/decorators/check-quota.decorator'; // ✅ استيراد ديكوراتور الحصة
+import { RequiresFeature } from '../../common/decorators/requires-feature.decorator';
+import { CheckQuota } from '../../common/decorators/check-quota.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { type CurrentUserData } from '../../common/decorators/current-user.decorator';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { AttendanceQueryDto } from './dto/attendance-query.dto';
+import { UpdateAttendanceLogDto } from './dto/update-attendance-log.dto';
+import { CreateManualAttendanceLogDto } from './dto/create-manual-attendance-log.dto';
 import { PERMS } from 'src/common/constants/permissions';
-import { FEATURES } from 'src/common/constants/features'; // ✅ استيراد الثوابت
+import { FEATURES } from 'src/common/constants/features';
 
 @Controller('attendance')
-@UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
+@UseGuards(JwtAuthGuard, SubscriptionGuard)
 export class AttendanceController {
   constructor(private readonly attendanceService: AttendanceService) {}
 
   @Post('devices')
   @Permissions(PERMS.BIOMETRIC_DEVICE_CREATE)
-  @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION) // ✅ التحقق من توفر ميزة ربط البصمة
-  @CheckQuota('max_biometric_devices') // ✅ التحقق من حصة عدد الأجهزة
+  @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION)
+  @CheckQuota('max_biometric_devices')
   @UseGuards(PermissionsGuard)
   createDevice(
     @Body() dto: CreateDeviceDto,
@@ -44,7 +48,7 @@ export class AttendanceController {
 
   @Post('devices/:id/push-user/:employeeId')
   @Permissions(PERMS.BIOMETRIC_DEVICE_SYNC)
-  @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION) // ✅ التحقق من توفر الميزة
+  @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION)
   @UseGuards(PermissionsGuard)
   pushUserToDevice(
     @Param('id') id: string,
@@ -56,7 +60,7 @@ export class AttendanceController {
 
   @Get('devices')
   @Permissions(PERMS.BIOMETRIC_DEVICE_VIEW)
-  @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION) // ✅ حماية عرض الأجهزة
+  @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION)
   @UseGuards(PermissionsGuard)
   findAllDevices(@CurrentUser() user: CurrentUserData) {
     return this.attendanceService.findAllDevices(user);
@@ -64,7 +68,7 @@ export class AttendanceController {
 
   @Get('devices/:id')
   @Permissions(PERMS.BIOMETRIC_DEVICE_VIEW)
-  @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION) // ✅ حماية عرض تفاصيل الجهاز
+  @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION)
   @UseGuards(PermissionsGuard)
   findOneDevice(@Param('id') id: string, @CurrentUser() user: CurrentUserData) {
     return this.attendanceService.findOneDevice(id, user);
@@ -72,7 +76,7 @@ export class AttendanceController {
 
   @Patch('devices/:id')
   @Permissions(PERMS.BIOMETRIC_DEVICE_UPDATE)
-  @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION) // ✅ حماية تعديل الجهاز
+  @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION)
   @UseGuards(PermissionsGuard)
   updateDevice(
     @Param('id') id: string,
@@ -84,15 +88,17 @@ export class AttendanceController {
 
   @Delete('devices/:id')
   @Permissions(PERMS.BIOMETRIC_DEVICE_DELETE)
-  @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION) // ✅ حماية حذف الجهاز
+  @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION)
   @UseGuards(PermissionsGuard)
   removeDevice(@Param('id') id: string, @CurrentUser() user: CurrentUserData) {
     return this.attendanceService.removeDevice(id, user);
   }
 
+  // ══════════════ السجلات: عرض / إضافة يدوية / تعديل / تصدير ══════════════
+
   @Get('logs')
   @Permissions(PERMS.ATTENDANCE_LOGS_VIEW)
-  @RequiresFeature(FEATURES.ATTENDANCE_MODULE) // ✅ سجلات الحضور جزء من موديول الحضور
+  @RequiresFeature(FEATURES.ATTENDANCE_MODULE)
   @UseGuards(PermissionsGuard)
   findLogs(
     @Query() query: AttendanceQueryDto,
@@ -101,9 +107,65 @@ export class AttendanceController {
     return this.attendanceService.findLogs(query, user);
   }
 
+  // ⚠️ لازم تضيف PERMS.ATTENDANCE_LOGS_CREATE في ملف الصلاحيات عندك
+  @Post('logs')
+  @Permissions(PERMS.ATTENDANCE_LOGS_CREATE)
+  @RequiresFeature(FEATURES.ATTENDANCE_MODULE)
+  @UseGuards(PermissionsGuard)
+  createManualLog(
+    @Body() dto: CreateManualAttendanceLogDto,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.attendanceService.createManualLog(dto, user);
+  }
+
+  // ⚠️ لازم تضيف PERMS.ATTENDANCE_LOGS_UPDATE في ملف الصلاحيات عندك
+  @Patch('logs/:id')
+  @Permissions(PERMS.ATTENDANCE_LOGS_UPDATE)
+  @RequiresFeature(FEATURES.ATTENDANCE_MODULE)
+  @UseGuards(PermissionsGuard)
+  updateLog(
+    @Param('id') id: string,
+    @Body() dto: UpdateAttendanceLogDto,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.attendanceService.updateLogTime(id, dto, user);
+  }
+
+  @Get('logs/export/:type')
+  @Permissions(PERMS.ATTENDANCE_LOGS_VIEW)
+  @RequiresFeature(FEATURES.ATTENDANCE_MODULE)
+  @UseGuards(PermissionsGuard)
+  async exportLogs(
+    @Param('type') type: 'excel' | 'pdf',
+    @Query() query: AttendanceQueryDto,
+    @CurrentUser() user: CurrentUserData,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.attendanceService.exportLogs(query, type, user);
+
+    if (type === 'excel') {
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename=attendance_logs.xlsx',
+      );
+    } else {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename=attendance_logs.pdf',
+      );
+    }
+    res.send(buffer);
+  }
+
   @Get('logs/employee/:employeeId')
   @Permissions(PERMS.ATTENDANCE_LOGS_VIEW)
-  @RequiresFeature(FEATURES.ATTENDANCE_MODULE) // ✅ حماية سجلات الموظف
+  @RequiresFeature(FEATURES.ATTENDANCE_MODULE)
   @UseGuards(PermissionsGuard)
   findEmployeeLogs(
     @Param('employeeId') id: string,
@@ -115,7 +177,7 @@ export class AttendanceController {
 
   @Get('summary/daily')
   @Permissions(PERMS.ATTENDANCE_SUMMARY_VIEW)
-  @RequiresFeature(FEATURES.ATTENDANCE_MODULE) // ✅ حماية الملخص اليومي
+  @RequiresFeature(FEATURES.ATTENDANCE_MODULE)
   @UseGuards(PermissionsGuard)
   getDailySummary(
     @Query('date') date: string,
@@ -126,7 +188,7 @@ export class AttendanceController {
 
   @Get('summary/employee/:employeeId/monthly')
   @Permissions(PERMS.ATTENDANCE_REPORTS_VIEW)
-  @RequiresFeature(FEATURES.ATTENDANCE_MODULE) // ✅ حماية التقارير الشهرية
+  @RequiresFeature(FEATURES.ATTENDANCE_MODULE)
   @UseGuards(PermissionsGuard)
   getMonthlyReport(
     @Param('employeeId') id: string,

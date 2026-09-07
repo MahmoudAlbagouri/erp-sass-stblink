@@ -1,6 +1,16 @@
 // src/modules/attendance/dto/attendance-query.dto.ts
-import { IsOptional, IsDateString, IsInt, Min, Max } from 'class-validator';
+import {
+  IsOptional,
+  IsDateString,
+  IsInt,
+  Min,
+  Max,
+  IsEnum,
+  IsString,
+  IsUUID,
+} from 'class-validator';
 import { Type } from 'class-transformer';
+import { PunchType } from '../entities/attendance-log.entity';
 
 export class AttendanceQueryDto {
   @IsOptional()
@@ -10,6 +20,21 @@ export class AttendanceQueryDto {
   @IsOptional()
   @IsDateString()
   to?: string; // '2026-06-30'
+
+  // ✅ فلترة حسب نوع البصمة: حضور / انصراف / إجازة ... إلخ
+  @IsOptional()
+  @IsEnum(PunchType)
+  punchType?: PunchType;
+
+  // ✅ فلترة حسب موظف محدد (اختيار من قائمة، أدق من البحث النصي)
+  @IsOptional()
+  @IsUUID()
+  employeeId?: string;
+
+  // ✅ بحث نصي باسم الموظف
+  @IsOptional()
+  @IsString()
+  employeeName?: string;
 
   @IsOptional()
   @Type(() => Number)

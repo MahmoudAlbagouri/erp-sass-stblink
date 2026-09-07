@@ -19,6 +19,7 @@ export enum PunchType {
   BREAK_IN = 'break_in',
   OVERTIME_IN = 'overtime_in',
   OVERTIME_OUT = 'overtime_out',
+  LEAVE = 'leave', // ✅ جديد — تسجيل إجازة بدل حضور/انصراف
 }
 
 export enum VerifyMode {
@@ -27,6 +28,7 @@ export enum VerifyMode {
   PASSWORD = 'password',
   FACE = 'face',
   FINGERPRINT_CARD = 'fingerprint_card',
+  MANUAL = 'manual', // ✅ جديد — بصمة/سجل تم إدخاله يدويًا من لوحة التحكم
 }
 
 @Entity('attendance_logs')
@@ -61,7 +63,7 @@ export class AttendanceLog {
   @JoinColumn({ name: 'tenant_id' })
   tenant!: Tenant;
 
-  // ✅ وقت البصمة الفعلي المُرسَل من الجهاز
+  // ✅ وقت البصمة الحالي (قد يكون معدَّلاً يدويًا — القيمة الأصلية محفوظة في originalPunchTime)
   @Column({ name: 'punch_time', type: 'timestamptz' })
   punchTime!: Date;
 
@@ -88,6 +90,63 @@ export class AttendanceLog {
   // ✅ منع تكرار نفس السجل من نفس الجهاز
   @Column({ name: 'raw_log_id', nullable: true })
   rawLogId?: string;
+
+  // ══════════════ حقول التعديل اليدوي والإضافة اليدوية ══════════════
+
+  // ✅ هل هذا السجل تم إدخاله يدويًا من لوحة التحكم (مش من جهاز البصمة)؟
+  @Column({ name: 'is_manual_entry', default: false })
+  isManualEntry!: boolean;
+
+  // ✅ بيانات من أضاف السجل يدويًا (لو isManualEntry = true)
+  @Column({ name: 'created_by_user_id', nullable: true, type: 'uuid' })
+  createdByUserId?: string;
+
+  @Column({ name: 'created_by_name', nullable: true })
+  createdByName?: string;
+
+  // ✅ هل تم تعديل وقت هذه البصمة من قبل؟ (يُسمح بمرة واحدة فقط)
+  @Column({ name: 'is_edited', default: false })
+  isEdited!: boolean;
+
+  @Column({ name: 'edited_by_user_id', nullable: true, type: 'uuid' })
+  editedByUserId?: string;
+
+  @Column({ name: 'edited_by_name', nullable: true })
+  editedByName?: string;
+
+  @Column({ name: 'edited_at', nullable: true, type: 'timestamptz' })
+  editedAt?: Date;
+
+  // ✅ الوقت الأصلي المسجل (من الجهاز أو عند الإضافة اليدوية) — يُستخدم
+  // للتحقق من نافذة الـ 24 ساعة المسموح بها للتعديل، حتى بعد تعديل punchTime
+  @Column({ name: 'original_punch_time', nullable: true, type: 'timestamptz' })
+  originalPunchTime?: Date;
+
+  // ══════════════ حقول الإجازة وساعات العمل ══════════════
+
+  // ✅ سبب الإجازة (مطلوب فقط عندما punchType = LEAVE)
+  @Column({ name: 'leave_reason', nullable: true, type: 'text' })
+  leaveReason?: string;
+
+  // ✅ عدد ساعات العمل — يُحسب ويُخزَّن على سجل "الانصراف" فقط
+  @Column({
+    name: 'work_hours',
+    nullable: true,
+    type: 'decimal',
+    precision: 6,
+    scale: 2,
+  })
+  workHours?: number;
+
+  // ✅ ساعات العمل الإضافي (الفرق بين ساعات العمل الفعلية ومدة الشيفت المقررة)
+  @Column({
+    name: 'overtime_hours',
+    nullable: true,
+    type: 'decimal',
+    precision: 6,
+    scale: 2,
+  })
+  overtimeHours?: number;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

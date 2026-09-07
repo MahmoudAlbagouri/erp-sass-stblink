@@ -13,6 +13,7 @@ import {
 } from './entities/attendance-log.entity';
 import { DeviceCommand } from './entities/device-command.entity';
 import { Employee } from '../employees/entities/employee.entity';
+import { AttendanceService } from './attendance.service'; // ✅ لإعادة حساب ساعات العمل بعد كل بصمة انصراف
 
 const STATUS_TO_PUNCH_TYPE: Record<number, PunchType> = {
   0: PunchType.CHECK_IN,
@@ -43,6 +44,7 @@ export class AdmsService {
     @InjectRepository(Employee)
     private readonly employeeRepo: Repository<Employee>,
     private readonly dataSource: DataSource,
+    private readonly attendanceService: AttendanceService, // ✅ جديد
   ) {}
 
   async handleDeviceInit(
@@ -104,6 +106,9 @@ export class AdmsService {
       ).map((l) => l.rawLogId!),
     );
 
+    // ✅ نجمع بصمات "الانصراف" اللي هننشئها عشان نحسب ساعات عملها بعد نجاح الـ transaction
+    const savedCheckOutIds: string[] = [];
+
     await this.dataSource.transaction(async (manager) => {
       for (const line of lines) {
         const parsed = this.parseAttlogLine(line);
@@ -121,14 +126,20 @@ export class AdmsService {
           deviceId: device.id,
           tenantId: device.tenantId,
           punchTime: parsed.punchTime,
+          originalPunchTime: parsed.punchTime, // ✅ يُستخدم لاحقًا كمرجع نافذة التعديل (24 ساعة)
           punchType: STATUS_TO_PUNCH_TYPE[parsed.status] ?? PunchType.CHECK_IN,
           verifyMode: VERIFY_TO_MODE[parsed.verify] ?? VerifyMode.FINGERPRINT,
           deviceSn: sn,
           rawLogId: parsed.rawLogId,
+          isManualEntry: false,
         });
 
-        await manager.save(log);
+        const savedLog = await manager.save(log);
         savedCount++;
+
+        if (savedLog.punchType === PunchType.CHECK_OUT) {
+          savedCheckOutIds.push(savedLog.id);
+        }
       }
 
       if (stamp) {
@@ -136,6 +147,20 @@ export class AdmsService {
           lastLogIndex: parseInt(stamp, 10),
           lastSeenAt: new Date(),
         });
+      }
+
+      // ✅ حساب ساعات العمل والإضافي داخل نفس الـ transaction، بعد إدخال كل
+      // البصمات، عشان يقدر يلاقي بصمة الحضور المقابلة حتى لو جت في نفس الدفعة
+      for (const checkOutId of savedCheckOutIds) {
+        const checkOutLog = await manager.findOneBy(AttendanceLog, {
+          id: checkOutId,
+        });
+        if (checkOutLog) {
+          await this.attendanceService.recalculateWorkHours(
+            checkOutLog,
+            manager,
+          );
+        }
       }
     });
 
