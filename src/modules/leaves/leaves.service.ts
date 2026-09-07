@@ -21,6 +21,28 @@ import { ContractsService } from '../contracts/contracts.service';
 import { LeaveAccrualService } from './leave-accrual.service';
 import { DateUtils } from '../../common/utils/date.utils';
 
+// ✅ شكل بيانات كل طلب إجازة داخل ملخص صفحة الموظف
+export interface EmployeeLeaveRequestSummary {
+  id: string;
+  startDate: Date;
+  endDate: Date;
+  type: LeaveType;
+  status: LeaveStatus;
+  days: number; // عدد أيام هذا الطلب تحديداً
+  reason?: string;
+}
+
+// ✅ الشكل الكامل لملخص إجازات الموظف (يُستخدم في صفحة تفاصيل الموظف)
+export interface EmployeeLeaveSummaryResult {
+  totalAllowance: number; // السقف السنوي للاستحقاق
+  carriedOverDays: number; // المرحّل من سنة سابقة
+  earnedDays: number; // المكتسب حتى الآن هذه السنة
+  consumedAnnualDays: number; // ✅ عدد أيام الإجازة الفعلي (المستهلك من الإجازات السنوية الموافق عليها)
+  availableDays: number; // ✅ عدد الأيام المتبقية له
+  allowedRequestLimit: number; // الحد الأقصى المسموح به شاملاً هامش الائتمان
+  requests: EmployeeLeaveRequestSummary[]; // ✅ عدد أيام كل إجازة طلبها
+}
+
 @Injectable()
 export class LeavesService {
   constructor(
@@ -64,7 +86,63 @@ export class LeavesService {
       accrual,
       balance.totalAllowance,
     );
-    return { ...accrual, allowedRequestLimit };
+
+    // ✅ إضافة totalAllowance للنتيجة (كان ناقصاً) — تغيير غير كاسر لأي مستهلك حالي
+    return {
+      ...accrual,
+      allowedRequestLimit,
+      totalAllowance: balance.totalAllowance,
+    };
+  }
+
+  /**
+   * ✅ ملخص إجازات الموظف لصفحة "تفاصيل الموظف":
+   * - عدد أيام الإجازة الفعلي (المستهلك من رصيد الإجازة السنوية)
+   * - عدد أيام كل إجازة طلبها الموظف (لكل الأنواع: سنوية / بدون راتب / أخرى)
+   * - عدد الأيام المتبقية له
+   */
+  async getEmployeeLeaveSummary(
+    employeeId: string,
+    tenantId: string,
+  ): Promise<EmployeeLeaveSummaryResult> {
+    const accrual = await this.getAccrualDetails(employeeId, tenantId);
+
+    const leaveRequests = await this.repo.find({
+      where: { employeeId, tenantId },
+      order: { startDate: 'DESC' },
+    });
+
+    const requests: EmployeeLeaveRequestSummary[] = leaveRequests.map((r) => ({
+      id: r.id,
+      startDate: r.startDate,
+      endDate: r.endDate,
+      type: r.type,
+      status: r.status,
+      days: this.dateUtils.calculateDurationDays(
+        r.startDate,
+        r.endDate,
+        true, // شامل يوم البداية والنهاية، كما هو معمول به في باقي حسابات الوحدة
+      ),
+      reason: r.reason,
+    }));
+
+    return {
+      totalAllowance: accrual.totalAllowance,
+      carriedOverDays: accrual.carriedOverDays.toNumber
+        ? accrual.carriedOverDays.toNumber()
+        : Number(accrual.carriedOverDays),
+      earnedDays: accrual.earnedDays.toNumber
+        ? accrual.earnedDays.toNumber()
+        : Number(accrual.earnedDays),
+      consumedAnnualDays: accrual.consumedAnnualDays,
+      availableDays: accrual.availableDays.toNumber
+        ? accrual.availableDays.toNumber()
+        : Number(accrual.availableDays),
+      allowedRequestLimit: accrual.allowedRequestLimit.toNumber
+        ? accrual.allowedRequestLimit.toNumber()
+        : Number(accrual.allowedRequestLimit),
+      requests,
+    };
   }
 
   private async checkDateOverlap(

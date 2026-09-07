@@ -65,6 +65,22 @@ export class LeavesController {
     return await this.leavesService.getAccrualDetails(employeeId, tenantId);
   }
 
+  // ✅ ملخص إجازات الموظف لصفحة "تفاصيل الموظف":
+  // الفعلي المستهلك + كل الطلبات بأيامها + المتبقي
+  @Get('summary/:employeeId')
+  @Permissions(PERMS.LEAVE_VIEW)
+  @RequiresFeature(FEATURES.LEAVES_MODULE)
+  @UseGuards(PermissionsGuard)
+  async getEmployeeLeaveSummary(
+    @Param('employeeId', ParseUUIDPipe) employeeId: string,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return await this.leavesService.getEmployeeLeaveSummary(
+      employeeId,
+      tenantId,
+    );
+  }
+
   @Post('balance')
   @Permissions(PERMS.LEAVE_BALANCE_MANAGE)
   @RequiresFeature(FEATURES.LEAVES_MODULE) // ✅ حماية إدارة الرصيد

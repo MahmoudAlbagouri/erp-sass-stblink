@@ -2,14 +2,33 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, FindOptionsWhere, DataSource } from 'typeorm';
 import { BiometricDevice } from './entities/biometric-device.entity';
-import { AttendanceLog, PunchType } from './entities/attendance-log.entity';
+import { AttendanceLog } from './entities/attendance-log.entity';
 import { DeviceCommand } from './entities/device-command.entity';
-import { Shift } from '../shifts/entities/shift.entity'; // تأكد من وجود الـ Entity
+import { Shift } from '../shifts/entities/shift.entity';
+import {
+  getShiftWindow,
+  diffMinutesOvernightAware,
+} from '../shifts/utils/shift-time.util'; // ✅ منطق حساب نافذة الشيفت (يدعم الشيفت الليلي)
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { AttendanceQueryDto } from './dto/attendance-query.dto';
 import { CurrentUserData } from '../../common/decorators/current-user.decorator';
 import { Employee } from '../employees/entities/employee.entity';
+
+type AttendanceStatus =
+  | 'present'
+  | 'late'
+  | 'early_leave'
+  | 'late_and_early_leave'
+  | 'incomplete' // بصمة واحدة بس (حضور بدون انصراف أو العكس)
+  | 'absent'
+  | 'unclassified'; // مفيش شيفت متعين للموظف أصلاً
+
+interface AttendanceEvaluation {
+  lateMinutes: number;
+  earlyLeaveMinutes: number;
+  status: AttendanceStatus;
+}
 
 @Injectable()
 export class AttendanceService {
@@ -23,21 +42,84 @@ export class AttendanceService {
     private readonly dataSource: DataSource,
   ) {}
 
-  // منطق تصنيف البصمة (Rules Engine)
-  private classifyPunch(punchTime: Date, shift: Shift): PunchType {
-    const time = punchTime.getHours() * 60 + punchTime.getMinutes();
-    const start =
-      parseInt(shift.startTime.split(':')[0]) * 60 +
-      parseInt(shift.startTime.split(':')[1]);
-    const end =
-      parseInt(shift.endTime.split(':')[0]) * 60 +
-      parseInt(shift.endTime.split(':')[1]);
-    const grace = shift.gracePeriod || 30;
+  // ==========================================================
+  // ✅ منطق ضبط الحضور/الانصراف حسب الشيفت (مع دعم الشيفت الليلي)
+  // ==========================================================
 
-    if (Math.abs(time - start) <= grace) return PunchType.CHECK_IN;
-    if (Math.abs(time - end) <= grace) return PunchType.CHECK_OUT;
+  /**
+   * يحدد بداية ونهاية "يوم الشيفت" الفعلي لتاريخ معين.
+   * للشيفت العادي: من منتصف ليل اليوم لمنتصف ليل اليوم التالي (بهامش السماحية).
+   * للشيفت الليلي (مثال 22:00 -> 06:00): من بداية الشيفت في نفس اليوم
+   * لنهايته في اليوم التالي، عشان البصمتين (حضور وانصراف) يتحسبوا كوحدة واحدة.
+   */
+  private getShiftDayRange(
+    day: Date,
+    shift?: Shift,
+  ): { start: Date; end: Date } {
+    if (!shift) {
+      const start = new Date(day);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(day);
+      end.setHours(23, 59, 59, 999);
+      return { start, end };
+    }
 
-    return time < (start + end) / 2 ? PunchType.CHECK_IN : PunchType.CHECK_OUT;
+    const { startMinutes, endMinutes, isOvernight, graceMinutes } =
+      getShiftWindow(shift);
+
+    const start = new Date(day);
+    start.setHours(0, 0, 0, 0);
+    start.setMinutes(start.getMinutes() + startMinutes - graceMinutes);
+
+    const end = new Date(day);
+    end.setHours(0, 0, 0, 0);
+    if (isOvernight) end.setDate(end.getDate() + 1);
+    end.setMinutes(end.getMinutes() + endMinutes + graceMinutes);
+
+    return { start, end };
+  }
+
+  /**
+   * يقيّم بصمتي الحضور والانصراف الفعليتين مقابل الشيفت المحدد،
+   * ويحسب دقائق التأخير والانصراف المبكر (بعد تجاوز فترة السماحية).
+   *
+   * ملحوظة: الدقائق المحسوبة هي من بداية/نهاية الشيفت مباشرة (مش من بعد
+   * انتهاء السماحية) — السماحية هنا بتحدد فقط "هل يُحتسب تأخير/انصراف مبكر
+   * ولا لأ". لو حابب تطرح مدة السماحية من الرقم النهائي في الرواتب، سهل
+   * تعدلها هنا في مكان واحد.
+   */
+  private evaluateAttendanceStatus(
+    checkIn: Date,
+    checkOut: Date,
+    shift: Shift,
+  ): AttendanceEvaluation {
+    const { startMinutes, endMinutes, isOvernight, graceMinutes } =
+      getShiftWindow(shift);
+
+    const checkInMinutes = checkIn.getHours() * 60 + checkIn.getMinutes();
+    const checkOutMinutes = checkOut.getHours() * 60 + checkOut.getMinutes();
+
+    const lateRaw = diffMinutesOvernightAware(
+      checkInMinutes,
+      startMinutes,
+      isOvernight,
+    );
+    const lateMinutes = lateRaw > graceMinutes ? lateRaw : 0;
+
+    const earlyRaw = diffMinutesOvernightAware(
+      endMinutes,
+      checkOutMinutes,
+      isOvernight,
+    );
+    const earlyLeaveMinutes = earlyRaw > graceMinutes ? earlyRaw : 0;
+
+    let status: AttendanceStatus = 'present';
+    if (lateMinutes > 0 && earlyLeaveMinutes > 0)
+      status = 'late_and_early_leave';
+    else if (lateMinutes > 0) status = 'late';
+    else if (earlyLeaveMinutes > 0) status = 'early_leave';
+
+    return { lateMinutes, earlyLeaveMinutes, status };
   }
 
   async pushUserToDevice(
@@ -68,6 +150,7 @@ export class AttendanceService {
       tenantId: user.tenantId,
     });
   }
+
   async createDevice(
     dto: CreateDeviceDto,
     user: CurrentUserData,
@@ -142,12 +225,22 @@ export class AttendanceService {
   }
 
   async getDailySummary(dateStr: string, user: CurrentUserData) {
-    const date = new Date(dateStr);
-    const dayStart = new Date(date.setHours(0, 0, 0, 0));
-    const dayEnd = new Date(date.setHours(23, 59, 59, 999));
+    const targetDate = new Date(dateStr);
+    targetDate.setHours(0, 0, 0, 0);
+
+    // ✅ نافذة استعلام موسّعة (±6 ساعات) عشان نضمن التقاط بصمات الشيفت الليلي
+    // اللي بتمتد لليوم التالي، أو بتبدأ في آخر اليوم السابق
+    const queryStart = new Date(targetDate);
+    queryStart.setHours(queryStart.getHours() - 6);
+    const queryEnd = new Date(targetDate);
+    queryEnd.setDate(queryEnd.getDate() + 1);
+    queryEnd.setHours(queryEnd.getHours() + 6);
 
     const logs = await this.logRepo.find({
-      where: { tenantId: user.tenantId, punchTime: Between(dayStart, dayEnd) },
+      where: {
+        tenantId: user.tenantId,
+        punchTime: Between(queryStart, queryEnd),
+      },
       relations: ['employee', 'employee.shift'],
       order: { punchTime: 'ASC' },
     });
@@ -159,30 +252,69 @@ export class AttendanceService {
       grouped.get(key)!.push(log);
     }
 
-    return Array.from(grouped.entries()).map(([, employeeLogs]) => {
-      const shift = employeeLogs[0].employee?.shift;
-      // تطبيق المنطق الذكي على السجلات
-      const logsWithLogic = employeeLogs.map((l) => ({
-        ...l,
-        punchType: shift ? this.classifyPunch(l.punchTime, shift) : l.punchType,
-      }));
+    const results: Array<{
+      employeeId: string | undefined;
+      employeeCode: string;
+      employeeName: string | undefined;
+      shiftName: string | undefined;
+      firstPunch: Date;
+      lastPunch: Date;
+      totalMinutes: number;
+      lateMinutes: number;
+      earlyLeaveMinutes: number;
+      status: AttendanceStatus;
+      logs: AttendanceLog[];
+    }> = [];
 
-      const first = logsWithLogic[0];
-      const last = logsWithLogic[logsWithLogic.length - 1];
+    for (const employeeLogs of grouped.values()) {
+      const shift = employeeLogs[0].employee?.shift;
+      const { start, end } = this.getShiftDayRange(targetDate, shift);
+
+      // ✅ نفلتر ونأخذ فقط البصمات الواقعة فعليًا ضمن نافذة وردية هذا اليوم
+      const dayLogs = employeeLogs
+        .filter((l) => l.punchTime >= start && l.punchTime <= end)
+        .sort((a, b) => a.punchTime.getTime() - b.punchTime.getTime());
+
+      if (dayLogs.length === 0) continue;
+
+      const first = dayLogs[0];
+      const last = dayLogs[dayLogs.length - 1];
       const totalMinutes = Math.round(
         (last.punchTime.getTime() - first.punchTime.getTime()) / 60000,
       );
 
-      return {
+      let evaluation: AttendanceEvaluation = {
+        lateMinutes: 0,
+        earlyLeaveMinutes: 0,
+        status: 'unclassified',
+      };
+      if (shift) {
+        evaluation =
+          dayLogs.length < 2
+            ? { lateMinutes: 0, earlyLeaveMinutes: 0, status: 'incomplete' }
+            : this.evaluateAttendanceStatus(
+                first.punchTime,
+                last.punchTime,
+                shift,
+              );
+      }
+
+      results.push({
         employeeId: first.employeeId,
         employeeCode: first.deviceUserId,
         employeeName: first.employee?.fullName,
+        shiftName: shift?.name,
         firstPunch: first.punchTime,
         lastPunch: last.punchTime,
         totalMinutes,
-        logs: logsWithLogic,
-      };
-    });
+        lateMinutes: evaluation.lateMinutes,
+        earlyLeaveMinutes: evaluation.earlyLeaveMinutes,
+        status: evaluation.status,
+        logs: dayLogs,
+      });
+    }
+
+    return results;
   }
 
   async getMonthlyReport(
@@ -191,8 +323,12 @@ export class AttendanceService {
     year: number,
     user: CurrentUserData,
   ) {
+    // ✅ هامش 12 ساعة على أول وآخر يوم بالشهر عشان يلتقط بصمات الشيفت الليلي
+    // اللي ممكن تمتد خارج حدود الشهر التقويمي
     const monthStart = new Date(year, month - 1, 1, 0, 0, 0);
+    monthStart.setHours(monthStart.getHours() - 12);
     const monthEnd = new Date(year, month, 0, 23, 59, 59);
+    monthEnd.setHours(monthEnd.getHours() + 12);
 
     const logs = await this.logRepo.find({
       where: {
@@ -204,45 +340,86 @@ export class AttendanceService {
       order: { punchTime: 'ASC' },
     });
 
-    const dailyMap = new Map<
-      string,
-      { checkIn: Date | null; checkOut: Date | null }
-    >();
-    for (const log of logs) {
-      const shift = log.employee?.shift;
-      const type = shift
-        ? this.classifyPunch(log.punchTime, shift)
-        : log.punchType;
+    const shift = logs[0]?.employee?.shift;
+    const daysInMonth = new Date(year, month, 0).getDate();
 
-      const dayKey = log.punchTime.toISOString().split('T')[0];
-      if (!dailyMap.has(dayKey))
-        dailyMap.set(dayKey, { checkIn: null, checkOut: null });
+    const dailyBreakdown: Array<{
+      date: string;
+      checkIn: Date | null;
+      checkOut: Date | null;
+      minutes: number;
+      lateMinutes: number;
+      earlyLeaveMinutes: number;
+      status: AttendanceStatus;
+    }> = [];
 
-      const day = dailyMap.get(dayKey)!;
-      if (type === PunchType.CHECK_IN && !day.checkIn)
-        day.checkIn = log.punchTime;
-      else if (type === PunchType.CHECK_OUT) day.checkOut = log.punchTime;
-    }
+    for (let d = 1; d <= daysInMonth; d++) {
+      const day = new Date(year, month - 1, d, 0, 0, 0);
+      const { start, end } = this.getShiftDayRange(day, shift);
+      const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 
-    const dailyBreakdown = Array.from(dailyMap.entries()).map(
-      ([date, { checkIn, checkOut }]) => ({
-        date,
+      const dayLogs = logs
+        .filter((l) => l.punchTime >= start && l.punchTime <= end)
+        .sort((a, b) => a.punchTime.getTime() - b.punchTime.getTime());
+
+      if (dayLogs.length === 0) {
+        dailyBreakdown.push({
+          date: dateKey,
+          checkIn: null,
+          checkOut: null,
+          minutes: 0,
+          lateMinutes: 0,
+          earlyLeaveMinutes: 0,
+          status: 'absent',
+        });
+        continue;
+      }
+
+      const checkIn = dayLogs[0].punchTime;
+      const checkOut = dayLogs[dayLogs.length - 1].punchTime;
+      const minutes = Math.round(
+        (checkOut.getTime() - checkIn.getTime()) / 60000,
+      );
+
+      let evaluation: AttendanceEvaluation = {
+        lateMinutes: 0,
+        earlyLeaveMinutes: 0,
+        status: 'unclassified',
+      };
+      if (shift) {
+        evaluation =
+          dayLogs.length < 2
+            ? { lateMinutes: 0, earlyLeaveMinutes: 0, status: 'incomplete' }
+            : this.evaluateAttendanceStatus(checkIn, checkOut, shift);
+      }
+
+      dailyBreakdown.push({
+        date: dateKey,
         checkIn,
         checkOut,
-        minutes:
-          checkIn && checkOut
-            ? Math.round((checkOut.getTime() - checkIn.getTime()) / 60000)
-            : 0,
-      }),
-    );
+        minutes,
+        lateMinutes: evaluation.lateMinutes,
+        earlyLeaveMinutes: evaluation.earlyLeaveMinutes,
+        status: evaluation.status,
+      });
+    }
+
+    const presentDays = dailyBreakdown.filter((d) => d.checkIn !== null).length;
 
     return {
       employeeId,
       month,
       year,
-      totalDays: dailyMap.size,
-      presentDays: dailyBreakdown.filter((d) => d.checkIn !== null).length,
+      shiftName: shift?.name,
+      totalDays: daysInMonth,
+      presentDays,
+      absentDays: daysInMonth - presentDays,
       totalMinutes: dailyBreakdown.reduce((s, d) => s + d.minutes, 0),
+      totalLateMinutes: dailyBreakdown.reduce((s, d) => s + d.lateMinutes, 0),
+      totalEarlyLeaveMinutes: dailyBreakdown.reduce(
+        (s, d) => s + d.earlyLeaveMinutes,
+        0,
+      ),
       dailyBreakdown,
     };
   }
