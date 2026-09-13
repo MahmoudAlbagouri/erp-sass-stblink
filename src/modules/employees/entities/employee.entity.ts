@@ -18,13 +18,12 @@ import { Loan } from '../../loans/entities/loan.entity';
 import { Advance } from '../../advances/entities/advance.entity';
 import { Shift } from '../../shifts/entities/shift.entity';
 import { Education } from './education.entity';
+import { Department } from '../../departments/entities/department.entity';
 
-// استيراد الكيانات الجديدة لربطها
-// تأكد من صحة مسارات المجلدات التالية حسب هيكل مشروعك
 import { Bonus } from '../../bonuses/entities/bonus.entity';
-import { Deduction } from '../../deduction/entities/deduction.entity'; // تأكد من اسم المجلد (deductions أم deduction)
-import { EndOfService } from '../../eos/entities/eos.entity'; // تأكد من اسم المجلد والكيان
-import { ResignationRequest } from '../../resignations/entities/resignation.entity'; // تأكد من المسار
+import { Deduction } from '../../deduction/entities/deduction.entity';
+import { EndOfService } from '../../eos/entities/eos.entity';
+import { ResignationRequest } from '../../resignations/entities/resignation.entity';
 import { Salary } from '../../salaries/entities/salary.entity';
 import { Settlement } from '../../settlements/entities/settlement.entity';
 import { LeaveRequest } from '../../leaves/entities/leave-request.entity';
@@ -68,8 +67,15 @@ export class Employee {
   @Column({ nullable: true, length: 100 })
   jobTitle?: string;
 
-  @Column({ nullable: true, length: 100 })
-  department?: string;
+  // ✅ القسم أصبح علاقة (Relation) بدل نص حر
+  @Column({ name: 'department_id', nullable: true })
+  departmentId?: string;
+
+  @ManyToOne(() => Department, (department) => department.employees, {
+    nullable: true,
+  })
+  @JoinColumn({ name: 'department_id' })
+  department?: Department;
 
   @Column({
     type: 'enum',
@@ -81,11 +87,10 @@ export class Employee {
   // --- العلاقات (Relations) ---
 
   @OneToOne(() => User, (user) => user.employee)
-  @JoinColumn({ name: 'user_id' }) // الموظف يملك مفتاح المستخدم
+  @JoinColumn({ name: 'user_id' })
   user?: User;
 
   @OneToOne(() => Contract, (contract) => contract.employee)
-  // ✅ تم إزالة JoinColumn هنا لأن العقد هو صاحب العلاقة (يحتوي على employee_id)
   contract?: Contract;
 
   @ManyToOne(() => Shift, { nullable: true })
@@ -94,9 +99,6 @@ export class Employee {
 
   @Column({ name: 'shift_id', nullable: true })
   shiftId?: string;
-
-  // ✅ العلاقات العكسية الجديدة (OneToMany)
-  // ملاحظة: هذه العلاقات تسمح لك بجلب البيانات عبر employee.educations مثلاً
 
   @OneToMany(() => Education, (edu) => edu.employee, { cascade: true })
   educations?: Education[];

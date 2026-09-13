@@ -8,6 +8,24 @@ export const PERMS: Record<string, PermissionMetadata> = {
   USER_UPDATE: { name: 'update_user', labelAr: 'تعديل بيانات المستخدم' },
   USER_DELETE: { name: 'delete_user', labelAr: 'حذف مستخدم' },
 
+  // ─── Departments (الأقسام) ────────────────────────── ✅ جديد
+  DEPARTMENT_CREATE: {
+    name: 'create_department',
+    labelAr: 'إضافة قسم',
+  },
+  DEPARTMENT_VIEW: {
+    name: 'view_departments',
+    labelAr: 'عرض الأقسام',
+  },
+  DEPARTMENT_UPDATE: {
+    name: 'update_department',
+    labelAr: 'تعديل قسم',
+  },
+  DEPARTMENT_DELETE: {
+    name: 'delete_department',
+    labelAr: 'حذف قسم',
+  },
+
   // ─── Quotations (عروض الأسعار) ─────────────────────
   QUOTATION_CREATE: {
     name: 'system:create_quotation',
@@ -39,7 +57,7 @@ export const PERMS: Record<string, PermissionMetadata> = {
   SALARY_VIEW: { name: 'view_salaries', labelAr: 'عرض الرواتب' },
   SALARY_MANAGE: { name: 'manage_salary', labelAr: 'إدارة الرواتب' },
 
-  // ─── Payroll (مسير الرواتب) ──────────────────────── ✅ جديد
+  // ─── Payroll (مسير الرواتب) ────────────────────────
   PAYROLL_GENERATE: {
     name: 'generate_payroll',
     labelAr: 'إعداد مسير الرواتب',
@@ -94,7 +112,6 @@ export const PERMS: Record<string, PermissionMetadata> = {
     name: 'view_attendance_logs',
     labelAr: 'عرض سجلات الحضور',
   },
-  // ✅ الصلاحيات الناقصة التي يجب إضافتها:
   ATTENDANCE_LOGS_CREATE: {
     name: 'create_attendance_log',
     labelAr: 'إضافة سجل حضور يدوي',
@@ -152,13 +169,12 @@ export const PERMS: Record<string, PermissionMetadata> = {
   // ─── Loans (القروض) ─────────────────────────────────
   LOAN_REQUEST_SELF: { name: 'request_loan_self', labelAr: 'طلب قرض ذاتي' },
   LOAN_VIEW: { name: 'view_loans', labelAr: 'عرض القروض' },
-
   LOAN_APPROVE: { name: 'approve_loan', labelAr: 'اعتماد القروض' },
-
   LOAN_CREATE_ADMIN: {
     name: 'create_loan_admin',
     labelAr: 'إنشاء قرض (إداري)',
   },
+
   // ─── Permissions Management (إدارة الصلاحيات) ──────
   PERMISSION_CREATE: {
     name: 'create_permission',
@@ -187,6 +203,7 @@ export const PERMS: Record<string, PermissionMetadata> = {
     name: 'update_shift',
     labelAr: 'تعديل وردية',
   },
+
   // ─── End of Service (نهاية الخدمة) ──────────────────
   EOS_CREATE: {
     name: 'create_eos',
@@ -204,6 +221,7 @@ export const PERMS: Record<string, PermissionMetadata> = {
     name: 'delete_eos',
     labelAr: 'حذف تسوية نهاية خدمة',
   },
+
   // ─── Bonuses (المكافآت) ─────────────────────────────
   BONUS_CREATE: { name: 'create_bonus', labelAr: 'إضافة مكافأة' },
   BONUS_VIEW: { name: 'view_bonuses', labelAr: 'عرض المكافآت' },
@@ -216,7 +234,7 @@ export const PERMS: Record<string, PermissionMetadata> = {
   DEDUCTION_UPDATE: { name: 'update_deduction', labelAr: 'تعديل خصم' },
   DEDUCTION_DELETE: { name: 'delete_deduction', labelAr: 'حذف خصم' },
 
-  // ___________________________________________________
+  // ─── Settlements (مستحقات بدل الإجازة) ──────────────
   SETTLEMENT_VIEW: {
     name: 'view_settlements',
     labelAr: 'عرض مستحقات بدل الاجازة',
@@ -229,6 +247,7 @@ export const PERMS: Record<string, PermissionMetadata> = {
     name: 'export_settlements',
     labelAr: 'تصدير مستحقات بدل الاجازة',
   },
+
   // ─── Resignations (الاستقالات) ──────────────────────
   RESIGNATION_REQUEST_SELF: {
     name: 'request_resignation_self',
@@ -243,7 +262,7 @@ export const PERMS: Record<string, PermissionMetadata> = {
     labelAr: 'عرض جميع طلبات الاستقالة',
   },
 
-  // ─── Plans (الخطط - حصري لمالك النظام) ────────────── ✅ جديد
+  // ─── Plans (الخطط - حصري لمالك النظام) ──────────────
   PLAN_CREATE: {
     name: 'system:plans:create',
     labelAr: 'إنشاء خطة اشتراك',
@@ -260,12 +279,13 @@ export const PERMS: Record<string, PermissionMetadata> = {
     name: 'system:plans:delete',
     labelAr: 'حذف خطة اشتراك',
   },
+
+  // ─── Notifications (الإشعارات) ──────────────────────
   NOTIFICATION_VIEW: {
     name: 'view_notifications',
     labelAr: 'عرض الإشعارات',
   },
   NOTIFICATION_VIEW_ALL: {
-    // ✅ جديد
     name: 'view_all_notifications',
     labelAr: 'عرض جميع إشعارات النظام (للمديرين)',
   },
@@ -285,7 +305,8 @@ export const PERMS: Record<string, PermissionMetadata> = {
     name: 'broadcast_notification',
     labelAr: 'إرسال إشعار جماعي',
   },
-  // ─── Subscriptions (الاشتراكات) ───────────────────── ✅ جديد
+
+  // ─── Subscriptions (الاشتراكات) ─────────────────────
   SUBSCRIPTION_VIEW_OWN: {
     name: 'subscriptions:view-own',
     labelAr: 'عرض اشتراكي الحالي',

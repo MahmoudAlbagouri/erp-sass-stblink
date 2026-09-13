@@ -10,20 +10,27 @@ import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { User } from '../users/entities/user.entity';
 
+export interface EmployeeFilterOptions {
+  status?: string;
+  nationalityType?: string;
+  departmentId?: string;
+  shiftId?: string;
+  hasUser?: boolean;
+  hasContract?: boolean;
+  iqamaExpiringSoon?: boolean;
+  search?: string;
+}
+
 @Injectable()
 export class EmployeesService {
-  // عدد خانات بادئة الشركة وعدد خانات الرقم التسلسلي
-  private readonly TENANT_PREFIX_DIGITS = 3; // 000 - 999
-  private readonly SEQUENCE_DIGITS = 4; // 0000 - 9999
+  private readonly TENANT_PREFIX_DIGITS = 3;
+  private readonly SEQUENCE_DIGITS = 4;
 
   constructor(
     @InjectRepository(Employee) private repo: Repository<Employee>,
     @InjectRepository(User) private userRepo: Repository<User>,
   ) {}
 
-  /**
-   * التحقق من عدم تكرار رقم الهوية داخل نفس الشركة
-   */
   private async checkNationalIdUniqueness(
     nationalId: string,
     tenantId: string,
@@ -42,9 +49,6 @@ export class EmployeesService {
     }
   }
 
-  /**
-   * ✅ بادئة رقمية بالكامل مشتقة بشكل ثابت من tenantId
-   */
   private getTenantPrefix(tenantId: string): string {
     const mod = 10 ** this.TENANT_PREFIX_DIGITS;
     let hash = 0;
@@ -54,9 +58,6 @@ export class EmployeesService {
     return hash.toString().padStart(this.TENANT_PREFIX_DIGITS, '0');
   }
 
-  /**
-   * توليد كود الموظف التالي
-   */
   private async generateEmployeeCode(tenantId: string): Promise<string> {
     const prefix = this.getTenantPrefix(tenantId);
     const totalLength = this.TENANT_PREFIX_DIGITS + this.SEQUENCE_DIGITS;
@@ -86,10 +87,8 @@ export class EmployeesService {
   }
 
   async create(dto: CreateEmployeeDto, tenantId: string): Promise<Employee> {
-    // 1. التحقق من تكرار رقم الهوية أولاً
     await this.checkNationalIdUniqueness(dto.nationalId!, tenantId);
 
-    // التحقق من المستخدم المرتبط إذا تم إرساله
     let user: User | null = null;
     if (dto.userId) {
       user = await this.userRepo.findOneBy({ id: dto.userId, tenantId });
@@ -97,14 +96,12 @@ export class EmployeesService {
         throw new NotFoundException('المستخدم غير موجود أو لا ينتمي لشركتك');
     }
 
-    // 2. آلية إعادة المحاولة لتوليد الكود
     const MAX_RETRIES = 3;
     let lastError: unknown;
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       const employeeCode = await this.generateEmployeeCode(tenantId);
 
-      // ✅ معالجة تواريخ المؤهلات التعليمية قبل الحفظ
       const processedEducations = dto.educations?.map((edu) => ({
         ...edu,
         expiryDate: edu.expiryDate ? new Date(edu.expiryDate) : undefined,
@@ -118,7 +115,6 @@ export class EmployeesService {
         iqamaExpiryDate: dto.iqamaExpiryDate
           ? new Date(dto.iqamaExpiryDate)
           : undefined,
-        // ✅ إضافة المؤهلات المعالجة
         educations: processedEducations,
       });
 
@@ -142,36 +138,33 @@ export class EmployeesService {
   async findAll(tenantId: string): Promise<Employee[]> {
     return this.repo.find({
       where: { tenantId },
-      relations: ['user', 'educations'],
+      relations: ['user', 'educations', 'department'],
       order: { createdAt: 'DESC' },
     });
   }
 
-  /**
-   * ✅ جلب موظف واحد مع كل البيانات المرتبطة (شامل جداً)
-   */
   async findOne(id: string, tenantId: string): Promise<Employee> {
     const employee = await this.repo.findOne({
       where: { id, tenantId },
       relations: [
-        'user', // بيانات الدخول
-        'user.role', // دور المستخدم وصلاحياته
-        'contract', // العقد الحالي
-        'educations', // المؤهلات العلمية
-        'advances', // السلف
-        'loans', // القروض
-        'bonuses', // المكافآت
-        'deductions', // الخصومات
-        'leaveRequests', // طلبات الإجازة
-        'settlements', // التسويات المالية
-        'endOfServices', // سجلات نهاية الخدمة
-        'resignationRequests', // طلبات الاستقالة
-        'salaries', // تاريخ الرواتب (أو الراتب الحالي)
-        'shift', // المناوبة الحالية
+        'user',
+        'user.role',
+        'contract',
+        'educations',
+        'advances',
+        'loans',
+        'bonuses',
+        'deductions',
+        'leaveRequests',
+        'settlements',
+        'endOfServices',
+        'resignationRequests',
+        'salaries',
+        'shift',
+        'department', // ✅
       ],
       order: {
-        createdAt: 'DESC', // ترتيب عام
-        // يمكن ترتيب الجداول الفرعية أيضاً إذا لزم الأمر
+        createdAt: 'DESC',
         leaveRequests: { startDate: 'DESC' },
         salaries: { createdAt: 'DESC' },
       },
@@ -181,13 +174,76 @@ export class EmployeesService {
     return employee;
   }
 
+  /**
+   * ✅ فلترة متقدمة — تُستخدم في صفحة الموظفين وفي التصدير المُفلتر
+   */
+  async findFiltered(
+    tenantId: string,
+    filters: EmployeeFilterOptions,
+  ): Promise<Employee[]> {
+    const qb = this.repo
+      .createQueryBuilder('employee')
+      .leftJoinAndSelect('employee.user', 'user')
+      .leftJoinAndSelect('employee.department', 'department')
+      .leftJoinAndSelect('employee.contract', 'contract')
+      .leftJoinAndSelect('employee.shift', 'shift')
+      .leftJoinAndSelect('employee.educations', 'educations')
+      .where('employee.tenantId = :tenantId', { tenantId });
+
+    if (filters.status) {
+      qb.andWhere('employee.status = :status', { status: filters.status });
+    }
+    if (filters.nationalityType) {
+      qb.andWhere('employee.nationalityType = :nationalityType', {
+        nationalityType: filters.nationalityType,
+      });
+    }
+    if (filters.departmentId) {
+      qb.andWhere('employee.departmentId = :departmentId', {
+        departmentId: filters.departmentId,
+      });
+    }
+    if (filters.shiftId) {
+      qb.andWhere('employee.shiftId = :shiftId', {
+        shiftId: filters.shiftId,
+      });
+    }
+    if (filters.hasUser === true) {
+      qb.andWhere('user.id IS NOT NULL');
+    } else if (filters.hasUser === false) {
+      qb.andWhere('user.id IS NULL');
+    }
+    if (filters.hasContract === true) {
+      qb.andWhere('contract.id IS NOT NULL');
+    } else if (filters.hasContract === false) {
+      qb.andWhere('contract.id IS NULL');
+    }
+    if (filters.iqamaExpiringSoon) {
+      const now = new Date();
+      const in60Days = new Date();
+      in60Days.setDate(now.getDate() + 60);
+      qb.andWhere('employee.iqamaExpiryDate BETWEEN :now AND :in60Days', {
+        now,
+        in60Days,
+      });
+    }
+    if (filters.search) {
+      qb.andWhere(
+        '(employee.fullName ILIKE :search OR employee.employeeCode ILIKE :search OR employee.nationalId ILIKE :search OR employee.jobTitle ILIKE :search OR employee.phone ILIKE :search)',
+        { search: `%${filters.search}%` },
+      );
+    }
+
+    qb.orderBy('employee.createdAt', 'DESC');
+
+    return await qb.getMany();
+  }
+
   async update(
     id: string,
     dto: UpdateEmployeeDto,
     tenantId: string,
   ): Promise<Employee> {
-    // نستخدم findOne الأساسي هنا لتجنب تحميل كل البيانات الثقيلة أثناء التحديث البسيط
-    // أو يمكنك استخدام findWithOptions إذا كنت تحتاج للتحقق من علاقات معينة
     const employee = await this.repo.findOne({
       where: { id, tenantId },
       relations: ['user', 'educations'],
@@ -195,7 +251,6 @@ export class EmployeesService {
 
     if (!employee) throw new NotFoundException('الموظف غير موجود');
 
-    // التحقق من تكرار رقم الهوية عند التحديث
     if (dto.nationalId && dto.nationalId !== employee.nationalId) {
       await this.checkNationalIdUniqueness(dto.nationalId, tenantId, id);
     }
@@ -206,11 +261,7 @@ export class EmployeesService {
       employee.user = user;
     }
 
-    // ✅ معالجة المؤهلات التعليمية يدوياً لضمان الاستبدال الصحيح
     if (dto.educations !== undefined) {
-      // ملاحظة: TypeORM يحتاج أحياناً إلى إدارة دقيقة للمصفوفات عند التحديث
-      // الطريقة الآمنة هي حذف القديم وإضافة الجديد أو تحديث الموجود
-      // لكن هنا سنعتمد على أن الـ DTO يرسل القائمة الكاملة المطلوبة
       const updatedEducations = dto.educations.map((edu) => ({
         ...edu,
         expiryDate: edu.expiryDate ? new Date(edu.expiryDate) : undefined,

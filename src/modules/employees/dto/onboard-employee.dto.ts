@@ -17,13 +17,11 @@ import {
 import { Type } from 'class-transformer';
 import { NationalityType } from '../entities/employee.entity';
 import { ContractType } from '../../contracts/entities/contract.entity';
-// استيراد الـ Enums الجديدة من موديول العقود
 import {
   TicketType,
   ProbationPeriod,
-  MedicalInsuranceType, // ✅ استيراد Enum التأمين الطبي
+  MedicalInsuranceType,
 } from '../../contracts/entities/contract.entity';
-// ✅ استيراد DTO المؤهلات
 import { EducationDto } from './education.dto';
 
 export class OnboardUserDto {
@@ -68,13 +66,11 @@ export class OnboardContractDto {
   @IsOptional()
   annualLeaveDays?: number;
 
-  // ✅ تغيير المدة من سنوات إلى شهور
   @IsNumber()
   @IsOptional()
   @Min(1)
   contractDurationMonths?: number;
 
-  // الحقول الجديدة للتذكرة وفترة التجربة
   @IsEnum(TicketType)
   @IsOptional()
   ticketType?: TicketType;
@@ -83,12 +79,10 @@ export class OnboardContractDto {
   @IsOptional()
   probationPeriod?: ProbationPeriod;
 
-  // ✅ إضافة حقل التأمين الطبي
   @IsEnum(MedicalInsuranceType)
   @IsOptional()
   medicalInsurance?: MedicalInsuranceType;
 
-  // ✅ إضافة حقل الجنسية (للعقود)
   @IsString()
   @IsOptional()
   nationality?: string;
@@ -133,7 +127,6 @@ export class OnboardEmployeeDto {
   @IsNotEmpty({ message: 'نوع الجنسية مطلوب' })
   nationalityType!: NationalityType;
 
-  // ✅ إضافة حقل المؤهلات التعليمية
   @ValidateNested({ each: true })
   @Type(() => EducationDto)
   @IsArray()
@@ -166,9 +159,10 @@ export class OnboardEmployeeDto {
   @IsOptional()
   jobTitle?: string;
 
-  @IsString()
+  // ✅ department أصبح departmentId
+  @IsUUID()
   @IsOptional()
-  department?: string;
+  departmentId?: string;
 
   @IsUUID()
   @IsOptional()

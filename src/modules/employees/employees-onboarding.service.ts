@@ -149,7 +149,7 @@ export class EmployeesOnboardingService {
           nationalIdCardPath: dto.nationalIdCardPath,
           phone: dto.phone,
           jobTitle: dto.jobTitle,
-          department: dto.department,
+          departmentId: dto.departmentId, // ✅ بدل department النصي
           shiftId: dto.shiftId,
           status: dto.status ?? 'active',
           employeeCode,
@@ -157,7 +157,6 @@ export class EmployeesOnboardingService {
           user,
           educations: processedEducations,
         });
-
         const savedEmployee = await manager.save(Employee, newEmployee);
         result.employee = savedEmployee;
 

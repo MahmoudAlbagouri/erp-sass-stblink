@@ -44,6 +44,7 @@ import { DeductionsModule } from './modules/deduction/deduction.module';
 import { EOSModule } from './modules/eos/eos.module';
 import { ResignationsModule } from './modules/resignations/resignations.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { DepartmentsModule } from './modules/departments/departments.module';
 
 @Module({
   imports: [
@@ -103,6 +104,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     EOSModule,
     ResignationsModule,
     NotificationsModule,
+    DepartmentsModule,
   ],
   providers: [
     {

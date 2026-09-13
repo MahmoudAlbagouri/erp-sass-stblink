@@ -6,6 +6,7 @@ import {
   Patch,
   Param,
   Delete,
+  Query,
   UseGuards,
   Res,
   BadRequestException,
@@ -16,6 +17,7 @@ import { EmployeesOnboardingService } from './employees-onboarding.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { OnboardEmployeeDto } from './dto/onboard-employee.dto';
+import { EmployeeFilterDto } from './dto/employee-filter.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { SubscriptionGuard } from '../../common/guards/subscription.guard';
@@ -32,7 +34,7 @@ import { PERMS } from 'src/common/constants/permissions';
 import { FEATURES } from 'src/common/constants/features';
 
 @Controller('employees')
-@UseGuards(JwtAuthGuard, SubscriptionGuard, PermissionsGuard) // ✅ ترتيب صحيح وشامل للـ Guards
+@UseGuards(JwtAuthGuard, SubscriptionGuard, PermissionsGuard)
 export class EmployeesController {
   constructor(
     private readonly employeesService: EmployeesService,
@@ -65,6 +67,122 @@ export class EmployeesController {
     return this.employeesService.create(dto, tenantId);
   }
 
+  // ✅ الفلترة المتقدمة — لازم تكون قبل route ':id'
+  @Get('filter')
+  @Permissions(PERMS.EMPLOYEE_VIEW)
+  @RequiresFeature(FEATURES.EMPLOYEES_MODULE)
+  findFiltered(
+    @Query() query: EmployeeFilterDto,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.employeesService.findFiltered(tenantId, {
+      status: query.status,
+      nationalityType: query.nationalityType,
+      departmentId: query.departmentId,
+      shiftId: query.shiftId,
+      hasUser:
+        query.hasUser !== undefined ? query.hasUser === 'true' : undefined,
+      hasContract:
+        query.hasContract !== undefined
+          ? query.hasContract === 'true'
+          : undefined,
+      iqamaExpiringSoon: query.iqamaExpiringSoon === 'true',
+      search: query.search,
+    });
+  }
+
+  // ✅ تصدير نتائج الفلترة المتقدمة — قبل route ':id' أيضاً
+  @Get('export-filtered/:type')
+  @Permissions(PERMS.EMPLOYEE_EXPORT)
+  @RequiresFeature(FEATURES.REPORTS_EXPORT)
+  async exportFiltered(
+    @Param('type') type: 'excel' | 'pdf',
+    @Query() query: EmployeeFilterDto,
+    @CurrentTenantId() tenantId: string,
+    @Res() res: Response,
+  ) {
+    const data = await this.employeesService.findFiltered(tenantId, {
+      status: query.status,
+      nationalityType: query.nationalityType,
+      departmentId: query.departmentId,
+      shiftId: query.shiftId,
+      hasUser:
+        query.hasUser !== undefined ? query.hasUser === 'true' : undefined,
+      hasContract:
+        query.hasContract !== undefined
+          ? query.hasContract === 'true'
+          : undefined,
+      iqamaExpiringSoon: query.iqamaExpiringSoon === 'true',
+      search: query.search,
+    });
+
+    const columns = [
+      { header: 'الاسم الكامل', key: 'fullName' },
+      { header: 'كود الموظف', key: 'employeeCode' },
+      { header: 'القسم', key: 'departmentName' },
+      { header: 'حالة الجنسية', key: 'nationalityTypeLabel' },
+      { header: 'تاريخ انتهاء الهوية', key: 'iqamaExpiryDate' },
+      { header: 'رقم الهوية', key: 'nationalId' },
+      { header: 'المسمى الوظيفي', key: 'jobTitle' },
+      { header: 'الحالة', key: 'statusLabel' },
+    ];
+
+    const formattedData = data.map((emp) => ({
+      fullName: emp.fullName,
+      employeeCode: emp.employeeCode,
+      departmentName: emp.department?.name || '-',
+      nationalityTypeLabel:
+        String(emp.nationalityType) === 'saudi'
+          ? 'سعودي'
+          : String(emp.nationalityType) === 'non_saudi'
+            ? 'غير سعودي'
+            : 'خارج الكفالة',
+      iqamaExpiryDate: emp.iqamaExpiryDate
+        ? new Date(emp.iqamaExpiryDate).toLocaleDateString('ar-SA')
+        : '-',
+      nationalId: emp.nationalId || '-',
+      jobTitle: emp.jobTitle || '-',
+      statusLabel:
+        emp.status === 'active'
+          ? 'نشط'
+          : emp.status === 'inactive'
+            ? 'غير نشط'
+            : 'منهي الخدمة',
+    }));
+
+    if (type === 'excel') {
+      const buffer = await this.reportService.generateExcel(
+        formattedData,
+        columns,
+      );
+      res.setHeader(
+        'Content-Type',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename=employees_filtered.xlsx',
+      );
+      return res.send(buffer);
+    }
+
+    if (type === 'pdf') {
+      const buffer = await this.reportService.generatePdf(
+        formattedData,
+        columns,
+        'تقرير الموظفين (نتائج الفلترة)',
+      );
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader(
+        'Content-Disposition',
+        'attachment; filename=employees_filtered.pdf',
+      );
+      return res.send(buffer);
+    }
+
+    throw new BadRequestException('نوع التصدير غير مدعوم');
+  }
+
   @Get('export/:type')
   @Permissions(PERMS.EMPLOYEE_EXPORT)
   @RequiresFeature(FEATURES.REPORTS_EXPORT)
@@ -77,17 +195,18 @@ export class EmployeesController {
     const columns = [
       { header: 'الاسم الكامل', key: 'fullName' },
       { header: 'كود الموظف', key: 'employeeCode' },
+      { header: 'القسم', key: 'departmentName' },
       { header: 'حالة الموظف', key: 'nationalityTypeLabel' },
       { header: 'تاريخ انتهاء الهوية', key: 'iqamaExpiryDate' },
       { header: 'رقم الهوية', key: 'nationalId' },
       { header: 'المسمى الوظيفي', key: 'jobTitle' },
-      { header: 'القسم', key: 'department' },
       { header: 'الحالة', key: 'statusLabel' },
     ];
 
     const formattedData = data.map((emp) => ({
       fullName: emp.fullName,
       employeeCode: emp.employeeCode,
+      departmentName: emp.department?.name || '-',
       nationalityTypeLabel:
         String(emp.nationalityType) === 'saudi'
           ? 'سعودي'
@@ -100,7 +219,6 @@ export class EmployeesController {
       nationalId: emp.nationalId || '-',
       phone: emp.phone || '-',
       jobTitle: emp.jobTitle || '-',
-      department: emp.department || '-',
       statusLabel:
         emp.status === 'active'
           ? 'نشط'
@@ -167,7 +285,7 @@ export class EmployeesController {
       { label: 'رقم الهوية', value: employee.nationalId || '-' },
       { label: 'الهاتف', value: employee.phone || '-' },
       { label: 'المسمى الوظيفي', value: employee.jobTitle || '-' },
-      { label: 'القسم', value: employee.department || '-' },
+      { label: 'القسم', value: employee.department?.name || '-' },
 
       ...(employee.contract
         ? [

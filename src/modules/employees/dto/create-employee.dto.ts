@@ -7,10 +7,10 @@ import {
   IsDateString,
   IsUUID,
   ValidateIf,
-  Length, // ✅ استيراد Length
+  Length,
   Matches,
   ValidateNested,
-  IsArray, // ✅ استيراد Matches للتحقق من الأرقام فقط
+  IsArray,
 } from 'class-validator';
 import { NationalityType } from '../entities/employee.entity';
 import { EducationDto } from './education.dto';
@@ -41,7 +41,6 @@ export class CreateEmployeeDto {
   @IsDateString({}, { message: 'تاريخ انتهاء الإقامة مطلوب لغير السعوديين' })
   iqamaExpiryDate?: string;
 
-  // ✅ تحديث رقم الهوية: يجب أن يكون 10 أرقام بالضبط
   @IsString()
   @IsOptional()
   @Length(10, 10, { message: 'رقم الهوية يجب أن يتكون من 10 أرقام' })
@@ -52,7 +51,6 @@ export class CreateEmployeeDto {
   @IsOptional()
   nationalIdCardPath?: string;
 
-  // ✅ تحديث رقم الهاتف: يجب أن يكون 10 أرقام بالضبط
   @IsString()
   @IsOptional()
   @Length(10, 10, { message: 'رقم الهاتف يجب أن يتكون من 10 أرقام' })
@@ -67,9 +65,10 @@ export class CreateEmployeeDto {
   @IsOptional()
   jobTitle?: string;
 
-  @IsString()
+  // ✅ department أصبح departmentId (UUID) بدل نص حر
+  @IsUUID()
   @IsOptional()
-  department?: string;
+  departmentId?: string;
 
   @IsEnum(['active', 'inactive', 'terminated'])
   @IsOptional()
