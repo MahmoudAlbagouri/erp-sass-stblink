@@ -20,6 +20,7 @@ import { SalariesService } from '../salaries/salaries.service';
 import { ContractsService } from '../contracts/contracts.service';
 import { LeaveAccrualService } from '../leaves/leave-accrual.service';
 import { DateUtils } from '../../common/utils/date.utils';
+import type { CurrentUserData } from '../../common/decorators/current-user.decorator';
 
 export interface SettlementPreview {
   employeeId: string;
@@ -90,7 +91,6 @@ export class SettlementsService {
 
     const effectiveStartDate = balance.accrualStartDate || contract.startDate;
 
-    // ✅ تمرير consumedDays لضمان عرض الرصيد الصحيح في المعاينة
     const accrual = await this.accrualService.calculateAccrual({
       employeeId,
       tenantId,
@@ -165,7 +165,6 @@ export class SettlementsService {
 
       const effectiveStartDate = balance.accrualStartDate || contract.startDate;
 
-      // ✅ إعادة حساب الاستحقاق لحظة التأكيد مع مراعاة التسويات السابقة
       const accrual = await this.accrualService.calculateAccrual({
         employeeId: dto.employeeId,
         tenantId,
@@ -173,7 +172,7 @@ export class SettlementsService {
         asOfDate: settlementDate,
         annualLeaveDays: balance.totalAllowance,
         carriedOverDays: balance.carriedOverDays,
-        consumedDaysFromBalance: balance.consumedDays, // ✅ هذا هو التعديل الجوهري
+        consumedDaysFromBalance: balance.consumedDays,
       });
 
       const availableDays = Decimal.max(accrual.availableDays, 0);
@@ -200,10 +199,8 @@ export class SettlementsService {
       const roundedDays = Math.ceil(daysToDeduct.toNumber());
       const totalAmount = dailyRate.times(roundedDays);
 
-      // ✅ زيادة عداد الاستهلاك ليتم خصمه في العمليات المستقبلية
       balance.consumedDays += roundedDays;
 
-      // تحديث تاريخ بدء الاستحقاق فقط في حالة التسوية الكاملة (نهاية الخدمة)
       if (dto.settlementType === SettlementType.FULL) {
         balance.accrualStartDate = settlementDate;
         balance.carriedOverDays = 0;
@@ -223,6 +220,8 @@ export class SettlementsService {
           (dto.settlementType === SettlementType.FULL
             ? 'تسوية كاملة بدل الاجازة'
             : `تسوية جزئية (${roundedDays} يوم)`),
+        // ✅ الصرف يكون افتراضياً غير مفعل عند الإنشاء
+        isDisbursed: false,
       });
       const saved = await queryRunner.manager.save(Settlement, settlement);
 
@@ -250,11 +249,32 @@ export class SettlementsService {
       await queryRunner.release();
     }
   }
+  // ✅ دالة جديدة لتأكيد الصرف
+  async disburseSettlement(
+    settlementId: string,
+    tenantId: string,
+    user: CurrentUserData,
+  ): Promise<Settlement> {
+    const settlement = await this.repo.findOne({
+      where: { id: settlementId, tenantId },
+    });
 
+    if (!settlement) throw new NotFoundException('التسوية غير موجودة');
+    if (settlement.isDisbursed) {
+      throw new BadRequestException('هذه التسوية مصروفة مسبقاً');
+    }
+
+    settlement.isDisbursed = true;
+    settlement.disbursedById = user.id; // ← كان user.userId
+    settlement.disbursedAt = new Date();
+
+    return await this.repo.save(settlement);
+  }
   async findAll(tenantId: string): Promise<Settlement[]> {
     return await this.repo
       .createQueryBuilder('s')
       .leftJoinAndSelect('s.employee', 'employee')
+      .leftJoinAndSelect('s.disbursedBy', 'disbursedBy') // ✅ جلب بيانات المستخدم الذي قام بالصرف
       .where('s.tenantId = :tenantId', { tenantId })
       .orderBy('s.createdAt', 'DESC')
       .getMany();
@@ -266,7 +286,7 @@ export class SettlementsService {
   ): Promise<Settlement | null> {
     return await this.repo.findOne({
       where: { employeeId, tenantId },
-      relations: { employee: true },
+      relations: { employee: true, disbursedBy: true },
       order: { createdAt: 'DESC' },
     });
   }

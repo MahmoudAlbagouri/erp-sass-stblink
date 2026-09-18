@@ -1,5 +1,8 @@
-// src/modules/payroll/payroll.service.ts
-import { Injectable, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between, In, LessThanOrEqual } from 'typeorm';
 import { Payroll } from './entities/payroll.entity';
@@ -48,7 +51,6 @@ export class PayrollService {
       .getRepository(Employee)
       .find({ where: { tenantId, status: 'active' } });
 
-    // جلب المكافآت
     const bonuses = await this.dataSource
       .getRepository(Bonus)
       .find({ where: { tenantId, payoutDate: Between(monthStart, monthEnd) } });
@@ -59,7 +61,6 @@ export class PayrollService {
         (bonusMap.get(b.employeeId) || 0) + Number(b.amount),
       );
 
-    // جلب الخصومات النشطة
     const allActiveDeductions = await this.dataSource
       .getRepository(Deduction)
       .find({
@@ -78,7 +79,6 @@ export class PayrollService {
       }
     }
 
-    // جلب التسويات ونهاية الخدمة
     const settlements = await this.dataSource.getRepository(Settlement).find({
       where: { tenantId, settlementDate: Between(monthStart, monthEnd) },
     });
@@ -101,8 +101,6 @@ export class PayrollService {
 
     const payrollItems: Partial<PayrollItem>[] = [];
     let grandTotal = 0;
-
-    // ✅ قائمة لتجميع القروض التي سيتم زيادة عداد السداد لها
     const loansToIncrement: Loan[] = [];
 
     for (const emp of employees) {
@@ -119,20 +117,17 @@ export class PayrollService {
         (settlementMap.get(emp.id) || 0) +
         (eosMap.get(emp.id) || 0);
 
-      // ✅ جلب القروض المعتمدة والتي لم تكتمل أقساطها بعد
-      // ✅ التعديل هنا: إضافة شرط LessThanOrEqual للتأكد من أن تاريخ البدء ليس في المستقبل بالنسبة لهذا الشهر
       const activeLoans = await this.dataSource.getRepository(Loan).find({
         where: {
           employeeId: emp.id,
           tenantId,
           status: LoanStatus.APPROVED,
-          startDate: LessThanOrEqual(monthEnd), // ✅ التأكد من أن القرض بدأ قبل أو خلال هذا الشهر
+          startDate: LessThanOrEqual(monthEnd),
         },
       });
 
       let loanDeduction = 0;
       for (const loan of activeLoans) {
-        // ✅ فقط إذا كان عدد الدفعات المسددة أقل من الكلي، نقوم بالخصم وتجميع القرض للمعالجة
         if (loan.paidInstallments < loan.installmentsCount) {
           loanDeduction += Number(loan.monthlyInstallment);
           loansToIncrement.push(loan);
@@ -189,7 +184,6 @@ export class PayrollService {
       grandTotal += net;
     }
 
-    // ✅ حفظ البيانات وزيادة العدادات ضمن Transaction
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -201,13 +195,13 @@ export class PayrollService {
         tenantId,
         totalNetSalary: grandTotal,
         paymentDate: new Date(),
+        isDisbursed: false, // ✅ افتراضياً غير مصروف
       });
       await queryRunner.manager.save(
         PayrollItem,
         payrollItems.map((item) => ({ ...item, payrollId: payroll.id })),
       );
 
-      // ✅ زيادة عداد الدفعات للخصومات
       if (deductionsToProcess.length > 0) {
         await queryRunner.manager.increment(
           Deduction,
@@ -217,7 +211,6 @@ export class PayrollService {
         );
       }
 
-      // ✅ زيادة عداد الدفعات للقروض وتحديث الحالة عند الاكتمال
       if (loansToIncrement.length > 0) {
         await queryRunner.manager.increment(
           Loan,
@@ -245,13 +238,52 @@ export class PayrollService {
     }
   }
 
+  // ✅ دالة جديدة لتأكيد صرف المسير
+  async disbursePayroll(
+    payrollId: string,
+    tenantId: string,
+    userId: string,
+  ): Promise<Payroll> {
+    // 1. البحث عن المسير والتحقق من وجوده وصلاحيات الـ Tenant
+    const payroll = await this.payrollRepo.findOne({
+      where: { id: payrollId, tenantId },
+    });
+
+    if (!payroll) {
+      throw new NotFoundException('المسير غير موجود أو لا ينتمي لهذه المؤسسة');
+    }
+
+    // 2. التحقق من عدم صرفه مسبقاً
+    if (payroll.isDisbursed) {
+      throw new BadRequestException('تم صرف هذا المسير مسبقاً');
+    }
+
+    // 3. تحديث بيانات الصرف
+    payroll.isDisbursed = true;
+    payroll.disbursedById = userId; // ربط المعرف بالمستخدم الحالي
+    payroll.disbursedAt = new Date(); // تسجيل وقت الصرف
+
+    // 4. حفظ التغييرات
+    try {
+      await this.payrollRepo.save(payroll);
+      // ✅ إعادة الجلب مع العلاقة عشان يوصل اسم من قام بالصرف للفرونت
+      return await this.payrollRepo.findOneOrFail({
+        where: { id: payrollId, tenantId },
+        relations: ['disbursedBy'],
+      });
+    } catch (error) {
+      console.error('Error saving payroll disbursement:', error);
+      throw new BadRequestException('حدث خطأ أثناء تأكيد عملية الصرف');
+    }
+  }
+
   async findAllPayrolls(tenantId: string, year?: number, month?: number) {
     const where: any = { tenantId };
     if (year) where.year = year;
     if (month && year) where.month = month;
     return this.payrollRepo.find({
       where,
-      relations: ['items', 'items.employee'],
+      relations: ['items', 'items.employee', 'disbursedBy'], // ✅ جلب disbursedBy
       order: { year: 'DESC', month: 'DESC' },
     });
   }
@@ -263,7 +295,7 @@ export class PayrollService {
   async findOneWithDetails(id: string, tenantId: string) {
     return this.payrollRepo.findOne({
       where: { id, tenantId },
-      relations: ['items', 'items.employee'],
+      relations: ['items', 'items.employee', 'disbursedBy'], // ✅ جلب disbursedBy
       order: { items: { netSalary: 'DESC' } },
     });
   }

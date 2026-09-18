@@ -1,29 +1,34 @@
-// src/modules/payroll/payroll.controller.ts
 import {
   Controller,
   Get,
   Post,
+  Patch,
   Param,
   Res,
   UseGuards,
   BadRequestException,
   Query,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { PayrollService } from './payroll.service';
 import { SalariesService } from '../salaries/salaries.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
-import { SubscriptionGuard } from '../../common/guards/subscription.guard'; // ✅ استيراد الحارس
+import { SubscriptionGuard } from '../../common/guards/subscription.guard';
 import { Permissions } from '../../common/decorators/permissions.decorator';
-import { RequiresFeature } from '../../common/decorators/requires-feature.decorator'; // ✅ استيراد ديكوراتور الميزة
+import { RequiresFeature } from '../../common/decorators/requires-feature.decorator';
+import {
+  CurrentUser,
+  type CurrentUserData,
+} from '../../common/decorators/current-user.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 import { ReportService } from '../../common/reports/report.service';
 import { PERMS } from 'src/common/constants/permissions';
-import { FEATURES } from 'src/common/constants/features'; // ✅ استيراد الثوابت
+import { FEATURES } from 'src/common/constants/features';
 
 @Controller('payroll')
-@UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
+@UseGuards(JwtAuthGuard, SubscriptionGuard)
 export class PayrollController {
   constructor(
     private readonly payrollService: PayrollService,
@@ -33,7 +38,7 @@ export class PayrollController {
 
   @Get()
   @Permissions(PERMS.PAYROLL_VIEW)
-  @RequiresFeature(FEATURES.PAYROLL_MODULE) // ✅ التحقق من توفر الموديول
+  @RequiresFeature(FEATURES.PAYROLL_MODULE)
   @UseGuards(PermissionsGuard)
   getAllPayrolls(
     @CurrentTenantId() tenantId: string,
@@ -49,7 +54,7 @@ export class PayrollController {
 
   @Post('generate/:month/:year')
   @Permissions(PERMS.PAYROLL_GENERATE)
-  @RequiresFeature(FEATURES.PAYROLL_MODULE) // ✅ التحقق من توفر الموديول للتوليد
+  @RequiresFeature(FEATURES.PAYROLL_MODULE)
   @UseGuards(PermissionsGuard)
   generate(
     @Param('month') month: number,
@@ -64,9 +69,23 @@ export class PayrollController {
     );
   }
 
+  // ✅ Endpoint جديد لتأكيد صرف المسير
+  @Patch(':id/disburse')
+  @Permissions(PERMS.PAYROLL_GENERATE)
+  @RequiresFeature(FEATURES.PAYROLL_MODULE)
+  @UseGuards(PermissionsGuard)
+  disbursePayroll(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserData,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    if (!user.id) throw new BadRequestException('User ID is missing');
+    return this.payrollService.disbursePayroll(id, tenantId, user.id);
+  }
+
   @Get(':id')
   @Permissions(PERMS.PAYROLL_VIEW)
-  @RequiresFeature(FEATURES.PAYROLL_MODULE) // ✅ حماية عرض التفاصيل
+  @RequiresFeature(FEATURES.PAYROLL_MODULE)
   @UseGuards(PermissionsGuard)
   getDetails(@Param('id') id: string, @CurrentTenantId() tenantId: string) {
     return this.payrollService.findOneWithDetails(id, tenantId);
@@ -74,7 +93,7 @@ export class PayrollController {
 
   @Get('export/:type/:month/:year')
   @Permissions(PERMS.PAYROLL_EXPORT)
-  @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
+  @RequiresFeature(FEATURES.REPORTS_EXPORT)
   @UseGuards(PermissionsGuard)
   async exportPayroll(
     @Param('type') type: 'excel' | 'pdf',
@@ -100,15 +119,12 @@ export class PayrollController {
       throw new BadRequestException('لم يتم العثور على بيانات للتصدير');
     }
 
-    // ✅ 1. جلب هياكل الرواتب لجميع الموظفين في هذا المسير دفعة واحدة
     const employeeIds = payroll.items.map((item) => item.employeeId);
     const salaries = await this.salariesService.findByEmployeeIds(employeeIds);
 
-    // إنشاء خريطة للبحث السريع عن الراتب باستخدام employeeId كمفتاح
     const salaryMap = new Map();
     salaries.forEach((s) => salaryMap.set(s.employeeId, s));
 
-    // ✅ 2. تعريف الأعمدة بالترتيب الجديد
     const columns = [
       { header: 'الرقم الوظيفي', key: 'employeeCode' },
       { header: 'رقم الهوية', key: 'nationalId' },
@@ -121,14 +137,11 @@ export class PayrollController {
       { header: 'الصافي', key: 'netSalary' },
     ];
 
-    // ✅ 3. تجهيز البيانات مع فصل البدلات
     const data = payroll.items.map((item) => {
       const salary = salaryMap.get(item.employeeId);
 
-      // استخدام قيم الراتب الأصلي إذا وجدت، وإلا الاعتماد على قيم المسير المجمعة
       const basic = Number(salary?.basicSalary ?? item.basicSalary) || 0;
       const housing = Number(salary?.housingAllowance ?? 0) || 0;
-      // البدلات الأخرى تشمل النقل + أي بدلات إضافية
       const other =
         (Number(salary?.transportAllowance ?? 0) || 0) +
         (Number(salary?.otherAllowances ?? 0) || 0);
@@ -155,7 +168,6 @@ export class PayrollController {
       };
     });
 
-    // ✅ 4. حساب الإجماليات النهائية
     const totals = payroll.items.reduce(
       (acc, item) => {
         const salary = salaryMap.get(item.employeeId);
@@ -192,7 +204,6 @@ export class PayrollController {
       netSalary: totals.net.toLocaleString('en-US'),
     });
 
-    // ✅ 5. التصدير
     if (type === 'excel') {
       const buffer = await this.reportService.generateExcel(data, columns);
       res.setHeader(

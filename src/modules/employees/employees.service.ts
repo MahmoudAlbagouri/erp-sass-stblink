@@ -138,7 +138,7 @@ export class EmployeesService {
   async findAll(tenantId: string): Promise<Employee[]> {
     return this.repo.find({
       where: { tenantId },
-      relations: ['user', 'educations', 'department'],
+      relations: ['user', 'educations', 'department', 'contract'],
       order: { createdAt: 'DESC' },
     });
   }

@@ -1,5 +1,3 @@
-// src/modules/settlements/entities/settlement.entity.ts
-
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -9,6 +7,7 @@ import {
   CreateDateColumn,
 } from 'typeorm';
 import { Employee } from '../../employees/entities/employee.entity';
+import { User } from '../../users/entities/user.entity';
 
 @Entity('settlements')
 export class Settlement {
@@ -40,6 +39,20 @@ export class Settlement {
 
   @Column({ type: 'text', nullable: true })
   notes?: string;
+
+  // ✅ حقول الصرف الجديدة
+  @Column({ name: 'is_disbursed', default: false })
+  isDisbursed!: boolean;
+
+  @Column({ name: 'disbursed_by_id', nullable: true })
+  disbursedById?: string;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'disbursed_by_id' })
+  disbursedBy?: User;
+
+  @Column({ name: 'disbursed_at', type: 'timestamptz', nullable: true })
+  disbursedAt?: Date;
 
   @Column({ name: 'tenant_id' })
   tenantId!: string;
