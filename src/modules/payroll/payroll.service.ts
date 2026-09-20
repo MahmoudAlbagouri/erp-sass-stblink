@@ -4,7 +4,14 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, Between, In, LessThanOrEqual } from 'typeorm';
+import {
+  Repository,
+  DataSource,
+  Between,
+  In,
+  LessThanOrEqual,
+  MoreThanOrEqual,
+} from 'typeorm';
 import { Payroll } from './entities/payroll.entity';
 import { PayrollItem } from './entities/payroll-item.entity';
 import { Salary } from '../salaries/entities/salary.entity';
@@ -16,10 +23,50 @@ import {
   LeaveType,
 } from '../leaves/entities/leave-request.entity';
 import { Employee } from '../employees/entities/employee.entity';
-import { Bonus } from '../bonuses/entities/bonus.entity';
-import { Deduction } from '../deduction/entities/deduction.entity';
+import { Bonus, BonusStatus } from '../bonuses/entities/bonus.entity';
+import {
+  Deduction,
+  DeductionStatus,
+} from '../deduction/entities/deduction.entity';
 import { Settlement } from '../settlements/entities/settlement.entity';
 import { EndOfService } from '../eos/entities/eos.entity';
+
+/** تقريب مالي لمنزلتين عشريتين لتفادي كسور الفاصلة العائمة في جافاسكريبت */
+function roundMoney(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+/**
+ * عدد الأيام الفعلي المتداخل بين مدة الإجازة [start,end] ونطاق الشهر
+ * [rangeStart,rangeEnd] شاملاً الطرفين. يعالج الإجازات التي تبدأ قبل
+ * الشهر أو تمتد بعده بحساب الجزء المتداخل فقط.
+ */
+function overlapDaysInclusive(
+  start: Date,
+  end: Date,
+  rangeStart: Date,
+  rangeEnd: Date,
+): number {
+  const effectiveStart = start > rangeStart ? start : rangeStart;
+  const effectiveEnd = end < rangeEnd ? end : rangeEnd;
+  if (effectiveEnd < effectiveStart) return 0;
+
+  // تطبيع للتوقيت منتصف الليل لتفادي مشاكل فروق التوقيت الصيفي
+  const startMidnight = new Date(
+    effectiveStart.getFullYear(),
+    effectiveStart.getMonth(),
+    effectiveStart.getDate(),
+  );
+  const endMidnight = new Date(
+    effectiveEnd.getFullYear(),
+    effectiveEnd.getMonth(),
+    effectiveEnd.getDate(),
+  );
+  const msPerDay = 1000 * 60 * 60 * 24;
+  return (
+    Math.round((endMidnight.getTime() - startMidnight.getTime()) / msPerDay) + 1
+  );
+}
 
 @Injectable()
 export class PayrollService {
@@ -29,6 +76,11 @@ export class PayrollService {
     private dataSource: DataSource,
   ) {}
 
+  /**
+   * ✅ توليد مسودة المسير الشهري فقط — بدون أي أثر جانبي مالي.
+   * لا يتم هنا: ترقيم أقساط القروض/الخصومات، ولا تغيير حالة أي كيان
+   * آخر. كل التعديلات المالية تحدث حصرياً داخل disbursePayroll.
+   */
   async generateMonthlyPayroll(month: number, year: number, tenantId: string) {
     const now = new Date();
     const currentYear = now.getFullYear();
@@ -51,47 +103,125 @@ export class PayrollService {
       .getRepository(Employee)
       .find({ where: { tenantId, status: 'active' } });
 
-    const bonuses = await this.dataSource
-      .getRepository(Bonus)
-      .find({ where: { tenantId, payoutDate: Between(monthStart, monthEnd) } });
-    const bonusMap = new Map<string, number>();
-    for (const b of bonuses)
-      bonusMap.set(
-        b.employeeId,
-        (bonusMap.get(b.employeeId) || 0) + Number(b.amount),
-      );
+    if (employees.length === 0) {
+      throw new BadRequestException('لا يوجد موظفون نشطون لتوليد المسير');
+    }
 
-    const allActiveDeductions = await this.dataSource
-      .getRepository(Deduction)
-      .find({
-        where: { tenantId, startDate: Between(new Date(2000, 0, 1), monthEnd) },
-      });
-    const deductionMap = new Map<string, number>();
-    const deductionsToProcess: Deduction[] = [];
-    for (const d of allActiveDeductions) {
-      if (d.paidInstallments < d.installmentsCount) {
-        deductionMap.set(
-          d.employeeId,
-          (deductionMap.get(d.employeeId) || 0) + Number(d.monthlyAmount),
+    const employeeIds = employees.map((e) => e.id);
+
+    // ================= Batch Queries — لا استعلامات داخل الـ Loop =================
+    const [
+      salaries,
+      bonuses,
+      settlements,
+      eosRecords,
+      activeDeductions,
+      activeLoans,
+      advances,
+      unpaidLeaves,
+    ] = await Promise.all([
+      this.dataSource
+        .getRepository(Salary)
+        .find({ where: { employeeId: In(employeeIds), tenantId } }),
+
+      // ✅ نجلب المكافآت المعتمدة فقط (المكافآت المعلقة/المرفوضة لا تُصرف)
+      this.dataSource.getRepository(Bonus).find({
+        where: {
+          tenantId,
+          employeeId: In(employeeIds),
+          status: BonusStatus.APPROVED,
+          payoutDate: Between(monthStart, monthEnd),
+        },
+      }),
+
+      this.dataSource.getRepository(Settlement).find({
+        where: {
+          tenantId,
+          employeeId: In(employeeIds),
+          settlementDate: Between(monthStart, monthEnd),
+        },
+      }),
+
+      this.dataSource.getRepository(EndOfService).find({
+        where: {
+          tenantId,
+          employeeId: In(employeeIds),
+          payoutDate: Between(monthStart, monthEnd),
+        },
+      }),
+
+      this.dataSource.getRepository(Deduction).find({
+        where: {
+          tenantId,
+          employeeId: In(employeeIds),
+          startDate: LessThanOrEqual(monthEnd),
+        },
+      }),
+
+      this.dataSource.getRepository(Loan).find({
+        where: {
+          tenantId,
+          employeeId: In(employeeIds),
+          status: LoanStatus.APPROVED,
+          startDate: LessThanOrEqual(monthEnd),
+        },
+      }),
+
+      this.dataSource.getRepository(Advance).find({
+        where: {
+          tenantId,
+          employeeId: In(employeeIds),
+          status: AdvanceStatus.APPROVED,
+          repaymentDate: Between(monthStart, monthEnd),
+        },
+      }),
+
+      // ✅ أي إجازة غير مدفوعة تتداخل فعلياً مع نطاق الشهر (وليس فقط
+      // startDate بداخله) — الفلترة الدقيقة باليوم تحدث أدناه
+      this.dataSource.getRepository(LeaveRequest).find({
+        where: {
+          tenantId,
+          employeeId: In(employeeIds),
+          type: LeaveType.UNPAID,
+          status: LeaveStatus.APPROVED,
+          startDate: LessThanOrEqual(monthEnd),
+          endDate: MoreThanOrEqual(monthStart),
+        },
+      }),
+    ]);
+
+    // ================= تجميع كل شيء في Maps بمفتاح employeeId =================
+    const salaryMap = new Map(salaries.map((s) => [s.employeeId, s]));
+
+    const bonusMap = new Map<string, number>();
+    const prepaidBonusMap = new Map<string, number>();
+    for (const b of bonuses) {
+      const amount = Number(b.amount);
+      bonusMap.set(b.employeeId, (bonusMap.get(b.employeeId) || 0) + amount);
+      if (b.isDisbursed) {
+        prepaidBonusMap.set(
+          b.employeeId,
+          (prepaidBonusMap.get(b.employeeId) || 0) + amount,
         );
-        if (!deductionsToProcess.some((ex) => ex.id === d.id))
-          deductionsToProcess.push(d);
       }
     }
 
-    const settlements = await this.dataSource.getRepository(Settlement).find({
-      where: { tenantId, settlementDate: Between(monthStart, monthEnd) },
-    });
     const settlementMap = new Map<string, number>();
-    for (const s of settlements)
+    const prepaidSettlementMap = new Map<string, number>();
+    for (const s of settlements) {
+      const amount = Number(s.totalAmount);
       settlementMap.set(
         s.employeeId,
-        (settlementMap.get(s.employeeId) || 0) + Number(s.totalAmount),
+        (settlementMap.get(s.employeeId) || 0) + amount,
       );
+      if (s.isDisbursed) {
+        prepaidSettlementMap.set(
+          s.employeeId,
+          (prepaidSettlementMap.get(s.employeeId) || 0) + amount,
+        );
+      }
+    }
 
-    const eosRecords = await this.dataSource
-      .getRepository(EndOfService)
-      .find({ where: { tenantId, payoutDate: Between(monthStart, monthEnd) } });
     const eosMap = new Map<string, number>();
     for (const e of eosRecords)
       eosMap.set(
@@ -99,91 +229,130 @@ export class PayrollService {
         (eosMap.get(e.employeeId) || 0) + Number(e.eosAmount),
       );
 
-    const payrollItems: Partial<PayrollItem>[] = [];
-    let grandTotal = 0;
-    const loansToIncrement: Loan[] = [];
-
-    for (const emp of employees) {
-      const salary = await this.dataSource
-        .getRepository(Salary)
-        .findOne({ where: { employeeId: emp.id, tenantId } });
-      const basic = Number(salary?.basicSalary || 0);
-
-      const allowances =
-        Number(salary?.housingAllowance || 0) +
-        Number(salary?.transportAllowance || 0) +
-        Number(salary?.otherAllowances || 0) +
-        (bonusMap.get(emp.id) || 0) +
-        (settlementMap.get(emp.id) || 0) +
-        (eosMap.get(emp.id) || 0);
-
-      const activeLoans = await this.dataSource.getRepository(Loan).find({
-        where: {
-          employeeId: emp.id,
-          tenantId,
-          status: LoanStatus.APPROVED,
-          startDate: LessThanOrEqual(monthEnd),
-        },
-      });
-
-      let loanDeduction = 0;
-      for (const loan of activeLoans) {
-        if (loan.paidInstallments < loan.installmentsCount) {
-          loanDeduction += Number(loan.monthlyInstallment);
-          loansToIncrement.push(loan);
-        }
+    // للعرض في القسيمة فقط — الترقيم الفعلي لـ paidInstallments يحدث
+    // حصرياً داخل disbursePayroll
+    const deductionMap = new Map<string, number>();
+    for (const d of activeDeductions) {
+      if (d.paidInstallments < d.installmentsCount) {
+        deductionMap.set(
+          d.employeeId,
+          (deductionMap.get(d.employeeId) || 0) + Number(d.monthlyAmount),
+        );
       }
+    }
 
-      const advances = await this.dataSource.getRepository(Advance).find({
-        where: {
-          employeeId: emp.id,
-          tenantId,
-          status: AdvanceStatus.APPROVED,
-          repaymentDate: Between(monthStart, monthEnd),
-        },
-      });
-      const advanceDeduction = advances.reduce(
-        (sum, a) => sum + Number(a.amount),
-        0,
+    const loanMap = new Map<string, number>();
+    for (const loan of activeLoans) {
+      if (loan.paidInstallments < loan.installmentsCount) {
+        loanMap.set(
+          loan.employeeId,
+          (loanMap.get(loan.employeeId) || 0) + Number(loan.monthlyInstallment),
+        );
+      }
+    }
+
+    const advanceMap = new Map<string, number>();
+    for (const a of advances)
+      advanceMap.set(
+        a.employeeId,
+        (advanceMap.get(a.employeeId) || 0) + Number(a.amount),
       );
 
-      const unpaidLeaves = await this.dataSource
-        .getRepository(LeaveRequest)
-        .find({
-          where: {
-            employeeId: emp.id,
-            tenantId,
-            type: LeaveType.UNPAID,
-            status: LeaveStatus.APPROVED,
-            startDate: Between(monthStart, monthEnd),
-          },
-        });
-      const unpaidDays = unpaidLeaves.length;
+    // ✅ الفارق الفعلي بالأيام (وليس عدد الريكوردات) لكل إجازة غير
+    // مدفوعة، مقصوصاً على حدود الشهر المالي
+    const unpaidLeaveMap = new Map<string, number>();
+    for (const leave of unpaidLeaves) {
+      const days = overlapDaysInclusive(
+        new Date(leave.startDate),
+        new Date(leave.endDate),
+        monthStart,
+        monthEnd,
+      );
+      if (days <= 0) continue;
+      unpaidLeaveMap.set(
+        leave.employeeId,
+        (unpaidLeaveMap.get(leave.employeeId) || 0) + days,
+      );
+    }
+
+    // ================= بناء عناصر المسير (بدون أي استعلام إضافي) =================
+    const payrollItems: Partial<PayrollItem>[] = [];
+    let grandTotal = 0;
+
+    for (const emp of employees) {
+      const salary = salaryMap.get(emp.id);
+      const basic = Number(salary?.basicSalary || 0);
+      const housingAllowance = Number(salary?.housingAllowance || 0);
+      const transportAllowance = Number(salary?.transportAllowance || 0);
+      const otherAllowances = Number(salary?.otherAllowances || 0);
+
+      const bonusesAmount = bonusMap.get(emp.id) || 0;
+      const settlementsAmount = settlementMap.get(emp.id) || 0;
+      const eosAmount = eosMap.get(emp.id) || 0;
+
+      const prepaidBonuses = prepaidBonusMap.get(emp.id) || 0;
+      const prepaidSettlements = prepaidSettlementMap.get(emp.id) || 0;
+
+      const loanDeduction = loanMap.get(emp.id) || 0;
+      const advanceDeduction = advanceMap.get(emp.id) || 0;
+
+      const unpaidDays = unpaidLeaveMap.get(emp.id) || 0;
       const dailyRate = basic > 0 ? basic / 30 : 0;
       const unpaidLeaveDeduction = unpaidDays * dailyRate;
 
-      const customDeductionAmount = deductionMap.get(emp.id) || 0;
-      const gross = basic + allowances;
+      const otherDeductions = deductionMap.get(emp.id) || 0;
+
+      // Net Salary = (Basic + Allowances + Bonuses/Settlements/EOS)
+      //            - (Loans + Advances + UnpaidLeave + OtherDeductions + Prepaid)
+      // ملاحظة: bonusesAmount/settlementsAmount يشملان كامل المستحق
+      // (مصروف سلفاً + غير مصروف) للشفافية في القسيمة، ثم يُخصم الجزء
+      // المصروف سلفاً (prepaid) فوراً من الصافي لمنع ازدواجية الصرف.
+      const gross =
+        basic +
+        housingAllowance +
+        transportAllowance +
+        otherAllowances +
+        bonusesAmount +
+        settlementsAmount +
+        eosAmount;
+
       const totalDeductions =
         loanDeduction +
         advanceDeduction +
         unpaidLeaveDeduction +
-        customDeductionAmount;
-      const net = Math.max(0, gross - totalDeductions);
+        otherDeductions +
+        prepaidBonuses +
+        prepaidSettlements;
+
+      const net = roundMoney(Math.max(0, gross - totalDeductions));
 
       payrollItems.push({
         employeeId: emp.id,
-        basicSalary: basic,
-        allowances,
-        loanDeduction,
-        advanceDeduction,
-        unpaidLeaveDeduction,
-        otherDeductions: customDeductionAmount,
+        basicSalary: roundMoney(basic),
+        housingAllowance: roundMoney(housingAllowance),
+        transportAllowance: roundMoney(transportAllowance),
+        otherAllowances: roundMoney(otherAllowances),
+        overtimeAmount: 0,
+        bonusesAmount: roundMoney(bonusesAmount),
+        settlementsAmount: roundMoney(settlementsAmount),
+        eosAmount: roundMoney(eosAmount),
+        prepaidBonuses: roundMoney(prepaidBonuses),
+        prepaidSettlements: roundMoney(prepaidSettlements),
+        prepaidAllowances: 0,
+        loanDeduction: roundMoney(loanDeduction),
+        advanceDeduction: roundMoney(advanceDeduction),
+        unpaidLeaveDeduction: roundMoney(unpaidLeaveDeduction),
+        otherDeductions: roundMoney(otherDeductions),
         netSalary: net,
       });
+
       grandTotal += net;
     }
 
+    grandTotal = roundMoney(grandTotal);
+
+    // ================= حفظ المسودة فقط =================
+    // ⚠️ ممنوع هنا أي تعديل على Loan / Deduction أو أي كيان آخر.
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -195,38 +364,13 @@ export class PayrollService {
         tenantId,
         totalNetSalary: grandTotal,
         paymentDate: new Date(),
-        isDisbursed: false, // ✅ افتراضياً غير مصروف
+        isDisbursed: false,
       });
+
       await queryRunner.manager.save(
         PayrollItem,
         payrollItems.map((item) => ({ ...item, payrollId: payroll.id })),
       );
-
-      if (deductionsToProcess.length > 0) {
-        await queryRunner.manager.increment(
-          Deduction,
-          { id: In(deductionsToProcess.map((d) => d.id)) },
-          'paidInstallments',
-          1,
-        );
-      }
-
-      if (loansToIncrement.length > 0) {
-        await queryRunner.manager.increment(
-          Loan,
-          { id: In(loansToIncrement.map((l) => l.id)) },
-          'paidInstallments',
-          1,
-        );
-
-        for (const loan of loansToIncrement) {
-          if (loan.paidInstallments + 1 >= loan.installmentsCount) {
-            await queryRunner.manager.update(Loan, loan.id, {
-              status: LoanStatus.COMPLETED,
-            });
-          }
-        }
-      }
 
       await queryRunner.commitTransaction();
       return payroll;
@@ -238,42 +382,138 @@ export class PayrollService {
     }
   }
 
-  // ✅ دالة جديدة لتأكيد صرف المسير
+  /**
+   * ✅ تأكيد صرف المسير — هنا فقط تحدث كل الآثار الجانبية المالية:
+   * - ترقيم أقساط القروض والخصومات المخصصة النشطة لموظفي هذا المسير
+   * - إكمال (COMPLETED) القروض/الخصومات التي اكتمل سدادها بهذا القسط
+   * - تسجيل بيانات الصرف (isDisbursed / disbursedById / disbursedAt)
+   * كل ذلك داخل معاملة ACID واحدة (QueryRunner) مع Rollback كامل عند
+   * أي خطأ، وضمان release() دائماً.
+   */
   async disbursePayroll(
     payrollId: string,
     tenantId: string,
     userId: string,
   ): Promise<Payroll> {
-    // 1. البحث عن المسير والتحقق من وجوده وصلاحيات الـ Tenant
-    const payroll = await this.payrollRepo.findOne({
-      where: { id: payrollId, tenantId },
-    });
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
 
-    if (!payroll) {
-      throw new NotFoundException('المسير غير موجود أو لا ينتمي لهذه المؤسسة');
-    }
-
-    // 2. التحقق من عدم صرفه مسبقاً
-    if (payroll.isDisbursed) {
-      throw new BadRequestException('تم صرف هذا المسير مسبقاً');
-    }
-
-    // 3. تحديث بيانات الصرف
-    payroll.isDisbursed = true;
-    payroll.disbursedById = userId; // ربط المعرف بالمستخدم الحالي
-    payroll.disbursedAt = new Date(); // تسجيل وقت الصرف
-
-    // 4. حفظ التغييرات
     try {
-      await this.payrollRepo.save(payroll);
-      // ✅ إعادة الجلب مع العلاقة عشان يوصل اسم من قام بالصرف للفرونت
+      // 1. جلب المسير + عناصره مع التحقق من عزل المستأجرين (Multi-tenancy)
+      const payroll = await queryRunner.manager.findOne(Payroll, {
+        where: { id: payrollId, tenantId },
+        relations: ['items'],
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!payroll) {
+        throw new NotFoundException(
+          'المسير غير موجود أو لا ينتمي لهذه المؤسسة',
+        );
+      }
+      if (payroll.isDisbursed) {
+        throw new BadRequestException('تم صرف هذا المسير مسبقاً');
+      }
+
+      const employeeIds = payroll.items.map((i) => i.employeeId);
+
+      if (employeeIds.length > 0) {
+        const monthStart = new Date(payroll.year, payroll.month - 1, 1);
+        const monthEnd = new Date(payroll.year, payroll.month, 0, 23, 59, 59);
+
+        // 2. نفس معايير الجلب المستخدمة وقت توليد المسودة، لضمان ترقيم
+        // نفس السجلات بالضبط التي احتُسبت فيها
+        const [activeLoans, activeDeductions] = await Promise.all([
+          queryRunner.manager.find(Loan, {
+            where: {
+              tenantId,
+              employeeId: In(employeeIds),
+              status: LoanStatus.APPROVED,
+              startDate: LessThanOrEqual(monthEnd),
+            },
+          }),
+          queryRunner.manager.find(Deduction, {
+            where: {
+              tenantId,
+              employeeId: In(employeeIds),
+              startDate: LessThanOrEqual(monthEnd),
+            },
+          }),
+        ]);
+
+        const loansToIncrement = activeLoans.filter(
+          (l) => l.paidInstallments < l.installmentsCount,
+        );
+        const deductionsToIncrement = activeDeductions.filter(
+          (d) => d.paidInstallments < d.installmentsCount,
+        );
+
+        if (deductionsToIncrement.length > 0) {
+          await queryRunner.manager.increment(
+            Deduction,
+            { id: In(deductionsToIncrement.map((d) => d.id)) },
+            'paidInstallments',
+            1,
+          );
+
+          const nowCompleted = deductionsToIncrement.filter(
+            (d) => d.paidInstallments + 1 >= d.installmentsCount,
+          );
+          if (nowCompleted.length > 0) {
+            await queryRunner.manager.update(
+              Deduction,
+              { id: In(nowCompleted.map((d) => d.id)) },
+              { status: DeductionStatus.COMPLETED },
+            );
+          }
+        }
+
+        if (loansToIncrement.length > 0) {
+          await queryRunner.manager.increment(
+            Loan,
+            { id: In(loansToIncrement.map((l) => l.id)) },
+            'paidInstallments',
+            1,
+          );
+
+          const nowCompleted = loansToIncrement.filter(
+            (l) => l.paidInstallments + 1 >= l.installmentsCount,
+          );
+          if (nowCompleted.length > 0) {
+            await queryRunner.manager.update(
+              Loan,
+              { id: In(nowCompleted.map((l) => l.id)) },
+              { status: LoanStatus.COMPLETED },
+            );
+          }
+        }
+      }
+
+      // 3. تسجيل بيانات الصرف
+      payroll.isDisbursed = true;
+      payroll.disbursedById = userId;
+      payroll.disbursedAt = new Date();
+      await queryRunner.manager.save(Payroll, payroll);
+
+      await queryRunner.commitTransaction();
+
+      // إعادة الجلب مع العلاقات كاملة للفرونت
       return await this.payrollRepo.findOneOrFail({
         where: { id: payrollId, tenantId },
-        relations: ['disbursedBy'],
+        relations: ['items', 'items.employee', 'disbursedBy'],
       });
-    } catch (error) {
-      console.error('Error saving payroll disbursement:', error);
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      if (
+        err instanceof NotFoundException ||
+        err instanceof BadRequestException
+      ) {
+        throw err;
+      }
       throw new BadRequestException('حدث خطأ أثناء تأكيد عملية الصرف');
+    } finally {
+      await queryRunner.release();
     }
   }
 
@@ -283,7 +523,7 @@ export class PayrollService {
     if (month && year) where.month = month;
     return this.payrollRepo.find({
       where,
-      relations: ['items', 'items.employee', 'disbursedBy'], // ✅ جلب disbursedBy
+      relations: ['items', 'items.employee', 'disbursedBy'],
       order: { year: 'DESC', month: 'DESC' },
     });
   }
@@ -295,7 +535,7 @@ export class PayrollService {
   async findOneWithDetails(id: string, tenantId: string) {
     return this.payrollRepo.findOne({
       where: { id, tenantId },
-      relations: ['items', 'items.employee', 'disbursedBy'], // ✅ جلب disbursedBy
+      relations: ['items', 'items.employee', 'disbursedBy'],
       order: { items: { netSalary: 'DESC' } },
     });
   }

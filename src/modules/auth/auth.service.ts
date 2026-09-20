@@ -143,6 +143,23 @@ export class AuthService {
     return this.getTokens(user.id);
   }
 
+  // ✅ قبول الإقرار: تحديث الحالة + إصدار Tokens جديدة تحمل isDisclaimerAccepted = true
+  async acceptDisclaimer(userId: string) {
+    // الشرط isDisclaimerAccepted = false يجعل العملية idempotent:
+    // تكرار الطلب لا يُغيّر تاريخ الموافقة الأصلي
+    await this.entityManager.update(
+      User,
+      { id: userId, isDisclaimerAccepted: false },
+      { isDisclaimerAccepted: true, disclaimerAcceptedAt: new Date() },
+    );
+
+    return {
+      message: 'تم تسجيل الإقرار بنجاح',
+      userId,
+      ...(await this.getTokens(userId)),
+    };
+  }
+
   async forgotPassword(dto: ForgotPasswordDto) {
     const user = await this.usersService.findOneByEmail(dto.email);
     if (!user) {
@@ -226,6 +243,7 @@ export class AuthService {
       tenantId: user.tenantId,
       isSuperAdmin: user.isSuperAdmin,
       isSystemAdmin: user.isSystemAdmin,
+      isDisclaimerAccepted: user.isDisclaimerAccepted, // ✅ حالة الإقرار داخل التوكن
       employeeId: user.employee?.id,
       role: user.role
         ? {

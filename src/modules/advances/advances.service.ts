@@ -1,4 +1,3 @@
-// src/modules/advances/advances.service.ts
 import {
   Injectable,
   NotFoundException,
@@ -67,7 +66,7 @@ export class AdvancesService {
   async findAll(tenantId: string) {
     return await this.repo.find({
       where: { tenantId },
-      relations: ['employee'],
+      relations: ['employee', 'disbursedBy'],
       order: { repaymentDate: 'ASC' },
     });
   }
@@ -76,7 +75,7 @@ export class AdvancesService {
   async findOne(id: string, tenantId: string) {
     const advance = await this.repo.findOne({
       where: { id, tenantId },
-      relations: ['employee'],
+      relations: ['employee', 'disbursedBy'],
     });
     if (!advance) throw new NotFoundException('السلفة غير موجودة');
     return advance;
@@ -87,6 +86,36 @@ export class AdvancesService {
     if (!advance) throw new NotFoundException('السلفة غير موجودة');
 
     advance.status = status;
+    return await this.repo.save(advance);
+  }
+
+  /**
+   * ✅ تأكيد الصرف الاستثنائي المباشر (Off-Cycle Disbursement)
+   * يُستخدم عند تسليم مبلغ السلفة للموظف فعلياً خارج دورة المسير
+   * (مثلاً كاش أو تحويل بنكي فوري). لا يؤثر هذا على خصم السداد الشهري
+   * — السلفة تبقى ديناً يُخصم من الراتب في PayrollService حسب
+   * repaymentDate بغض النظر عن توقيت تسليم المبلغ.
+   */
+  async disburseAdvance(
+    id: string,
+    tenantId: string,
+    userId: string,
+  ): Promise<Advance> {
+    const advance = await this.repo.findOne({ where: { id, tenantId } });
+    if (!advance) throw new NotFoundException('السلفة غير موجودة');
+    if (advance.status !== AdvanceStatus.APPROVED) {
+      throw new BadRequestException(
+        'لا يمكن صرف سلفة غير معتمدة (يجب اعتمادها أولاً)',
+      );
+    }
+    if (advance.isDisbursed) {
+      throw new BadRequestException('تم صرف هذه السلفة مسبقاً');
+    }
+
+    advance.isDisbursed = true;
+    advance.disbursedById = userId;
+    advance.disbursedAt = new Date();
+
     return await this.repo.save(advance);
   }
 }

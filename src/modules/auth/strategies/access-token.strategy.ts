@@ -18,6 +18,7 @@ export class AccessTokenStrategy extends PassportStrategy(Strategy, 'jwt') {
     tenantId?: string;
     isSuperAdmin: boolean;
     isSystemAdmin: boolean;
+    isDisclaimerAccepted?: boolean;
     employeeId: string | undefined;
     role?: {
       id: string;
@@ -31,6 +32,7 @@ export class AccessTokenStrategy extends PassportStrategy(Strategy, 'jwt') {
       tenantId: payload.tenantId,
       isSuperAdmin: payload.isSuperAdmin,
       isSystemAdmin: payload.isSystemAdmin,
+      isDisclaimerAccepted: payload.isDisclaimerAccepted,
       employeeId: payload.employeeId,
       role: payload.role, // ✅ الدور موجود في التوكن
       permissions: payload.role?.permissions || [], // ✅ الصلاحيات موجودة في التوكن

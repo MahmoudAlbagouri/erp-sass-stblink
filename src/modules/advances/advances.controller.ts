@@ -37,6 +37,14 @@ export class AdvancesController {
     private readonly reportService: ReportService,
   ) {}
 
+  @Patch(':id/disburse')
+  async disburse(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.advancesService.disburseAdvance(id, user.tenantId, user.id);
+  }
+
   @Post('my-advances')
   @Permissions(PERMS.ADVANCE_REQUEST_SELF)
   @RequiresFeature(FEATURES.ADVANCES_MODULE) // ✅ التحقق من توفر الموديول

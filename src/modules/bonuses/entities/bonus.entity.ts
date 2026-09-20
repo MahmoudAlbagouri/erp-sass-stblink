@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { Employee } from '../../employees/entities/employee.entity';
 import { Tenant } from '../../tenants/entities/tenant.entity';
+import { User } from '../../users/entities/user.entity';
 
 // ✅ تعريف حالات المكافأة
 export enum BonusStatus {
@@ -47,6 +48,21 @@ export class Bonus {
     default: BonusStatus.PENDING,
   })
   status!: BonusStatus;
+
+  // ===== حقول الصرف الاستثنائي المباشر (Off-Cycle Disbursement) =====
+  @Column({ name: 'is_disbursed', default: false })
+  isDisbursed!: boolean;
+
+  @Column({ name: 'disbursed_by_id', nullable: true })
+  disbursedById?: string;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'disbursed_by_id' })
+  disbursedBy?: User;
+
+  @Column({ name: 'disbursed_at', type: 'timestamptz', nullable: true })
+  disbursedAt?: Date;
+  // ====================================================================
 
   @ManyToOne(() => Tenant, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'tenant_id' })

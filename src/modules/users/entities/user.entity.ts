@@ -1,4 +1,3 @@
-// src/modules/users/entities/user.entity.ts
 import {
   Entity,
   Column,
@@ -40,6 +39,13 @@ export class User {
 
   @Column({ default: false })
   isEmailVerified!: boolean;
+
+  // ✅ الإقرار وموافقة الشروط والمسؤولية
+  @Column({ default: false })
+  isDisclaimerAccepted!: boolean;
+
+  @Column({ type: 'timestamp', nullable: true })
+  disclaimerAcceptedAt!: Date | null;
 
   @Column({ type: 'varchar', nullable: true })
   resetPasswordToken: string | null; // سيتم تخزين الهاش الخاص بالرمز هنا

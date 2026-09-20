@@ -5,8 +5,12 @@ import { RegisterDto } from './dto/register.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { RefreshTokenGuard } from './guards/refresh-token.guard';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { SkipDisclaimer } from '../../common/decorators/skip-disclaimer.decorator';
 
+// ✅ كل راوتات Auth (بما فيها accept-disclaimer و refresh) مستثناة من DisclaimerGuard
+@SkipDisclaimer()
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -25,6 +29,12 @@ export class AuthController {
   @Post('refresh')
   refreshTokens(@CurrentUser('id') userId: string) {
     return this.authService.refreshTokens(userId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('accept-disclaimer')
+  acceptDisclaimer(@CurrentUser('id') userId: string) {
+    return this.authService.acceptDisclaimer(userId);
   }
 
   @Post('forgot-password')

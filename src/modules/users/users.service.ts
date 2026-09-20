@@ -80,6 +80,9 @@ export class UsersService {
       role: role,
       isSuperAdmin: canAssignSuperAdmin ? (dto.isSuperAdmin ?? false) : false,
       status: dto.status || UserStatus.ACTIVE,
+      // 🔒 المستخدم الجديد يبدأ دائماً بدون إقرار (ولا يمكن تمريره من الـ DTO)
+      isDisclaimerAccepted: false,
+      disclaimerAcceptedAt: null,
     });
     return this.userRepository.save(user);
   }
@@ -106,6 +109,12 @@ export class UsersService {
     currentUser: CurrentUserData,
   ): Promise<User> {
     const user = await this.findOne(id);
+
+    // 🔒 حقول الإقرار لا تتغير إلا عبر POST /auth/accept-disclaimer
+    const safeDto = dto as UpdateUserDto & Record<string, unknown>;
+    delete safeDto.isDisclaimerAccepted;
+    delete safeDto.disclaimerAcceptedAt;
+
     if (dto.password) dto.password = await argon2.hash(dto.password);
     const canUpdateSuperAdmin =
       currentUser.permissions?.includes('assign_super_admin') ?? false;

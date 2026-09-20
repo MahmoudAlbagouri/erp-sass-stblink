@@ -39,7 +39,7 @@ export class BonusesService {
   async findAll(tenantId: string): Promise<Bonus[]> {
     return this.bonusRepo.find({
       where: { tenantId },
-      relations: ['employee'],
+      relations: ['employee', 'disbursedBy'],
       order: { payoutDate: 'DESC', createdAt: 'DESC' },
     });
   }
@@ -47,7 +47,7 @@ export class BonusesService {
   async findOne(id: string, tenantId: string): Promise<Bonus> {
     const bonus = await this.bonusRepo.findOne({
       where: { id, tenantId },
-      relations: ['employee'],
+      relations: ['employee', 'disbursedBy'],
     });
     if (!bonus) throw new NotFoundException('المكافأة غير موجودة');
     return bonus;
@@ -87,6 +87,36 @@ export class BonusesService {
     }
 
     bonus.status = status;
+    return this.bonusRepo.save(bonus);
+  }
+
+  /**
+   * ✅ تأكيد الصرف الاستثنائي المباشر (Off-Cycle Disbursement)
+   * يُستخدم عند صرف المكافأة للموظف مباشرة خارج دورة المسير الشهري.
+   * ملاحظة: المبلغ يظل محسوباً ضمن إجمالي مستحقات الموظف عند توليد
+   * المسير الشهري (للشفافية)، لكن PayrollService يخصمه فوراً من الصافي
+   * عبر حقل prepaidBonuses في PayrollItem لتفادي ازدواجية الصرف.
+   */
+  async disburseBonus(
+    id: string,
+    tenantId: string,
+    userId: string,
+  ): Promise<Bonus> {
+    const bonus = await this.bonusRepo.findOne({ where: { id, tenantId } });
+    if (!bonus) throw new NotFoundException('المكافأة غير موجودة');
+    if (bonus.status !== BonusStatus.APPROVED) {
+      throw new BadRequestException(
+        'لا يمكن صرف مكافأة غير معتمدة (يجب اعتمادها أولاً)',
+      );
+    }
+    if (bonus.isDisbursed) {
+      throw new BadRequestException('تم صرف هذه المكافأة مسبقاً');
+    }
+
+    bonus.isDisbursed = true;
+    bonus.disbursedById = userId;
+    bonus.disbursedAt = new Date();
+
     return this.bonusRepo.save(bonus);
   }
 

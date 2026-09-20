@@ -25,7 +25,10 @@ import { ReportService } from '../../common/reports/report.service';
 import { PERMS } from '../../common/constants/permissions';
 import { FEATURES } from '../../common/constants/features'; // ✅ استيراد الثوابت
 import { BonusStatus } from './entities/bonus.entity';
-
+import {
+  CurrentUser,
+  type CurrentUserData,
+} from '../../common/decorators/current-user.decorator';
 @Controller('bonuses')
 @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
 export class BonusesController {
@@ -40,6 +43,13 @@ export class BonusesController {
   @UseGuards(PermissionsGuard)
   create(@Body() dto: CreateBonusDto, @CurrentTenantId() tenantId: string) {
     return this.bonusesService.create(dto, tenantId);
+  }
+  @Patch(':id/disburse')
+  async disburse(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.bonusesService.disburseBonus(id, user.tenantId, user.id);
   }
 
   // ✅ مسار التصدير الجماعي للمكافآت
