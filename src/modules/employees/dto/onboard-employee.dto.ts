@@ -7,6 +7,7 @@ import {
   IsUUID,
   IsEmail,
   IsNumber,
+  IsIBAN,
   Min,
   ValidateIf,
   ValidateNested,
@@ -14,7 +15,7 @@ import {
   Length,
   Matches,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { NationalityType } from '../entities/employee.entity';
 import { ContractType } from '../../contracts/entities/contract.entity';
 import {
@@ -22,6 +23,7 @@ import {
   ProbationPeriod,
   MedicalInsuranceType,
 } from '../../contracts/entities/contract.entity';
+import { PaymentMethodEnum } from '../../../common/enums/salary.enums';
 import { EducationDto } from './education.dto';
 
 export class OnboardUserDto {
@@ -116,6 +118,22 @@ export class OnboardSalaryDto {
   @Min(0)
   @IsOptional()
   otherAllowances?: number;
+
+  @IsEnum(PaymentMethodEnum, { message: 'طريقة الدفع غير صالحة' })
+  @IsNotEmpty({ message: 'طريقة الدفع مطلوبة' })
+  paymentMethod!: PaymentMethodEnum;
+
+  // ✅ إجباري فقط عند الدفع البنكي
+  @ValidateIf(
+    (o: OnboardSalaryDto) => o.paymentMethod === PaymentMethodEnum.BANK,
+  )
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.replace(/\s+/g, '').toUpperCase() : value,
+  )
+  @IsString({ message: 'رقم الآيبان غير صالح' })
+  @IsNotEmpty({ message: 'رقم الآيبان مطلوب عند الدفع البنكي' })
+  @IsIBAN({ message: 'رقم الآيبان غير صالح' })
+  iban?: string;
 }
 
 export class OnboardEmployeeDto {

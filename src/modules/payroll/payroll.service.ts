@@ -307,6 +307,9 @@ export class PayrollService {
       // ملاحظة: bonusesAmount/settlementsAmount يشملان كامل المستحق
       // (مصروف سلفاً + غير مصروف) للشفافية في القسيمة، ثم يُخصم الجزء
       // المصروف سلفاً (prepaid) فوراً من الصافي لمنع ازدواجية الصرف.
+      // ⚠️ هذا الاحتساب "لحظة التوليد" فقط — يُعاد التحقق منه وتحديثه
+      // إن لزم عند disbursePayroll (انظر resync الأسفل) لتغطية أي
+      // صرف استثنائي حدث بعد توليد المسودة وقبل تأكيد الصرف.
       const gross =
         basic +
         housingAllowance +
@@ -384,6 +387,10 @@ export class PayrollService {
 
   /**
    * ✅ تأكيد صرف المسير — هنا فقط تحدث كل الآثار الجانبية المالية:
+   * - إعادة مزامنة المدفوعات المسبقة (prepaidBonuses/prepaidSettlements)
+   *   على أحدث حالة، تغطيةً لأي "صرف استثنائي مباشر" حدث بعد توليد
+   *   المسودة وقبل هذا التأكيد (بدون هذه الخطوة قد يُصرف نفس المبلغ
+   *   مرتين: مرة استثنائياً ومرة ضمن المسير)
    * - ترقيم أقساط القروض والخصومات المخصصة النشطة لموظفي هذا المسير
    * - إكمال (COMPLETED) القروض/الخصومات التي اكتمل سدادها بهذا القسط
    * - تسجيل بيانات الصرف (isDisbursed / disbursedById / disbursedAt)
@@ -422,8 +429,83 @@ export class PayrollService {
         const monthStart = new Date(payroll.year, payroll.month - 1, 1);
         const monthEnd = new Date(payroll.year, payroll.month, 0, 23, 59, 59);
 
-        // 2. نفس معايير الجلب المستخدمة وقت توليد المسودة، لضمان ترقيم
-        // نفس السجلات بالضبط التي احتُسبت فيها
+        // ===== 2. إعادة مزامنة المدفوعات المسبقة (Prepaid Resync) =====
+        // نفس معايير الجلب المستخدمة وقت توليد المسودة، لكن بأحدث حالة
+        // isDisbursed — لالتقاط أي صرف استثنائي مباشر تم بعد التوليد
+        const [freshBonuses, freshSettlements] = await Promise.all([
+          queryRunner.manager.find(Bonus, {
+            where: {
+              tenantId,
+              employeeId: In(employeeIds),
+              status: BonusStatus.APPROVED,
+              payoutDate: Between(monthStart, monthEnd),
+            },
+          }),
+          queryRunner.manager.find(Settlement, {
+            where: {
+              tenantId,
+              employeeId: In(employeeIds),
+              settlementDate: Between(monthStart, monthEnd),
+            },
+          }),
+        ]);
+
+        const freshPrepaidBonusMap = new Map<string, number>();
+        for (const b of freshBonuses) {
+          if (!b.isDisbursed) continue;
+          freshPrepaidBonusMap.set(
+            b.employeeId,
+            (freshPrepaidBonusMap.get(b.employeeId) || 0) + Number(b.amount),
+          );
+        }
+
+        const freshPrepaidSettlementMap = new Map<string, number>();
+        for (const s of freshSettlements) {
+          if (!s.isDisbursed) continue;
+          freshPrepaidSettlementMap.set(
+            s.employeeId,
+            (freshPrepaidSettlementMap.get(s.employeeId) || 0) +
+              Number(s.totalAmount),
+          );
+        }
+
+        let totalNetDelta = 0;
+        for (const item of payroll.items) {
+          const freshPrepaidBonuses = roundMoney(
+            freshPrepaidBonusMap.get(item.employeeId) || 0,
+          );
+          const freshPrepaidSettlements = roundMoney(
+            freshPrepaidSettlementMap.get(item.employeeId) || 0,
+          );
+
+          const bonusDelta = roundMoney(
+            freshPrepaidBonuses - Number(item.prepaidBonuses),
+          );
+          const settlementDelta = roundMoney(
+            freshPrepaidSettlements - Number(item.prepaidSettlements),
+          );
+
+          if (bonusDelta !== 0 || settlementDelta !== 0) {
+            const oldNet = Number(item.netSalary);
+            const newNet = roundMoney(
+              Math.max(0, oldNet - bonusDelta - settlementDelta),
+            );
+            totalNetDelta = roundMoney(totalNetDelta + (newNet - oldNet));
+
+            item.prepaidBonuses = freshPrepaidBonuses;
+            item.prepaidSettlements = freshPrepaidSettlements;
+            item.netSalary = newNet;
+            await queryRunner.manager.save(PayrollItem, item);
+          }
+        }
+
+        if (totalNetDelta !== 0) {
+          payroll.totalNetSalary = roundMoney(
+            Number(payroll.totalNetSalary) + totalNetDelta,
+          );
+        }
+
+        // ===== 3. ترقيم أقساط القروض والخصومات (نفس معايير التوليد) =====
         const [activeLoans, activeDeductions] = await Promise.all([
           queryRunner.manager.find(Loan, {
             where: {
@@ -490,7 +572,7 @@ export class PayrollService {
         }
       }
 
-      // 3. تسجيل بيانات الصرف
+      // 4. تسجيل بيانات الصرف
       payroll.isDisbursed = true;
       payroll.disbursedById = userId;
       payroll.disbursedAt = new Date();

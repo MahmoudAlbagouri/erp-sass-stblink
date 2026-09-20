@@ -9,6 +9,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
+import { PaymentMethodEnum } from '../../../common/enums/salary.enums';
 
 @Entity('salaries')
 export class Salary {
@@ -32,6 +33,19 @@ export class Salary {
 
   @Column({ type: 'decimal', precision: 12, scale: 2 })
   totalSalary!: number;
+
+  // ✅ طريقة الدفع (نقدي / بنكي)
+  @Column({
+    type: 'enum',
+    enum: PaymentMethodEnum,
+    default: PaymentMethodEnum.CASH,
+  })
+  paymentMethod!: PaymentMethodEnum;
+
+  // ✅ الآيبان: مطلوب فقط عند الدفع البنكي (يُصفَّر عند CASH)
+  @Column({ type: 'varchar', length: 34, nullable: true })
+  iban?: string | null;
+
   @ManyToOne(() => Employee, (employee) => employee.id) // أو employee.salaries إذا عرفتها في Employee
   @JoinColumn({ name: 'employee_id' })
   employee?: Employee;

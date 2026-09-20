@@ -19,6 +19,8 @@ import { Salary } from '../salaries/entities/salary.entity';
 import { OnboardEmployeeDto } from './dto/onboard-employee.dto';
 import { CurrentUserData } from '../../common/decorators/current-user.decorator';
 import { UserStatus } from '../../common/enums/user.enums';
+import { PaymentMethodEnum } from '../../common/enums/salary.enums';
+import { normalizeIban } from '../../common/utils/iban.util';
 import { PermissionScope } from '../permissions/entities/permission.entity';
 import { ProbationPeriod } from '../contracts/entities/contract.entity';
 
@@ -216,6 +218,9 @@ export class EmployeesOnboardingService {
             Number(dto.salary.transportAllowance ?? 0) +
             Number(dto.salary.otherAllowances ?? 0);
 
+          // ✅ الآيبان يُحفظ فقط عند الدفع البنكي
+          const isBank = dto.salary.paymentMethod === PaymentMethodEnum.BANK;
+
           const newSalary = manager.create(Salary, {
             employeeId: savedEmployee.id,
             basicSalary: dto.salary.basicSalary,
@@ -223,6 +228,8 @@ export class EmployeesOnboardingService {
             transportAllowance: dto.salary.transportAllowance ?? 0,
             otherAllowances: dto.salary.otherAllowances ?? 0,
             totalSalary,
+            paymentMethod: dto.salary.paymentMethod,
+            iban: isBank ? normalizeIban(dto.salary.iban) : null,
             tenantId,
           });
           result.salary = await manager.save(Salary, newSalary);
