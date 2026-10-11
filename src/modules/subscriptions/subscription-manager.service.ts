@@ -27,6 +27,8 @@ export interface SubscriptionUsageSummary {
     price: string;
     billingCycle: BillingCycle;
   };
+  /** مفاتيح المميزات المفعّلة في الخطة (تُستخدم في الواجهة لقفل/فتح الموديولات) */
+  features: string[];
   status: SubscriptionStatus;
   startDate: Date;
   endDate?: Date;
@@ -154,6 +156,7 @@ export class SubscriptionManagerService {
         price: subscription.plan.price,
         billingCycle: subscription.plan.billingCycle,
       },
+      features: subscription.plan.features ?? [],
       status: subscription.status,
       startDate: subscription.startDate,
       endDate: subscription.endDate,

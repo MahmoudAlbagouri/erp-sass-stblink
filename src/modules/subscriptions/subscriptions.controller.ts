@@ -30,6 +30,29 @@ export class SubscriptionsController {
     private readonly subscriptionManager: SubscriptionManagerService,
   ) {}
 
+  /**
+   * ✅ بيانات الوصول التي تحتاجها الواجهة لإظهار/قفل الموديولات والأزرار:
+   * المميزات المفعّلة + حدود الاستخدام. متاحة لأي مستخدم مسجّل (بدون صلاحية
+   * خاصة) لأن كل الواجهة تعتمد عليها، ولا تكشف بيانات مالية عن الاشتراك.
+   */
+  @Get('me/access')
+  async getMyAccess(
+    @CurrentUser() user: CurrentUserData,
+    @CurrentTenantId() tenantId?: string,
+  ) {
+    if (user.isSystemAdmin || !tenantId) {
+      return { unrestricted: true, status: 'active', features: [], quotas: {} };
+    }
+
+    const summary = await this.subscriptionManager.getUsageSummary(tenantId);
+    return {
+      unrestricted: false,
+      status: summary.status,
+      features: summary.features,
+      quotas: summary.quotas,
+    };
+  }
+
   @Get('me')
   @Permissions(PERMS.SUBSCRIPTION_VIEW_OWN)
   @UseGuards(PermissionsGuard)
