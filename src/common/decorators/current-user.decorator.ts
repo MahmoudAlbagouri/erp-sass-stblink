@@ -3,23 +3,19 @@ import {
   ExecutionContext,
   InternalServerErrorException,
 } from '@nestjs/common';
-import { Request } from 'express';
+import type {
+  AuthenticatedRequest,
+  CurrentUserData,
+} from '../types/auth.types';
 
-// تأكد أن هذا النوع معرف بوضوح
-export interface CurrentUserData {
-  id: string;
-  tenantId: string;
-  isSuperAdmin: boolean;
-  isSystemAdmin: boolean;
-  employeeId?: string;
-  permissions?: string[];
-}
+// يُعاد تصديره من هنا للإبقاء على مسار الاستيراد المستخدم في الموديولات
+export type { CurrentUserData };
 
 export const CurrentUser = createParamDecorator(
   (data: keyof CurrentUserData | undefined, ctx: ExecutionContext) => {
     const request = ctx
       .switchToHttp()
-      .getRequest<Request & { user?: CurrentUserData }>();
+      .getRequest<Partial<AuthenticatedRequest>>();
     const user = request.user;
 
     if (!user) {

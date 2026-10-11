@@ -10,12 +10,13 @@ import {
   NotFoundException,
   ParseUUIDPipe,
   Res,
-  BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { LeavesService } from './leaves.service';
 import { LeaveCarryoverCronService } from './leave-carryover.cron.service';
 import { CreateLeaveDto } from './dto/create-leave.dto';
+import { SetLeaveBalanceDto } from './dto/set-leave-balance.dto';
+import { calculateDurationDays } from '../../common/utils/date.utils';
 import { LeaveStatus } from './entities/leave-request.entity';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
@@ -27,9 +28,14 @@ import {
   type CurrentUserData,
 } from '../../common/decorators/current-user.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
-import { ReportService } from '../../common/reports/report.service';
-import { PERMS } from 'src/common/constants/permissions';
-import { FEATURES } from 'src/common/constants/features'; // ✅ استيراد الثوابت
+import {
+  DETAIL_COLUMNS,
+  ReportService,
+  type ReportRow,
+} from '../../common/reports/report.service';
+import { PERMS } from '../../common/constants/permissions';
+import { formatDate } from '../../common/utils/format.util';
+import { FEATURES } from '../../common/constants/features'; // ✅ استيراد الثوابت
 
 @Controller('leaves')
 @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
@@ -86,7 +92,7 @@ export class LeavesController {
   @RequiresFeature(FEATURES.LEAVES_MODULE) // ✅ حماية إدارة الرصيد
   @UseGuards(PermissionsGuard)
   async setBalance(
-    @Body() dto: { employeeId: string; year: number; amount: number },
+    @Body() dto: SetLeaveBalanceDto,
     @CurrentTenantId() tenantId: string,
   ) {
     return await this.leavesService.setBalance(dto, tenantId);
@@ -110,8 +116,9 @@ export class LeavesController {
   @Permissions(PERMS.LEAVE_BALANCE_MANAGE)
   @RequiresFeature(FEATURES.LEAVES_MODULE) // ✅ حماية إعادة حساب الترحيل للجميع
   @UseGuards(PermissionsGuard)
-  recalculateCarryOverForAll() {
-    return this.carryoverCronService.recalculateAll();
+  recalculateCarryOverForAll(@CurrentTenantId() tenantId: string) {
+    // ✅ على مستوى الشركة الحالية فقط (كان يعيد الحساب لكل الشركات)
+    return this.carryoverCronService.recalculateAll(tenantId);
   }
 
   @Post('admin/:employeeId')
@@ -132,7 +139,7 @@ export class LeavesController {
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
   @UseGuards(PermissionsGuard)
   async exportLeaves(
-    @Param('type') type: 'excel' | 'pdf',
+    @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
     @Res() res: Response,
   ) {
@@ -158,15 +165,9 @@ export class LeavesController {
           : String(req.type) === 'unpaid'
             ? 'بدون راتب'
             : 'أخرى',
-      startDate: new Date(req.startDate).toLocaleDateString('ar-SA'),
-      endDate: new Date(req.endDate).toLocaleDateString('ar-SA'),
-      daysCount:
-        Math.ceil(
-          Math.abs(
-            new Date(req.endDate).getTime() - new Date(req.startDate).getTime(),
-          ) /
-            (1000 * 60 * 60 * 24),
-        ) + 1,
+      startDate: formatDate(req.startDate),
+      endDate: formatDate(req.endDate),
+      daysCount: calculateDurationDays(req.startDate, req.endDate, true),
       // ✅ الإصلاح: استخدام String() للحالة أيضاً
       status:
         String(req.status) === 'pending'
@@ -175,32 +176,15 @@ export class LeavesController {
             ? 'موافق عليها'
             : 'مرفوضة',
       reason: req.reason || '-',
-      createdAt: new Date(req.createdAt).toLocaleDateString('ar-SA'),
+      createdAt: formatDate(req.createdAt),
     }));
 
-    if (type === 'excel') {
-      const buffer = await this.reportService.generateExcel(
-        formattedData,
-        columns,
-      );
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-      res.setHeader('Content-Disposition', 'attachment; filename=leaves.xlsx');
-      return res.send(buffer);
-    }
-
-    if (type === 'pdf') {
-      const buffer = await this.reportService.generatePdf(
-        formattedData,
-        columns,
-        'تقرير الإجازات',
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', 'attachment; filename=leaves.pdf');
-      return res.send(buffer);
-    }
+    return this.reportService.sendReport(res, type, {
+      rows: formattedData,
+      columns,
+      title: 'تقرير الإجازات',
+      filename: 'leaves',
+    });
   }
 
   // ✅ مسار التصدير الفردي لإجازة واحدة
@@ -210,23 +194,19 @@ export class LeavesController {
   @UseGuards(PermissionsGuard)
   async exportSingleLeave(
     @Param('id') id: string,
-    @Param('type') type: 'excel' | 'pdf',
+    @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
     @Res() res: Response,
   ) {
     const leave = await this.leavesService.findOne(id, tenantId);
-    if (!leave) throw new BadRequestException('طلب الإجازة غير موجود');
 
-    const daysCount =
-      Math.ceil(
-        Math.abs(
-          new Date(leave.endDate).getTime() -
-            new Date(leave.startDate).getTime(),
-        ) /
-          (1000 * 60 * 60 * 24),
-      ) + 1;
+    const daysCount = calculateDurationDays(
+      leave.startDate,
+      leave.endDate,
+      true,
+    );
 
-    const reportData: any[] = [
+    const reportData: ReportRow[] = [
       { label: 'اسم الموظف', value: leave.employee?.fullName || '-' },
       { label: 'كود الموظف', value: leave.employee?.employeeCode || '-' },
       { label: 'المسمى الوظيفي', value: leave.employee?.jobTitle || '-' },
@@ -241,11 +221,11 @@ export class LeavesController {
       },
       {
         label: 'تاريخ البداية',
-        value: new Date(leave.startDate).toLocaleDateString('ar-SA'),
+        value: formatDate(leave.startDate),
       },
       {
         label: 'تاريخ النهاية',
-        value: new Date(leave.endDate).toLocaleDateString('ar-SA'),
+        value: formatDate(leave.endDate),
       },
       { label: 'عدد الأيام', value: `${daysCount} يوم` },
       {
@@ -260,46 +240,18 @@ export class LeavesController {
       { label: 'السبب', value: leave.reason || '-' },
       {
         label: 'تاريخ تقديم الطلب',
-        value: new Date(leave.createdAt).toLocaleDateString('ar-SA'),
+        value: formatDate(leave.createdAt),
       },
     ];
 
-    const columns = [
-      { header: 'البيان', key: 'label' },
-      { header: 'القيمة', key: 'value' },
-    ];
+    const columns = DETAIL_COLUMNS;
 
-    if (type === 'excel') {
-      const buffer = await this.reportService.generateExcel(
-        reportData,
-        columns,
-      );
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename=leave_${leave.employee?.employeeCode || id}.xlsx`,
-      );
-      return res.send(buffer);
-    }
-
-    if (type === 'pdf') {
-      const buffer = await this.reportService.generatePdf(
-        reportData,
-        columns,
-        `طلب إجازة: ${leave.employee?.fullName}`,
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename=leave_${leave.employee?.employeeCode || id}.pdf`,
-      );
-      return res.send(buffer);
-    }
-
-    throw new BadRequestException('نوع التصدير غير مدعوم');
+    return this.reportService.sendReport(res, type, {
+      rows: reportData,
+      columns,
+      title: `طلب إجازة: ${leave.employee?.fullName}`,
+      filename: `leave_${leave.employee?.employeeCode || id}`,
+    });
   }
 
   @Get()

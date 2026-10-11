@@ -15,10 +15,12 @@ export class I18nExceptionFilter implements ExceptionFilter {
     const status = exception.getStatus();
     const i18n = I18nContext.current(host);
 
-    const exceptionResponse: any = exception.getResponse();
+    const exceptionResponse = exception.getResponse() as
+      | string
+      | { message?: string | string[] };
     const exceptionName = exception.constructor.name; // مثل NotFoundException
 
-    let message: string | string[];
+    let message: string | string[] | undefined;
 
     // استخراج الرسالة القادمة من throw new ...
     const incomingMessage =
@@ -39,7 +41,8 @@ export class I18nExceptionFilter implements ExceptionFilter {
       message = incomingMessage;
     } else {
       // إذا كانت الرسالة هي الافتراضية، نذهب لملف error.json
-      message = i18n?.t(`error.${exceptionName}`) || incomingMessage;
+      message =
+        i18n?.t<string, string>(`error.${exceptionName}`) || incomingMessage;
     }
 
     response.status(status).json({

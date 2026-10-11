@@ -6,15 +6,8 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { Request } from 'express'; // ✅ استيراد Request من express
 import { IS_SYSTEM_ADMIN_KEY } from '../decorators/system-admin.decorator';
-
-// ✅ تعريف واجهة المستخدم المتوقع وجوده في الـ Request
-interface RequestWithUser extends Request {
-  user?: {
-    isSystemAdmin: boolean;
-  };
-}
+import type { AuthenticatedRequest } from '../types/auth.types';
 
 @Injectable()
 export class SystemAdminGuard implements CanActivate {
@@ -30,11 +23,11 @@ export class SystemAdminGuard implements CanActivate {
     // إذا لم يكن مطلوباً، اسمح بالمرور (ليعمل كـ Optional Guard)
     if (!isSystemAdminRequired) return true;
 
-    // ✅ تحديد النوع الصريح للـ Request باستخدام الواجهة المعرفة أعلاه
-    const request = context.switchToHttp().getRequest<RequestWithUser>();
+    const request = context
+      .switchToHttp()
+      .getRequest<Partial<AuthenticatedRequest>>();
     const user = request.user;
 
-    // ✅ الآن المترجم يعرف أن user يحتوي على isSystemAdmin
     if (!user || !user.isSystemAdmin) {
       throw new ForbiddenException('هذه الصلاحية محجوزة لمالك النظام فقط');
     }

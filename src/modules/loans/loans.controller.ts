@@ -9,7 +9,6 @@ import {
   UseGuards,
   NotFoundException,
   Res,
-  BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { LoansService } from './loans.service';
@@ -25,9 +24,14 @@ import {
   type CurrentUserData,
 } from '../../common/decorators/current-user.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
-import { ReportService } from '../../common/reports/report.service';
-import { PERMS } from 'src/common/constants/permissions';
-import { FEATURES } from 'src/common/constants/features'; // ✅ استيراد الثوابت
+import {
+  DETAIL_COLUMNS,
+  ReportService,
+  type ReportRow,
+} from '../../common/reports/report.service';
+import { PERMS } from '../../common/constants/permissions';
+import { formatAmount, formatDate } from '../../common/utils/format.util';
+import { FEATURES } from '../../common/constants/features'; // ✅ استيراد الثوابت
 
 @Controller('loans')
 @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
@@ -72,7 +76,7 @@ export class LoansController {
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
   @UseGuards(PermissionsGuard)
   async exportLoans(
-    @Param('type') type: 'excel' | 'pdf',
+    @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
     @Res() res: Response,
   ) {
@@ -92,8 +96,8 @@ export class LoansController {
 
     const formattedData = data.map((l) => ({
       employeeName: l.employee?.fullName || '-',
-      totalAmount: Number(l.totalAmount).toLocaleString('ar-SA'),
-      monthlyInstallment: Number(l.monthlyInstallment).toLocaleString('ar-SA'),
+      totalAmount: formatAmount(l.totalAmount),
+      monthlyInstallment: formatAmount(l.monthlyInstallment),
       installmentsCount: l.installmentsCount,
       paidInstallments: l.paidInstallments || 0,
       remainingInstallments: l.installmentsCount - (l.paidInstallments || 0),
@@ -105,33 +109,16 @@ export class LoansController {
             : String(l.status) === 'rejected'
               ? 'مرفوض'
               : 'مكتمل',
-      startDate: new Date(l.startDate).toLocaleDateString('ar-SA'),
+      startDate: formatDate(l.startDate),
       reason: l.reason || '-',
     }));
 
-    if (type === 'excel') {
-      const buffer = await this.reportService.generateExcel(
-        formattedData,
-        columns,
-      );
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-      res.setHeader('Content-Disposition', 'attachment; filename=loans.xlsx');
-      return res.send(buffer);
-    }
-
-    if (type === 'pdf') {
-      const buffer = await this.reportService.generatePdf(
-        formattedData,
-        columns,
-        'تقرير القروض',
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', 'attachment; filename=loans.pdf');
-      return res.send(buffer);
-    }
+    return this.reportService.sendReport(res, type, {
+      rows: formattedData,
+      columns,
+      title: 'تقرير القروض',
+      filename: 'loans',
+    });
   }
 
   // ✅ مسار التصدير الفردي للقرض
@@ -141,27 +128,26 @@ export class LoansController {
   @UseGuards(PermissionsGuard)
   async exportSingleLoan(
     @Param('id') id: string,
-    @Param('type') type: 'excel' | 'pdf',
+    @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
     @Res() res: Response,
   ) {
     const loan = await this.loansService.findOne(id, tenantId);
-    if (!loan) throw new BadRequestException('القرض غير موجود');
 
     const paid = loan.paidInstallments || 0;
     const remaining = loan.installmentsCount - paid;
 
-    const reportData: any[] = [
+    const reportData: ReportRow[] = [
       { label: 'اسم الموظف', value: loan.employee?.fullName || '-' },
       { label: 'كود الموظف', value: loan.employee?.employeeCode || '-' },
       { label: 'المسمى الوظيفي', value: loan.employee?.jobTitle || '-' },
       {
         label: 'إجمالي القرض',
-        value: `${Number(loan.totalAmount).toLocaleString('ar-SA')} ر.س`,
+        value: `${formatAmount(loan.totalAmount)} ر.س`,
       },
       {
         label: 'القسط الشهري',
-        value: `${Number(loan.monthlyInstallment).toLocaleString('ar-SA')} ر.س`,
+        value: `${formatAmount(loan.monthlyInstallment)} ر.س`,
       },
       { label: 'عدد الأقساط الكلي', value: loan.installmentsCount },
       { label: 'الأقساط المسددة', value: paid },
@@ -183,47 +169,19 @@ export class LoansController {
       },
       {
         label: 'تاريخ بداية السداد',
-        value: new Date(loan.startDate).toLocaleDateString('ar-SA'),
+        value: formatDate(loan.startDate),
       },
       { label: 'السبب', value: loan.reason || '-' },
     ];
 
-    const columns = [
-      { header: 'البيان', key: 'label' },
-      { header: 'القيمة', key: 'value' },
-    ];
+    const columns = DETAIL_COLUMNS;
 
-    if (type === 'excel') {
-      const buffer = await this.reportService.generateExcel(
-        reportData,
-        columns,
-      );
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename=loan_${loan.employee?.employeeCode || id}.xlsx`,
-      );
-      return res.send(buffer);
-    }
-
-    if (type === 'pdf') {
-      const buffer = await this.reportService.generatePdf(
-        reportData,
-        columns,
-        `قرض: ${loan.employee?.fullName}`,
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename=loan_${loan.employee?.employeeCode || id}.pdf`,
-      );
-      return res.send(buffer);
-    }
-
-    throw new BadRequestException('نوع التصدير غير مدعوم');
+    return this.reportService.sendReport(res, type, {
+      rows: reportData,
+      columns,
+      title: `قرض: ${loan.employee?.fullName}`,
+      filename: `loan_${loan.employee?.employeeCode || id}`,
+    });
   }
 
   @Get()

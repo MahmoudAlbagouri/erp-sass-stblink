@@ -6,15 +6,10 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { Request } from 'express';
 import { REQUIRES_FEATURE_KEY } from '../decorators/requires-feature.decorator';
 import { CHECK_QUOTA_KEY } from '../decorators/check-quota.decorator';
 import { SubscriptionManagerService } from '../../modules/subscriptions/subscription-manager.service';
-import { CurrentUserData } from '../decorators/current-user.decorator';
-
-interface RequestWithUser extends Request {
-  user: CurrentUserData;
-}
+import type { AuthenticatedRequest } from '../types/auth.types';
 
 @Injectable()
 export class SubscriptionGuard implements CanActivate {
@@ -37,7 +32,9 @@ export class SubscriptionGuard implements CanActivate {
     // ✅ الـ Endpoint دا مش محتاج فحص اشتراك أصلاً
     if (!featureKey && !quotaKey) return true;
 
-    const request = context.switchToHttp().getRequest<RequestWithUser>();
+    const request = context
+      .switchToHttp()
+      .getRequest<Partial<AuthenticatedRequest>>();
     const user = request.user;
 
     if (!user) throw new ForbiddenException('غير مصرح بالدخول');

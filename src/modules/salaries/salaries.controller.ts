@@ -8,7 +8,6 @@ import {
   Param,
   UseGuards,
   Res,
-  BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { SalariesService } from './salaries.service';
@@ -20,9 +19,14 @@ import { SubscriptionGuard } from '../../common/guards/subscription.guard'; // �
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { RequiresFeature } from '../../common/decorators/requires-feature.decorator'; // ✅ استيراد ديكوراتور الميزة
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
-import { ReportService } from '../../common/reports/report.service';
-import { PERMS } from 'src/common/constants/permissions';
-import { FEATURES } from 'src/common/constants/features'; // ✅ استيراد الثوابت
+import {
+  DETAIL_COLUMNS,
+  ReportService,
+  type ReportRow,
+} from '../../common/reports/report.service';
+import { PERMS } from '../../common/constants/permissions';
+import { formatAmount, formatDate } from '../../common/utils/format.util';
+import { FEATURES } from '../../common/constants/features'; // ✅ استيراد الثوابت
 
 @Controller('salaries')
 @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
@@ -46,7 +50,7 @@ export class SalariesController {
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
   @UseGuards(PermissionsGuard)
   async exportSalaries(
-    @Param('type') type: 'excel' | 'pdf',
+    @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
     @Res() res: Response,
   ) {
@@ -65,41 +69,19 @@ export class SalariesController {
     const formattedData = data.map((sal) => ({
       employeeName: sal.employee?.fullName || '-',
       employeeCode: sal.employee?.employeeCode || '-',
-      basicSalary: Number(sal.basicSalary).toLocaleString('ar-SA'),
-      housingAllowance: Number(sal.housingAllowance).toLocaleString('ar-SA'),
-      transportAllowance: Number(sal.transportAllowance).toLocaleString(
-        'ar-SA',
-      ),
-      otherAllowances: Number(sal.otherAllowances).toLocaleString('ar-SA'),
-      totalSalary: Number(sal.totalSalary).toLocaleString('ar-SA'),
+      basicSalary: formatAmount(sal.basicSalary),
+      housingAllowance: formatAmount(sal.housingAllowance),
+      transportAllowance: formatAmount(sal.transportAllowance),
+      otherAllowances: formatAmount(sal.otherAllowances),
+      totalSalary: formatAmount(sal.totalSalary),
     }));
 
-    if (type === 'excel') {
-      const buffer = await this.reportService.generateExcel(
-        formattedData,
-        columns,
-      );
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-      res.setHeader(
-        'Content-Disposition',
-        'attachment; filename=salaries.xlsx',
-      );
-      return res.send(buffer);
-    }
-
-    if (type === 'pdf') {
-      const buffer = await this.reportService.generatePdf(
-        formattedData,
-        columns,
-        'تقرير الرواتب',
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', 'attachment; filename=salaries.pdf');
-      return res.send(buffer);
-    }
+    return this.reportService.sendReport(res, type, {
+      rows: formattedData,
+      columns,
+      title: 'تقرير الرواتب',
+      filename: 'salaries',
+    });
   }
 
   // ✅ مسار التصدير الفردي (يجب أن يكون قبل findOne)
@@ -109,81 +91,51 @@ export class SalariesController {
   @UseGuards(PermissionsGuard)
   async exportSingleSalary(
     @Param('id') id: string,
-    @Param('type') type: 'excel' | 'pdf',
+    @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
     @Res() res: Response,
   ) {
     const salary = await this.salariesService.findOne(id, tenantId);
 
-    const reportData: any[] = [
+    const reportData: ReportRow[] = [
       { label: 'اسم الموظف', value: salary.employee?.fullName || '-' },
       { label: 'كود الموظف', value: salary.employee?.employeeCode || '-' },
       { label: 'المسمى الوظيفي', value: salary.employee?.jobTitle || '-' },
-      { label: 'القسم', value: salary.employee?.department || '-' },
+      { label: 'القسم', value: salary.employee?.department?.name || '-' },
       {
         label: 'الأجر الأساسي',
-        value: `${Number(salary.basicSalary).toLocaleString('ar-SA')} ر.س`,
+        value: `${formatAmount(salary.basicSalary)} ر.س`,
       },
       {
         label: 'بدل السكن',
-        value: `${Number(salary.housingAllowance).toLocaleString('ar-SA')} ر.س`,
+        value: `${formatAmount(salary.housingAllowance)} ر.س`,
       },
       {
         label: 'بدل النقل',
-        value: `${Number(salary.transportAllowance).toLocaleString('ar-SA')} ر.س`,
+        value: `${formatAmount(salary.transportAllowance)} ر.س`,
       },
       {
         label: 'بدلات أخرى',
-        value: `${Number(salary.otherAllowances).toLocaleString('ar-SA')} ر.س`,
+        value: `${formatAmount(salary.otherAllowances)} ر.س`,
       },
       {
         label: 'إجمالي الراتب',
-        value: `${Number(salary.totalSalary).toLocaleString('ar-SA')} ر.س`,
+        value: `${formatAmount(salary.totalSalary)} ر.س`,
       },
       {
         label: 'تاريخ آخر تحديث',
-        value: new Date(
-          salary.updatedAt || salary.createdAt,
-        ).toLocaleDateString('ar-SA'),
+        value: formatDate(salary.updatedAt || salary.createdAt),
       },
     ];
 
-    const columns = [
-      { header: 'البيان', key: 'label' },
-      { header: 'القيمة', key: 'value' },
-    ];
+    const columns = DETAIL_COLUMNS;
 
-    if (type === 'excel') {
-      const buffer = await this.reportService.generateExcel(
-        reportData,
-        columns,
-      );
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename=salary_${salary.employee?.employeeCode || id}.xlsx`,
-      );
-      return res.send(buffer);
-    }
-
-    if (type === 'pdf') {
-      const buffer = await this.reportService.generatePdf(
-        reportData,
-        columns,
-        `كشف راتب: ${salary.employee?.fullName}`,
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename=salary_${salary.employee?.employeeCode || id}.pdf`,
-      );
-      return res.send(buffer);
-    }
-
-    throw new BadRequestException('نوع التصدير غير مدعوم');
+    return this.reportService.sendReport(res, type, {
+      rows: reportData,
+      columns,
+      title: `كشف راتب: ${salary.employee?.fullName}`,
+      filename: `salary_${salary.employee?.employeeCode || id}`,
+    });
   }
 
   @Get()

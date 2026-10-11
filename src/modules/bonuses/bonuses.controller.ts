@@ -9,7 +9,6 @@ import {
   Delete,
   UseGuards,
   Res,
-  BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { BonusesService } from './bonuses.service';
@@ -21,7 +20,11 @@ import { SubscriptionGuard } from '../../common/guards/subscription.guard'; // �
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { RequiresFeature } from '../../common/decorators/requires-feature.decorator'; // ✅ استيراد ديكوراتور الميزة
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
-import { ReportService } from '../../common/reports/report.service';
+import {
+  DETAIL_COLUMNS,
+  ReportService,
+  type ReportRow,
+} from '../../common/reports/report.service';
 import { PERMS } from '../../common/constants/permissions';
 import { FEATURES } from '../../common/constants/features'; // ✅ استيراد الثوابت
 import { BonusStatus } from './entities/bonus.entity';
@@ -29,6 +32,8 @@ import {
   CurrentUser,
   type CurrentUserData,
 } from '../../common/decorators/current-user.decorator';
+import { formatAmount, formatDate } from '../../common/utils/format.util';
+
 @Controller('bonuses')
 @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
 export class BonusesController {
@@ -39,12 +44,16 @@ export class BonusesController {
 
   @Post()
   @Permissions(PERMS.BONUS_CREATE)
-  @RequiresFeature(FEATURES.BONUSES_MODULE || FEATURES.PAYROLL_MODULE) // ✅ التحقق من توفر الموديول (يفضل إضافة BONUSES_MODULE للثوابت)
+  @RequiresFeature(FEATURES.BONUSES_MODULE) // ✅ التحقق من توفر الموديول (يفضل إضافة BONUSES_MODULE للثوابت)
   @UseGuards(PermissionsGuard)
   create(@Body() dto: CreateBonusDto, @CurrentTenantId() tenantId: string) {
     return this.bonusesService.create(dto, tenantId);
   }
+
   @Patch(':id/disburse')
+  @Permissions(PERMS.BONUS_UPDATE)
+  @RequiresFeature(FEATURES.BONUSES_MODULE)
+  @UseGuards(PermissionsGuard)
   async disburse(
     @Param('id') id: string,
     @CurrentUser() user: CurrentUserData,
@@ -58,7 +67,7 @@ export class BonusesController {
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
   @UseGuards(PermissionsGuard)
   async exportBonuses(
-    @Param('type') type: 'excel' | 'pdf',
+    @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
     @Res() res: Response,
   ) {
@@ -77,36 +86,19 @@ export class BonusesController {
     const formattedData = data.map((b) => ({
       employeeName: b.employee?.fullName || '-',
       employeeCode: b.employee?.employeeCode || '-',
-      amount: Number(b.amount).toLocaleString('ar-SA'),
-      payoutDate: new Date(b.payoutDate).toLocaleDateString('ar-SA'),
+      amount: formatAmount(b.amount),
+      payoutDate: formatDate(b.payoutDate),
       status: this.getStatusLabel(b.status),
       notes: b.notes || '-',
-      createdAt: new Date(b.createdAt).toLocaleDateString('ar-SA'),
+      createdAt: formatDate(b.createdAt),
     }));
 
-    if (type === 'excel') {
-      const buffer = await this.reportService.generateExcel(
-        formattedData,
-        columns,
-      );
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-      res.setHeader('Content-Disposition', 'attachment; filename=bonuses.xlsx');
-      return res.send(buffer);
-    }
-
-    if (type === 'pdf') {
-      const buffer = await this.reportService.generatePdf(
-        formattedData,
-        columns,
-        'تقرير المكافآت',
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', 'attachment; filename=bonuses.pdf');
-      return res.send(buffer);
-    }
+    return this.reportService.sendReport(res, type, {
+      rows: formattedData,
+      columns,
+      title: 'تقرير المكافآت',
+      filename: 'bonuses',
+    });
   }
 
   // ✅ مسار التصدير الفردي للمكافأة
@@ -116,74 +108,45 @@ export class BonusesController {
   @UseGuards(PermissionsGuard)
   async exportSingleBonus(
     @Param('id') id: string,
-    @Param('type') type: 'excel' | 'pdf',
+    @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
     @Res() res: Response,
   ) {
     const bonus = await this.bonusesService.findOne(id, tenantId);
-    if (!bonus) throw new BadRequestException('المكافأة غير موجودة');
 
-    const reportData: any[] = [
+    const reportData: ReportRow[] = [
       { label: 'اسم الموظف', value: bonus.employee?.fullName || '-' },
       { label: 'كود الموظف', value: bonus.employee?.employeeCode || '-' },
       { label: 'المسمى الوظيفي', value: bonus.employee?.jobTitle || '-' },
       {
         label: 'المبلغ',
-        value: `${Number(bonus.amount).toLocaleString('ar-SA')} ر.س`,
+        value: `${formatAmount(bonus.amount)} ر.س`,
       },
       {
         label: 'تاريخ الصرف',
-        value: new Date(bonus.payoutDate).toLocaleDateString('ar-SA'),
+        value: formatDate(bonus.payoutDate),
       },
       { label: 'الحالة', value: this.getStatusLabel(bonus.status) },
       { label: 'ملاحظات', value: bonus.notes || '-' },
       {
         label: 'تاريخ التسجيل',
-        value: new Date(bonus.createdAt).toLocaleDateString('ar-SA'),
+        value: formatDate(bonus.createdAt),
       },
     ];
 
-    const columns = [
-      { header: 'البيان', key: 'label' },
-      { header: 'القيمة', key: 'value' },
-    ];
+    const columns = DETAIL_COLUMNS;
 
-    if (type === 'excel') {
-      const buffer = await this.reportService.generateExcel(
-        reportData,
-        columns,
-      );
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename=bonus_${bonus.employee?.employeeCode || id}.xlsx`,
-      );
-      return res.send(buffer);
-    }
-
-    if (type === 'pdf') {
-      const buffer = await this.reportService.generatePdf(
-        reportData,
-        columns,
-        `مكافأة: ${bonus.employee?.fullName}`,
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename=bonus_${bonus.employee?.employeeCode || id}.pdf`,
-      );
-      return res.send(buffer);
-    }
-
-    throw new BadRequestException('نوع التصدير غير مدعوم');
+    return this.reportService.sendReport(res, type, {
+      rows: reportData,
+      columns,
+      title: `مكافأة: ${bonus.employee?.fullName}`,
+      filename: `bonus_${bonus.employee?.employeeCode || id}`,
+    });
   }
 
   @Get()
   @Permissions(PERMS.BONUS_VIEW)
-  @RequiresFeature(FEATURES.BONUSES_MODULE || FEATURES.PAYROLL_MODULE) // ✅ حماية عرض القائمة
+  @RequiresFeature(FEATURES.BONUSES_MODULE) // ✅ حماية عرض القائمة
   @UseGuards(PermissionsGuard)
   findAll(@CurrentTenantId() tenantId: string) {
     return this.bonusesService.findAll(tenantId);
@@ -191,7 +154,7 @@ export class BonusesController {
 
   @Get(':id')
   @Permissions(PERMS.BONUS_VIEW)
-  @RequiresFeature(FEATURES.BONUSES_MODULE || FEATURES.PAYROLL_MODULE) // ✅ حماية عرض التفاصيل
+  @RequiresFeature(FEATURES.BONUSES_MODULE) // ✅ حماية عرض التفاصيل
   @UseGuards(PermissionsGuard)
   findOne(@Param('id') id: string, @CurrentTenantId() tenantId: string) {
     return this.bonusesService.findOne(id, tenantId);
@@ -199,7 +162,7 @@ export class BonusesController {
 
   @Patch(':id')
   @Permissions(PERMS.BONUS_UPDATE)
-  @RequiresFeature(FEATURES.BONUSES_MODULE || FEATURES.PAYROLL_MODULE) // ✅ حماية التعديل
+  @RequiresFeature(FEATURES.BONUSES_MODULE) // ✅ حماية التعديل
   @UseGuards(PermissionsGuard)
   update(
     @Param('id') id: string,
@@ -212,7 +175,7 @@ export class BonusesController {
   // ✅ Endpoint جديد لتغيير حالة المكافأة
   @Patch(':id/status')
   @Permissions(PERMS.BONUS_UPDATE)
-  @RequiresFeature(FEATURES.BONUSES_MODULE || FEATURES.PAYROLL_MODULE) // ✅ حماية تغيير الحالة
+  @RequiresFeature(FEATURES.BONUSES_MODULE) // ✅ حماية تغيير الحالة
   @UseGuards(PermissionsGuard)
   updateStatus(
     @Param('id') id: string,
@@ -224,7 +187,7 @@ export class BonusesController {
 
   @Delete(':id')
   @Permissions(PERMS.BONUS_DELETE)
-  @RequiresFeature(FEATURES.BONUSES_MODULE || FEATURES.PAYROLL_MODULE) // ✅ حماية الحذف
+  @RequiresFeature(FEATURES.BONUSES_MODULE) // ✅ حماية الحذف
   @UseGuards(PermissionsGuard)
   remove(@Param('id') id: string, @CurrentTenantId() tenantId: string) {
     return this.bonusesService.remove(id, tenantId);

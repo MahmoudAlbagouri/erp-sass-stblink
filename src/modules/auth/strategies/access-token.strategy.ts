@@ -2,40 +2,33 @@
 import { Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import { getJwtAccessSecret } from '../../../config/jwt.config';
+import type {
+  CurrentUserData,
+  JwtPayload,
+} from '../../../common/types/auth.types';
 
 @Injectable()
 export class AccessTokenStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor() {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      secretOrKey: process.env.JWT_ACCESS_SECRET || 'access-secret-key',
+      secretOrKey: getJwtAccessSecret(),
     });
   }
 
   // ✅ إرجاع البيانات كما هي من التوكن - بدون أي استعلام DB
-  validate(payload: {
-    sub: string;
-    tenantId?: string;
-    isSuperAdmin: boolean;
-    isSystemAdmin: boolean;
-    isDisclaimerAccepted?: boolean;
-    employeeId: string | undefined;
-    role?: {
-      id: string;
-      name: string;
-      scope: string;
-      permissions?: { name: string; scope: string; tenantId?: string }[];
-    };
-  }) {
+  validate(payload: JwtPayload): CurrentUserData {
     return {
       id: payload.sub,
-      tenantId: payload.tenantId,
+      // tenantId يغيب فقط عن مالك النظام (انظر CurrentUserData)
+      tenantId: payload.tenantId as string,
       isSuperAdmin: payload.isSuperAdmin,
       isSystemAdmin: payload.isSystemAdmin,
       isDisclaimerAccepted: payload.isDisclaimerAccepted,
       employeeId: payload.employeeId,
       role: payload.role, // ✅ الدور موجود في التوكن
-      permissions: payload.role?.permissions || [], // ✅ الصلاحيات موجودة في التوكن
+      permissions: payload.role?.permissions?.map((p) => p.name) ?? [], // ✅ أسماء الصلاحيات من التوكن
     };
   }
 }

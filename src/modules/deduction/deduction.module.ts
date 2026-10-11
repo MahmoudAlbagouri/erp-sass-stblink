@@ -4,7 +4,7 @@ import { Deduction } from './entities/deduction.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { DeductionsService } from './deduction.service';
 import { DeductionsController } from './deduction.controller';
-import { ReportService } from 'src/common/reports/report.service';
+import { ReportService } from '../../common/reports/report.service';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({

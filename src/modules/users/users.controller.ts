@@ -22,8 +22,8 @@ import {
   type CurrentUserData,
 } from '../../common/decorators/current-user.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
-import { PERMS } from 'src/common/constants/permissions';
-import { FEATURES } from 'src/common/constants/features';
+import { PERMS } from '../../common/constants/permissions';
+import { FEATURES } from '../../common/constants/features';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard, SubscriptionGuard)
@@ -66,8 +66,8 @@ export class UsersController {
   @Permissions(PERMS.USER_VIEW)
   @RequiresFeature(FEATURES.EMPLOYEES_MODULE)
   @UseGuards(PermissionsGuard)
-  findOne(@Param('id') id: string) {
-    return this.usersService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: CurrentUserData) {
+    return this.usersService.findOneScoped(id, user);
   }
 
   @Patch(':id')

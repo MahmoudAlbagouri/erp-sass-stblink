@@ -3,14 +3,13 @@ import {
   ExecutionContext,
   InternalServerErrorException,
 } from '@nestjs/common';
-import { Request } from 'express';
-import { CurrentUserData } from './current-user.decorator';
+import type { AuthenticatedRequest } from '../types/auth.types';
 
 export const CurrentTenantId = createParamDecorator(
   (_data: unknown, ctx: ExecutionContext) => {
     const request = ctx
       .switchToHttp()
-      .getRequest<Request & { user?: CurrentUserData }>();
+      .getRequest<Partial<AuthenticatedRequest>>();
     const user = request.user;
 
     // ✅ إضافة استثناء لمالك النظام: إذا كان SystemAdmin فلا يشترط وجود tenantId

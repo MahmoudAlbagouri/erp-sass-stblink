@@ -15,7 +15,7 @@ import { LeaveBalanceHistory } from '../leaves/entities/leave-balance-history.en
 import { SalariesModule } from '../salaries/salaries.module';
 import { ContractsModule } from '../contracts/contracts.module'; // ✅ لجلب بيانات العقد
 import { LeavesModule } from '../leaves/leaves.module'; // ✅ لاستخدام LeaveAccrualService
-import { CommonModule } from 'src/common/common.module';
+import { CommonModule } from '../../common/common.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({

@@ -16,8 +16,10 @@ import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 import { PERMS } from '../../common/constants/permissions';
-import { CurrentUser } from 'src/common/decorators/current-user.decorator';
-import { User } from '../users/entities/user.entity';
+import {
+  CurrentUser,
+  type CurrentUserData,
+} from '../../common/decorators/current-user.decorator';
 import { UpdateSubscriptionStatusDto } from './dto/update-subscription-status.dto';
 
 @Controller('subscriptions')
@@ -33,10 +35,10 @@ export class SubscriptionsController {
   @UseGuards(PermissionsGuard)
   async getMySubscription(
     @CurrentTenantId() tenantId?: string,
-    @CurrentUser() user?: User & { isSuperSystem?: boolean }, // احقن المستخدم الحالي
+    @CurrentUser() user?: CurrentUserData, // احقن المستخدم الحالي
   ) {
     // ✅ التحقق الأول: هل المستخدم هو مالك النظام؟
-    if (user?.isSuperSystem) {
+    if (user?.isSystemAdmin) {
       return {
         isSuperSystem: true,
         plan: { name: 'SYSTEM_OWNER', nameAr: 'مالك النظام' },

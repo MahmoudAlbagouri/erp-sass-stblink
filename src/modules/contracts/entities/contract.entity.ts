@@ -78,7 +78,7 @@ export class Contract {
 
   // ✅ حقل جديد لحفظ تاريخ نهاية فترة التجربة المحسوب
   @Column({ type: 'date', nullable: true })
-  probationEndDate?: Date;
+  probationEndDate?: Date | null;
 
   // ✅ حقل التأمين الطبي
   @Column({

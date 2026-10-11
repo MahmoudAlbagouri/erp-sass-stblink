@@ -9,6 +9,7 @@ import { Employee } from './entities/employee.entity';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { User } from '../users/entities/user.entity';
+import { generateEmployeeCode } from './utils/employee-code.util';
 
 export interface EmployeeFilterOptions {
   status?: string;
@@ -23,16 +24,13 @@ export interface EmployeeFilterOptions {
 
 @Injectable()
 export class EmployeesService {
-  private readonly TENANT_PREFIX_DIGITS = 3;
-  private readonly SEQUENCE_DIGITS = 4;
-
   constructor(
     @InjectRepository(Employee) private repo: Repository<Employee>,
     @InjectRepository(User) private userRepo: Repository<User>,
   ) {}
 
   private async checkNationalIdUniqueness(
-    nationalId: string,
+    nationalId: string | undefined,
     tenantId: string,
     excludeId?: string,
   ): Promise<void> {
@@ -49,45 +47,8 @@ export class EmployeesService {
     }
   }
 
-  private getTenantPrefix(tenantId: string): string {
-    const mod = 10 ** this.TENANT_PREFIX_DIGITS;
-    let hash = 0;
-    for (let i = 0; i < tenantId.length; i++) {
-      hash = (hash * 31 + tenantId.charCodeAt(i)) % mod;
-    }
-    return hash.toString().padStart(this.TENANT_PREFIX_DIGITS, '0');
-  }
-
-  private async generateEmployeeCode(tenantId: string): Promise<string> {
-    const prefix = this.getTenantPrefix(tenantId);
-    const totalLength = this.TENANT_PREFIX_DIGITS + this.SEQUENCE_DIGITS;
-
-    const employees = await this.repo.find({
-      where: { tenantId },
-      select: ['employeeCode'],
-      withDeleted: true,
-    });
-
-    let maxNumber = 0;
-    for (const emp of employees) {
-      const code = emp.employeeCode;
-      if (!code) continue;
-
-      if (code.length === totalLength && code.startsWith(prefix)) {
-        const num = parseInt(code.slice(this.TENANT_PREFIX_DIGITS), 10);
-        if (!isNaN(num) && num > maxNumber) maxNumber = num;
-      }
-    }
-
-    const nextNumber = (maxNumber + 1)
-      .toString()
-      .padStart(this.SEQUENCE_DIGITS, '0');
-
-    return `${prefix}${nextNumber}`;
-  }
-
   async create(dto: CreateEmployeeDto, tenantId: string): Promise<Employee> {
-    await this.checkNationalIdUniqueness(dto.nationalId!, tenantId);
+    await this.checkNationalIdUniqueness(dto.nationalId, tenantId);
 
     let user: User | null = null;
     if (dto.userId) {
@@ -100,7 +61,7 @@ export class EmployeesService {
     let lastError: unknown;
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      const employeeCode = await this.generateEmployeeCode(tenantId);
+      const employeeCode = await generateEmployeeCode(this.repo, tenantId);
 
       const processedEducations = dto.educations?.map((edu) => ({
         ...edu,
@@ -261,25 +222,25 @@ export class EmployeesService {
       employee.user = user;
     }
 
-    if (dto.educations !== undefined) {
-      const updatedEducations = dto.educations.map((edu) => ({
+    // ✅ الحقول ذات المعالجة الخاصة تُفصل عن باقي الـ DTO حتى لا يعيد
+    // Object.assign الكتابة فوق قيمها المُعالَجة (كان يُرجع educations الخام)
+    const { educations, iqamaExpiryDate, ...rest } = dto;
+    delete rest.userId; // الربط بالمستخدم تم أعلاه عبر employee.user
+    Object.assign(employee, rest);
+
+    if (educations !== undefined) {
+      employee.educations = educations.map((edu) => ({
         ...edu,
         expiryDate: edu.expiryDate ? new Date(edu.expiryDate) : undefined,
         employeeId: employee.id,
-      }));
-
-      employee.educations = updatedEducations as Employee['educations'];
+      })) as Employee['educations'];
     }
 
-    Object.assign(employee, dto);
-
-    if (dto.iqamaExpiryDate) {
-      employee.iqamaExpiryDate = new Date(dto.iqamaExpiryDate);
-    } else if (
-      dto.iqamaExpiryDate === null ||
-      dto.iqamaExpiryDate === undefined
-    ) {
-      employee.iqamaExpiryDate = undefined;
+    // غياب الحقل = لا تغيير، وقيمة فارغة/null = مسح التاريخ
+    if (iqamaExpiryDate !== undefined) {
+      employee.iqamaExpiryDate = iqamaExpiryDate
+        ? new Date(iqamaExpiryDate)
+        : null;
     }
 
     return await this.repo.save(employee);

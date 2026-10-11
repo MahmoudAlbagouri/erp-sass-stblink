@@ -136,7 +136,7 @@ export class AttendanceLog {
     precision: 6,
     scale: 2,
   })
-  workHours?: number;
+  workHours?: number | null;
 
   // ✅ ساعات العمل الإضافي (الفرق بين ساعات العمل الفعلية ومدة الشيفت المقررة)
   @Column({
@@ -146,7 +146,7 @@ export class AttendanceLog {
     precision: 6,
     scale: 2,
   })
-  overtimeHours?: number;
+  overtimeHours?: number | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

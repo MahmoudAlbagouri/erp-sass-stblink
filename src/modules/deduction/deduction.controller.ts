@@ -9,7 +9,6 @@ import {
   Delete,
   UseGuards,
   Res,
-  BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { DeductionsService } from './deduction.service';
@@ -21,10 +20,15 @@ import { SubscriptionGuard } from '../../common/guards/subscription.guard'; // �
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { RequiresFeature } from '../../common/decorators/requires-feature.decorator'; // ✅ استيراد ديكوراتور الميزة
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
-import { ReportService } from '../../common/reports/report.service';
+import {
+  DETAIL_COLUMNS,
+  ReportService,
+  type ReportRow,
+} from '../../common/reports/report.service';
 import { PERMS } from '../../common/constants/permissions';
 import { FEATURES } from '../../common/constants/features'; // ✅ استيراد الثوابت
 import { DeductionStatus } from './entities/deduction.entity';
+import { formatAmount, formatDate } from '../../common/utils/format.util';
 
 @Controller('deductions')
 @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
@@ -36,7 +40,7 @@ export class DeductionsController {
 
   @Post()
   @Permissions(PERMS.DEDUCTION_CREATE)
-  @RequiresFeature(FEATURES.DEDUCTIONS_MODULE || FEATURES.PAYROLL_MODULE) // ✅ التحقق من توفر الموديول
+  @RequiresFeature(FEATURES.DEDUCTIONS_MODULE) // ✅ التحقق من توفر الموديول
   @UseGuards(PermissionsGuard)
   create(@Body() dto: CreateDeductionDto, @CurrentTenantId() tenantId: string) {
     return this.deductionsService.create(dto, tenantId);
@@ -48,7 +52,7 @@ export class DeductionsController {
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
   @UseGuards(PermissionsGuard)
   async exportDeductions(
-    @Param('type') type: 'excel' | 'pdf',
+    @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
     @Res() res: Response,
   ) {
@@ -70,43 +74,20 @@ export class DeductionsController {
       employeeName: d.employee?.fullName || '-',
       name: d.name,
       status: this.getStatusLabel(d.status),
-      totalAmount: Number(d.totalAmount).toLocaleString('ar-SA'),
-      monthlyAmount: Number(d.monthlyAmount).toLocaleString('ar-SA'),
+      totalAmount: formatAmount(d.totalAmount),
+      monthlyAmount: formatAmount(d.monthlyAmount),
       installmentsCount: d.installmentsCount,
       paymentsStatus: `${d.paidInstallments} / ${d.installmentsCount}`,
-      startDate: new Date(d.startDate).toLocaleDateString('ar-SA'),
+      startDate: formatDate(d.startDate),
       notes: d.notes || '-',
     }));
 
-    if (type === 'excel') {
-      const buffer = await this.reportService.generateExcel(
-        formattedData,
-        columns,
-      );
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-      res.setHeader(
-        'Content-Disposition',
-        'attachment; filename=deductions.xlsx',
-      );
-      return res.send(buffer);
-    }
-
-    if (type === 'pdf') {
-      const buffer = await this.reportService.generatePdf(
-        formattedData,
-        columns,
-        'تقرير الخصومات',
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader(
-        'Content-Disposition',
-        'attachment; filename=deductions.pdf',
-      );
-      return res.send(buffer);
-    }
+    return this.reportService.sendReport(res, type, {
+      rows: formattedData,
+      columns,
+      title: 'تقرير الخصومات',
+      filename: 'deductions',
+    });
   }
 
   // ✅ مسار التصدير الفردي للخصم
@@ -116,14 +97,13 @@ export class DeductionsController {
   @UseGuards(PermissionsGuard)
   async exportSingleDeduction(
     @Param('id') id: string,
-    @Param('type') type: 'excel' | 'pdf',
+    @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
     @Res() res: Response,
   ) {
     const deduction = await this.deductionsService.findOne(id, tenantId);
-    if (!deduction) throw new BadRequestException('الخصم غير موجود');
 
-    const reportData: any[] = [
+    const reportData: ReportRow[] = [
       { label: 'اسم الموظف', value: deduction.employee?.fullName || '-' },
       { label: 'كود الموظف', value: deduction.employee?.employeeCode || '-' },
       { label: 'المسمى الوظيفي', value: deduction.employee?.jobTitle || '-' },
@@ -131,11 +111,11 @@ export class DeductionsController {
       { label: 'الحالة', value: this.getStatusLabel(deduction.status) },
       {
         label: 'إجمالي المبلغ',
-        value: `${Number(deduction.totalAmount).toLocaleString('ar-SA')} ر.س`,
+        value: `${formatAmount(deduction.totalAmount)} ر.س`,
       },
       {
         label: 'القسط الشهري',
-        value: `${Number(deduction.monthlyAmount).toLocaleString('ar-SA')} ر.س`,
+        value: `${formatAmount(deduction.monthlyAmount)} ر.س`,
       },
       { label: 'عدد الدفعات الكلي', value: deduction.installmentsCount },
       { label: 'الدفعات المسددة', value: deduction.paidInstallments },
@@ -145,52 +125,24 @@ export class DeductionsController {
       },
       {
         label: 'تاريخ بدء الخصم',
-        value: new Date(deduction.startDate).toLocaleDateString('ar-SA'),
+        value: formatDate(deduction.startDate),
       },
       { label: 'ملاحظات', value: deduction.notes || '-' },
     ];
 
-    const columns = [
-      { header: 'البيان', key: 'label' },
-      { header: 'القيمة', key: 'value' },
-    ];
+    const columns = DETAIL_COLUMNS;
 
-    if (type === 'excel') {
-      const buffer = await this.reportService.generateExcel(
-        reportData,
-        columns,
-      );
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename=deduction_${deduction.employee?.employeeCode || id}.xlsx`,
-      );
-      return res.send(buffer);
-    }
-
-    if (type === 'pdf') {
-      const buffer = await this.reportService.generatePdf(
-        reportData,
-        columns,
-        `خصم: ${deduction.employee?.fullName}`,
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename=deduction_${deduction.employee?.employeeCode || id}.pdf`,
-      );
-      return res.send(buffer);
-    }
-
-    throw new BadRequestException('نوع التصدير غير مدعوم');
+    return this.reportService.sendReport(res, type, {
+      rows: reportData,
+      columns,
+      title: `خصم: ${deduction.employee?.fullName}`,
+      filename: `deduction_${deduction.employee?.employeeCode || id}`,
+    });
   }
 
   @Get()
   @Permissions(PERMS.DEDUCTION_VIEW)
-  @RequiresFeature(FEATURES.DEDUCTIONS_MODULE || FEATURES.PAYROLL_MODULE) // ✅ حماية عرض القائمة
+  @RequiresFeature(FEATURES.DEDUCTIONS_MODULE) // ✅ حماية عرض القائمة
   @UseGuards(PermissionsGuard)
   findAll(@CurrentTenantId() tenantId: string) {
     return this.deductionsService.findAll(tenantId);
@@ -198,7 +150,7 @@ export class DeductionsController {
 
   @Get(':id')
   @Permissions(PERMS.DEDUCTION_VIEW)
-  @RequiresFeature(FEATURES.DEDUCTIONS_MODULE || FEATURES.PAYROLL_MODULE) // ✅ حماية عرض التفاصيل
+  @RequiresFeature(FEATURES.DEDUCTIONS_MODULE) // ✅ حماية عرض التفاصيل
   @UseGuards(PermissionsGuard)
   findOne(@Param('id') id: string, @CurrentTenantId() tenantId: string) {
     return this.deductionsService.findOne(id, tenantId);
@@ -206,7 +158,7 @@ export class DeductionsController {
 
   @Patch(':id')
   @Permissions(PERMS.DEDUCTION_UPDATE)
-  @RequiresFeature(FEATURES.DEDUCTIONS_MODULE || FEATURES.PAYROLL_MODULE) // ✅ حماية التعديل
+  @RequiresFeature(FEATURES.DEDUCTIONS_MODULE) // ✅ حماية التعديل
   @UseGuards(PermissionsGuard)
   update(
     @Param('id') id: string,
@@ -219,7 +171,7 @@ export class DeductionsController {
   // ✅ Endpoint جديد لتغيير حالة الخصم
   @Patch(':id/status')
   @Permissions(PERMS.DEDUCTION_UPDATE)
-  @RequiresFeature(FEATURES.DEDUCTIONS_MODULE || FEATURES.PAYROLL_MODULE) // ✅ حماية تغيير الحالة
+  @RequiresFeature(FEATURES.DEDUCTIONS_MODULE) // ✅ حماية تغيير الحالة
   @UseGuards(PermissionsGuard)
   updateStatus(
     @Param('id') id: string,
@@ -231,7 +183,7 @@ export class DeductionsController {
 
   @Delete(':id')
   @Permissions(PERMS.DEDUCTION_DELETE)
-  @RequiresFeature(FEATURES.DEDUCTIONS_MODULE || FEATURES.PAYROLL_MODULE) // ✅ حماية الحذف
+  @RequiresFeature(FEATURES.DEDUCTIONS_MODULE) // ✅ حماية الحذف
   @UseGuards(PermissionsGuard)
   remove(@Param('id') id: string, @CurrentTenantId() tenantId: string) {
     return this.deductionsService.remove(id, tenantId);

@@ -12,7 +12,11 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { EmployeesService } from './employees.service';
+import {
+  EmployeesService,
+  type EmployeeFilterOptions,
+} from './employees.service';
+import { Employee, NationalityType } from './entities/employee.entity';
 import { EmployeesOnboardingService } from './employees-onboarding.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
@@ -29,9 +33,63 @@ import {
   CurrentUser,
   type CurrentUserData,
 } from '../../common/decorators/current-user.decorator';
-import { ReportService } from '../../common/reports/report.service';
-import { PERMS } from 'src/common/constants/permissions';
-import { FEATURES } from 'src/common/constants/features';
+import {
+  DETAIL_COLUMNS,
+  ReportService,
+  type ReportColumn,
+  type ReportRow,
+} from '../../common/reports/report.service';
+import { PERMS } from '../../common/constants/permissions';
+import { FEATURES } from '../../common/constants/features';
+import { formatAmount, formatDate } from '../../common/utils/format.util';
+
+const EMPLOYEE_STATUS_LABELS: Record<Employee['status'], string> = {
+  active: 'نشط',
+  inactive: 'غير نشط',
+  terminated: 'منهي الخدمة',
+};
+
+const NATIONALITY_TYPE_LABELS: Partial<Record<NationalityType, string>> = {
+  [NationalityType.SAUDI]: 'سعودي',
+  [NationalityType.NON_SAUDI]: 'غير سعودي',
+};
+
+const EMPLOYEE_LIST_COLUMNS: ReportColumn[] = [
+  { header: 'الاسم الكامل', key: 'fullName' },
+  { header: 'كود الموظف', key: 'employeeCode' },
+  { header: 'القسم', key: 'departmentName' },
+  { header: 'حالة الجنسية', key: 'nationalityTypeLabel' },
+  { header: 'تاريخ انتهاء الهوية', key: 'iqamaExpiryDate' },
+  { header: 'رقم الهوية', key: 'nationalId' },
+  { header: 'المسمى الوظيفي', key: 'jobTitle' },
+  { header: 'الحالة', key: 'statusLabel' },
+];
+
+/** صف الموظف في تقارير القوائم (التصدير الكامل والمُفلتر) */
+const toEmployeeListRow = (emp: Employee): ReportRow => ({
+  fullName: emp.fullName,
+  employeeCode: emp.employeeCode,
+  departmentName: emp.department?.name || '-',
+  nationalityTypeLabel:
+    NATIONALITY_TYPE_LABELS[emp.nationalityType] ?? 'خارج الكفالة',
+  iqamaExpiryDate: emp.iqamaExpiryDate ? formatDate(emp.iqamaExpiryDate) : '-',
+  nationalId: emp.nationalId || '-',
+  jobTitle: emp.jobTitle || '-',
+  statusLabel: EMPLOYEE_STATUS_LABELS[emp.status],
+});
+
+/** تحويل Query params (نصوص) إلى خيارات الفلترة المستخدمة في الـ Service */
+const toFilterOptions = (query: EmployeeFilterDto): EmployeeFilterOptions => ({
+  status: query.status,
+  nationalityType: query.nationalityType,
+  departmentId: query.departmentId,
+  shiftId: query.shiftId,
+  hasUser: query.hasUser !== undefined ? query.hasUser === 'true' : undefined,
+  hasContract:
+    query.hasContract !== undefined ? query.hasContract === 'true' : undefined,
+  iqamaExpiringSoon: query.iqamaExpiringSoon === 'true',
+  search: query.search,
+});
 
 @Controller('employees')
 @UseGuards(JwtAuthGuard, SubscriptionGuard, PermissionsGuard)
@@ -75,20 +133,7 @@ export class EmployeesController {
     @Query() query: EmployeeFilterDto,
     @CurrentTenantId() tenantId: string,
   ) {
-    return this.employeesService.findFiltered(tenantId, {
-      status: query.status,
-      nationalityType: query.nationalityType,
-      departmentId: query.departmentId,
-      shiftId: query.shiftId,
-      hasUser:
-        query.hasUser !== undefined ? query.hasUser === 'true' : undefined,
-      hasContract:
-        query.hasContract !== undefined
-          ? query.hasContract === 'true'
-          : undefined,
-      iqamaExpiringSoon: query.iqamaExpiringSoon === 'true',
-      search: query.search,
-    });
+    return this.employeesService.findFiltered(tenantId, toFilterOptions(query));
   }
 
   // ✅ تصدير نتائج الفلترة المتقدمة — قبل route ':id' أيضاً
@@ -96,166 +141,45 @@ export class EmployeesController {
   @Permissions(PERMS.EMPLOYEE_EXPORT)
   @RequiresFeature(FEATURES.REPORTS_EXPORT)
   async exportFiltered(
-    @Param('type') type: 'excel' | 'pdf',
+    @Param('type') type: string,
     @Query() query: EmployeeFilterDto,
     @CurrentTenantId() tenantId: string,
     @Res() res: Response,
   ) {
-    const data = await this.employeesService.findFiltered(tenantId, {
-      status: query.status,
-      nationalityType: query.nationalityType,
-      departmentId: query.departmentId,
-      shiftId: query.shiftId,
-      hasUser:
-        query.hasUser !== undefined ? query.hasUser === 'true' : undefined,
-      hasContract:
-        query.hasContract !== undefined
-          ? query.hasContract === 'true'
-          : undefined,
-      iqamaExpiringSoon: query.iqamaExpiringSoon === 'true',
-      search: query.search,
+    const data = await this.employeesService.findFiltered(
+      tenantId,
+      toFilterOptions(query),
+    );
+
+    const columns = EMPLOYEE_LIST_COLUMNS;
+    const formattedData = data.map(toEmployeeListRow);
+
+    return this.reportService.sendReport(res, type, {
+      rows: formattedData,
+      columns,
+      title: 'تقرير الموظفين (نتائج الفلترة)',
+      filename: 'employees_filtered',
     });
-
-    const columns = [
-      { header: 'الاسم الكامل', key: 'fullName' },
-      { header: 'كود الموظف', key: 'employeeCode' },
-      { header: 'القسم', key: 'departmentName' },
-      { header: 'حالة الجنسية', key: 'nationalityTypeLabel' },
-      { header: 'تاريخ انتهاء الهوية', key: 'iqamaExpiryDate' },
-      { header: 'رقم الهوية', key: 'nationalId' },
-      { header: 'المسمى الوظيفي', key: 'jobTitle' },
-      { header: 'الحالة', key: 'statusLabel' },
-    ];
-
-    const formattedData = data.map((emp) => ({
-      fullName: emp.fullName,
-      employeeCode: emp.employeeCode,
-      departmentName: emp.department?.name || '-',
-      nationalityTypeLabel:
-        String(emp.nationalityType) === 'saudi'
-          ? 'سعودي'
-          : String(emp.nationalityType) === 'non_saudi'
-            ? 'غير سعودي'
-            : 'خارج الكفالة',
-      iqamaExpiryDate: emp.iqamaExpiryDate
-        ? new Date(emp.iqamaExpiryDate).toLocaleDateString('ar-SA')
-        : '-',
-      nationalId: emp.nationalId || '-',
-      jobTitle: emp.jobTitle || '-',
-      statusLabel:
-        emp.status === 'active'
-          ? 'نشط'
-          : emp.status === 'inactive'
-            ? 'غير نشط'
-            : 'منهي الخدمة',
-    }));
-
-    if (type === 'excel') {
-      const buffer = await this.reportService.generateExcel(
-        formattedData,
-        columns,
-      );
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-      res.setHeader(
-        'Content-Disposition',
-        'attachment; filename=employees_filtered.xlsx',
-      );
-      return res.send(buffer);
-    }
-
-    if (type === 'pdf') {
-      const buffer = await this.reportService.generatePdf(
-        formattedData,
-        columns,
-        'تقرير الموظفين (نتائج الفلترة)',
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader(
-        'Content-Disposition',
-        'attachment; filename=employees_filtered.pdf',
-      );
-      return res.send(buffer);
-    }
-
-    throw new BadRequestException('نوع التصدير غير مدعوم');
   }
 
   @Get('export/:type')
   @Permissions(PERMS.EMPLOYEE_EXPORT)
   @RequiresFeature(FEATURES.REPORTS_EXPORT)
   async exportEmployees(
-    @Param('type') type: 'excel' | 'pdf',
+    @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
     @Res() res: Response,
   ) {
     const data = await this.employeesService.findAll(tenantId);
-    const columns = [
-      { header: 'الاسم الكامل', key: 'fullName' },
-      { header: 'كود الموظف', key: 'employeeCode' },
-      { header: 'القسم', key: 'departmentName' },
-      { header: 'حالة الموظف', key: 'nationalityTypeLabel' },
-      { header: 'تاريخ انتهاء الهوية', key: 'iqamaExpiryDate' },
-      { header: 'رقم الهوية', key: 'nationalId' },
-      { header: 'المسمى الوظيفي', key: 'jobTitle' },
-      { header: 'الحالة', key: 'statusLabel' },
-    ];
+    const columns = EMPLOYEE_LIST_COLUMNS;
+    const formattedData = data.map(toEmployeeListRow);
 
-    const formattedData = data.map((emp) => ({
-      fullName: emp.fullName,
-      employeeCode: emp.employeeCode,
-      departmentName: emp.department?.name || '-',
-      nationalityTypeLabel:
-        String(emp.nationalityType) === 'saudi'
-          ? 'سعودي'
-          : String(emp.nationalityType) === 'non_saudi'
-            ? 'غير سعودي'
-            : 'خارج الكفالة',
-      iqamaExpiryDate: emp.iqamaExpiryDate
-        ? new Date(emp.iqamaExpiryDate).toLocaleDateString('ar-SA')
-        : '-',
-      nationalId: emp.nationalId || '-',
-      phone: emp.phone || '-',
-      jobTitle: emp.jobTitle || '-',
-      statusLabel:
-        emp.status === 'active'
-          ? 'نشط'
-          : emp.status === 'inactive'
-            ? 'غير نشط'
-            : 'منهي الخدمة',
-    }));
-
-    if (type === 'excel') {
-      const buffer = await this.reportService.generateExcel(
-        formattedData,
-        columns,
-      );
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-      res.setHeader(
-        'Content-Disposition',
-        'attachment; filename=employees.xlsx',
-      );
-      return res.send(buffer);
-    }
-
-    if (type === 'pdf') {
-      const buffer = await this.reportService.generatePdf(
-        formattedData,
-        columns,
-        'تقرير الموظفين',
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader(
-        'Content-Disposition',
-        'attachment; filename=employees.pdf',
-      );
-      return res.send(buffer);
-    }
+    return this.reportService.sendReport(res, type, {
+      rows: formattedData,
+      columns,
+      title: 'تقرير الموظفين',
+      filename: 'employees',
+    });
   }
 
   @Get(':id/export/:type')
@@ -263,24 +187,18 @@ export class EmployeesController {
   @RequiresFeature(FEATURES.REPORTS_EXPORT)
   async exportSingleEmployee(
     @Param('id') id: string,
-    @Param('type') type: 'excel' | 'pdf',
+    @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
     @Res() res: Response,
   ) {
     const employee = await this.employeesService.findOne(id, tenantId);
-    if (!employee) throw new BadRequestException('الموظف غير موجود');
 
-    const reportData: any[] = [
+    const reportData: ReportRow[] = [
       { label: 'الاسم الكامل', value: employee.fullName },
       { label: 'كود الموظف', value: employee.employeeCode },
       {
         label: 'الحالة',
-        value:
-          employee.status === 'active'
-            ? 'نشط'
-            : employee.status === 'inactive'
-              ? 'غير نشط'
-              : 'منهي الخدمة',
+        value: EMPLOYEE_STATUS_LABELS[employee.status],
       },
       { label: 'رقم الهوية', value: employee.nationalId || '-' },
       { label: 'الهاتف', value: employee.phone || '-' },
@@ -292,9 +210,7 @@ export class EmployeesController {
             { label: 'نوع العقد', value: employee.contract.contractType },
             {
               label: 'تاريخ البداية',
-              value: new Date(employee.contract.startDate).toLocaleDateString(
-                'ar-SA',
-              ),
+              value: formatDate(employee.contract.startDate),
             },
             {
               label: 'مدة العقد',
@@ -316,15 +232,15 @@ export class EmployeesController {
         ? [
             {
               label: 'الراتب الأساسي',
-              value: `${Number(employee.salaries[0].basicSalary).toLocaleString('ar-SA')} ر.س`,
+              value: `${formatAmount(employee.salaries[0].basicSalary)} ر.س`,
             },
             {
               label: 'بدل السكن',
-              value: `${Number(employee.salaries[0].housingAllowance).toLocaleString('ar-SA')} ر.س`,
+              value: `${formatAmount(employee.salaries[0].housingAllowance)} ر.س`,
             },
             {
               label: 'إجمالي الراتب',
-              value: `${Number(employee.salaries[0].totalSalary).toLocaleString('ar-SA')} ر.س`,
+              value: `${formatAmount(employee.salaries[0].totalSalary)} ر.س`,
             },
           ]
         : []),
@@ -344,8 +260,8 @@ export class EmployeesController {
       reportData.push({ label: '--- السلف المالية ---', value: '' });
       employee.advances.forEach((adv) => {
         reportData.push({
-          label: `سلفة (${new Date(adv.createdAt).toLocaleDateString('ar-SA')})`,
-          value: `${Number(adv.amount).toLocaleString('ar-SA')} ر.س (${adv.status})`,
+          label: `سلفة (${formatDate(adv.createdAt)})`,
+          value: `${formatAmount(adv.amount)} ر.س (${adv.status})`,
         });
       });
     }
@@ -354,48 +270,20 @@ export class EmployeesController {
       reportData.push({ label: '--- القروض ---', value: '' });
       employee.loans.forEach((loan) => {
         reportData.push({
-          label: `قرض (${new Date(loan.startDate).toLocaleDateString('ar-SA')})`,
-          value: `${Number(loan.totalAmount).toLocaleString('ar-SA')} ر.س / ${loan.installmentsCount} قسط`,
+          label: `قرض (${formatDate(loan.startDate)})`,
+          value: `${formatAmount(loan.totalAmount)} ر.س / ${loan.installmentsCount} قسط`,
         });
       });
     }
 
-    const columns = [
-      { header: 'البيان', key: 'label' },
-      { header: 'القيمة', key: 'value' },
-    ];
+    const columns = DETAIL_COLUMNS;
 
-    if (type === 'excel') {
-      const buffer = await this.reportService.generateExcel(
-        reportData,
-        columns,
-      );
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename=employee_${employee.employeeCode}.xlsx`,
-      );
-      return res.send(buffer);
-    }
-
-    if (type === 'pdf') {
-      const buffer = await this.reportService.generatePdf(
-        reportData,
-        columns,
-        `ملف الموظف: ${employee.fullName}`,
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename=employee_${employee.employeeCode}.pdf`,
-      );
-      return res.send(buffer);
-    }
-
-    throw new BadRequestException('نوع التصدير غير مدعوم');
+    return this.reportService.sendReport(res, type, {
+      rows: reportData,
+      columns,
+      title: `ملف الموظف: ${employee.fullName}`,
+      filename: `employee_${employee.employeeCode}`,
+    });
   }
 
   @Get()

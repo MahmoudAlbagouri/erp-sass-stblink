@@ -41,8 +41,6 @@ export class AdmsService {
     private readonly deviceRepo: Repository<BiometricDevice>,
     @InjectRepository(AttendanceLog)
     private readonly logRepo: Repository<AttendanceLog>,
-    @InjectRepository(Employee)
-    private readonly employeeRepo: Repository<Employee>,
     private readonly dataSource: DataSource,
     private readonly attendanceService: AttendanceService, // ✅ جديد
   ) {}

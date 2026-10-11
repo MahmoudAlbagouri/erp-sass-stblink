@@ -13,7 +13,7 @@ import { UpdateEOSDto } from './dto/update-eos.dto';
 import { Employee } from '../employees/entities/employee.entity';
 import { ContractsService } from '../contracts/contracts.service';
 import { SalariesService } from '../salaries/salaries.service';
-import { DateUtils } from '../../common/utils/date.utils';
+import { formatDate } from '../../common/utils/format.util';
 
 @Injectable()
 export class EOSService {
@@ -22,7 +22,6 @@ export class EOSService {
     @InjectRepository(Employee) private empRepo: Repository<Employee>,
     private contractsService: ContractsService,
     private salariesService: SalariesService,
-    private dateUtils: DateUtils,
   ) {}
 
   /**
@@ -75,9 +74,7 @@ export class EOSService {
     });
     if (existingEOS) {
       throw new BadRequestException(
-        `هذا الموظف لديه سجل نهاية خدمة مسجل مسبقاً بتاريخ ${new Date(
-          existingEOS.terminationDate,
-        ).toLocaleDateString()}. لا يمكن تسجيل نهاية خدمة لموظف تم إنهاء خدماته بالفعل.`,
+        `هذا الموظف لديه سجل نهاية خدمة مسجل مسبقاً بتاريخ ${formatDate(existingEOS.terminationDate)}. لا يمكن تسجيل نهاية خدمة لموظف تم إنهاء خدماته بالفعل.`,
       );
     }
 

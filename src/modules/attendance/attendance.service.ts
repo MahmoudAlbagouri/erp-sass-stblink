@@ -33,7 +33,12 @@ import { Employee } from '../employees/entities/employee.entity';
 import { User } from '../users/entities/user.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationCategory } from '../notifications/entities/notification.entity';
-import { ReportService } from '../../common/reports/report.service';
+import {
+  ReportService,
+  type ReportColumn,
+  type ReportRow,
+} from '../../common/reports/report.service';
+import { formatDate, formatDateTime } from '../../common/utils/format.util';
 
 const EDIT_WINDOW_HOURS = 24;
 const MANUAL_ENTRY_WINDOW_HOURS = 24;
@@ -71,8 +76,6 @@ export class AttendanceService {
     private readonly deviceRepo: Repository<BiometricDevice>,
     @InjectRepository(AttendanceLog)
     private readonly logRepo: Repository<AttendanceLog>,
-    @InjectRepository(Shift)
-    private readonly shiftRepo: Repository<Shift>,
     private readonly dataSource: DataSource,
     private readonly notificationsService: NotificationsService,
     private readonly reportService: ReportService,
@@ -183,9 +186,10 @@ export class AttendanceService {
 
     if (!checkIn) {
       // ✅ مفيش بصمة حضور مقابلة — نصفّر القيم بدل ما نسيبها بقيمة قديمة غلط
+      // (null وليس undefined: TypeORM يتجاهل undefined فيفشل الـ UPDATE لعدم وجود قيم)
       await logRepo.update(checkOutLog.id, {
-        workHours: undefined,
-        overtimeHours: undefined,
+        workHours: null,
+        overtimeHours: null,
       });
       return;
     }
@@ -297,7 +301,7 @@ export class AttendanceService {
         saved.employeeId,
         user.tenantId,
         'تم تعديل بصمة حضور',
-        `تم تعديل بصمة "${PUNCH_TYPE_LABELS_AR[saved.punchType]}" الخاصة بك إلى ${saved.punchTime.toLocaleString('ar-SA')} بواسطة ${log.editedByName ?? 'الإدارة'}`,
+        `تم تعديل بصمة "${PUNCH_TYPE_LABELS_AR[saved.punchType]}" الخاصة بك إلى ${formatDateTime(saved.punchTime)} بواسطة ${log.editedByName ?? 'الإدارة'}`,
       );
     }
 
@@ -368,8 +372,8 @@ export class AttendanceService {
         ? 'تم تسجيل إجازة'
         : 'تم تسجيل بصمة يدوية',
       saved.punchType === PunchType.LEAVE
-        ? `تم تسجيل إجازة لك بتاريخ ${saved.punchTime.toLocaleDateString('ar-SA')}${dto.leaveReason ? ` — السبب: ${dto.leaveReason}` : ''}`
-        : `تم تسجيل بصمة "${PUNCH_TYPE_LABELS_AR[saved.punchType]}" يدويًا لك بتاريخ ${saved.punchTime.toLocaleString('ar-SA')}`,
+        ? `تم تسجيل إجازة لك بتاريخ ${formatDate(saved.punchTime)}${dto.leaveReason ? ` — السبب: ${dto.leaveReason}` : ''}`
+        : `تم تسجيل بصمة "${PUNCH_TYPE_LABELS_AR[saved.punchType]}" يدويًا لك بتاريخ ${formatDateTime(saved.punchTime)}`,
     );
 
     return this.logRepo.findOneOrFail({
@@ -485,11 +489,12 @@ export class AttendanceService {
   }
 
   async findLogs(query: AttendanceQueryDto, user: CurrentUserData) {
-    const { page = 1, limit = 50 } = query;
+    const { page = 1 } = query;
+    const limit = Math.min(query.limit ?? 50, 200);
 
     const qb = this.buildLogsQuery(query, user)
       .orderBy('log.punchTime', 'DESC')
-      .take(Math.min(limit, 200))
+      .take(limit)
       .skip((page - 1) * limit);
 
     const [data, total] = await qb.getManyAndCount();
@@ -517,14 +522,14 @@ export class AttendanceService {
   // ✅ تصدير نتائج الفلترة PDF / Excel
   async exportLogs(
     query: AttendanceQueryDto,
-    type: 'excel' | 'pdf',
+    type: string,
     user: CurrentUserData,
   ): Promise<Buffer> {
     const logs = await this.buildLogsQuery(query, user)
       .orderBy('log.punchTime', 'DESC')
       .getMany();
 
-    const columns = [
+    const columns: ReportColumn[] = [
       { header: 'الموظف', key: 'employeeName' },
       { header: 'كود الموظف', key: 'employeeCode' },
       { header: 'النوع', key: 'punchTypeLabel' },
@@ -535,25 +540,22 @@ export class AttendanceService {
       { header: 'تم تعديلها', key: 'editedLabel' },
     ];
 
-    const rows = logs.map((l) => ({
+    const rows: ReportRow[] = logs.map((l) => ({
       employeeName: l.employee?.fullName ?? '—',
       employeeCode: l.deviceUserId,
       punchTypeLabel: PUNCH_TYPE_LABELS_AR[l.punchType] ?? l.punchType,
-      punchTime: l.punchTime.toLocaleString('ar-SA'),
+      punchTime: formatDateTime(l.punchTime),
       workHours: l.workHours != null ? String(l.workHours) : '—',
       overtimeHours: l.overtimeHours != null ? String(l.overtimeHours) : '—',
       leaveReason: l.leaveReason ?? '—',
       editedLabel: l.isEdited ? `نعم (${l.editedByName ?? '-'})` : 'لا',
     }));
 
-    if (type === 'excel') {
-      return this.reportService.generateExcel(rows, columns);
-    }
-    return this.reportService.generatePdf(
+    return this.reportService.generate(type, {
       rows,
       columns,
-      'تقرير سجلات الحضور والانصراف',
-    );
+      title: 'تقرير سجلات الحضور والانصراف',
+    });
   }
 
   // ==========================================================
@@ -775,8 +777,8 @@ export class AttendanceService {
         lateMinutes: evaluation.lateMinutes,
         earlyLeaveMinutes: evaluation.earlyLeaveMinutes,
         status: evaluation.status,
-        workHours: checkOutLog.workHours,
-        overtimeHours: checkOutLog.overtimeHours,
+        workHours: checkOutLog.workHours ?? undefined,
+        overtimeHours: checkOutLog.overtimeHours ?? undefined,
       });
     }
 

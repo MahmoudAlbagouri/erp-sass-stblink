@@ -4,7 +4,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, Repository } from 'typeorm';
 import {
   ResignationRequest,
   ResignationStatus,
@@ -70,7 +70,6 @@ export class ResignationsService {
   async makeDecision(
     id: string,
     dto: DecisionResignationDto,
-    managerId: string,
     tenantId: string,
   ): Promise<ResignationRequest> {
     const request = await this.reqRepo.findOne({ where: { id, tenantId } });
@@ -107,7 +106,7 @@ export class ResignationsService {
     tenantId: string,
     status?: ResignationStatus,
   ): Promise<ResignationRequest[]> {
-    const where: any = { tenantId };
+    const where: FindOptionsWhere<ResignationRequest> = { tenantId };
     if (status) where.status = status;
 
     return this.reqRepo.find({

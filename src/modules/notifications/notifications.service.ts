@@ -1,10 +1,16 @@
 // src/modules/notifications/notifications.service.ts
-import { Injectable, Logger, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, SelectQueryBuilder } from 'typeorm';
 import {
   Notification,
   NotificationCategory,
+  NotificationType,
 } from './entities/notification.entity';
 import { User } from '../users/entities/user.entity';
 
@@ -12,13 +18,16 @@ interface INotificationPayload {
   recipientId: string;
   title: string;
   message: string;
-  type?: any;
+  type?: NotificationType;
   category: NotificationCategory;
   referenceId?: string;
   referenceType?: string;
   actionUrl?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
+
+/** نطاق الإدارة: معرّف الشركة، أو null لمالك النظام (كل الشركات) */
+export type NotificationAdminScope = string | null;
 
 @Injectable()
 export class NotificationsService {
@@ -31,11 +40,21 @@ export class NotificationsService {
     private userRepo: Repository<User>,
   ) {}
 
-  async create(payload: INotificationPayload): Promise<Notification | null> {
+  /**
+   * @param senderTenantScope عند الإرسال من الـ API: شركة المُرسِل، لمنع
+   * إرسال إشعار لمستخدم في شركة أخرى. يُترك فارغاً للاستخدام الداخلي.
+   */
+  async create(
+    payload: INotificationPayload,
+    senderTenantScope?: NotificationAdminScope,
+  ): Promise<Notification | null> {
     const recipient = await this.userRepo.findOne({
       where: { id: payload.recipientId },
     });
-    if (!recipient) {
+    if (
+      !recipient ||
+      (senderTenantScope && recipient.tenantId !== senderTenantScope)
+    ) {
       this.logger.error(`Recipient not found: ${payload.recipientId}`);
       return null;
     }
@@ -80,17 +99,21 @@ export class NotificationsService {
    * ✅ جديد: جلب جميع الإشعارات للمديرين
    * يدعم الفلترة حسب: الفئة، حالة القراءة، اسم الموظف، المرجع
    */
-  async findAllForAdmin(filters?: {
-    isRead?: boolean;
-    category?: NotificationCategory;
-    recipientName?: string;
-    referenceType?: string;
-    page?: number;
-    limit?: number;
-  }) {
-    const query = this.notificationRepo
-      .createQueryBuilder('notification')
-      .leftJoinAndSelect('notification.recipient', 'recipient');
+  async findAllForAdmin(
+    tenantScope: NotificationAdminScope,
+    filters?: {
+      isRead?: boolean;
+      category?: NotificationCategory;
+      recipientName?: string;
+      referenceType?: string;
+      page?: number;
+      limit?: number;
+    },
+  ) {
+    const query = this.scopedAdminQuery(tenantScope).leftJoinAndSelect(
+      'notification.recipient',
+      'recipient',
+    );
 
     if (filters?.isRead !== undefined) {
       query.andWhere('notification.isRead = :isRead', {
@@ -105,7 +128,8 @@ export class NotificationsService {
     }
 
     if (filters?.recipientName) {
-      query.andWhere('LOWER(recipient.fullName) LIKE LOWER(:name)', {
+      // User لا يملك fullName — الاسم المتاح هو username
+      query.andWhere('LOWER(recipient.username) LIKE LOWER(:name)', {
         name: `%${filters.recipientName}%`,
       });
     }
@@ -137,26 +161,28 @@ export class NotificationsService {
   /**
    * ✅ جديد: إحصائيات الإشعارات للمديرين (Dashboard)
    */
-  async getAdminStats() {
-    const total = await this.notificationRepo.count();
-    const unread = await this.notificationRepo.count({
-      where: { isRead: false },
-    });
+  async getAdminStats(tenantScope: NotificationAdminScope) {
+    const total = await this.scopedAdminQuery(tenantScope).getCount();
+    const unread = await this.scopedAdminQuery(tenantScope)
+      .andWhere('notification.isRead = false')
+      .getCount();
 
-    const byCategory = await this.notificationRepo
-      .createQueryBuilder('notification')
+    const byCategory = await this.scopedAdminQuery(tenantScope)
       .select('notification.category', 'category')
       .addSelect('COUNT(*)', 'count')
       .groupBy('notification.category')
-      .getRawMany();
+      .getRawMany<{ category: NotificationCategory; count: string }>();
 
-    const recentExpiry = await this.notificationRepo.count({
-      where: [
-        { category: NotificationCategory.CONTRACT_EXPIRY, isRead: false },
-        { category: NotificationCategory.ID_EXPIRY, isRead: false },
-        { category: NotificationCategory.PROBATION_END, isRead: false },
-      ],
-    });
+    const recentExpiry = await this.scopedAdminQuery(tenantScope)
+      .andWhere('notification.isRead = false')
+      .andWhere('notification.category IN (:...expiryCategories)', {
+        expiryCategories: [
+          NotificationCategory.CONTRACT_EXPIRY,
+          NotificationCategory.ID_EXPIRY,
+          NotificationCategory.PROBATION_END,
+        ],
+      })
+      .getCount();
 
     return {
       total,
@@ -188,15 +214,15 @@ export class NotificationsService {
   /**
    * ✅ جديد: المدير يقدر يحدد أي إشعار كمقروء (ليس فقط الخاص به)
    */
-  async markAsReadByAdmin(notificationId: string): Promise<void> {
-    const result = await this.notificationRepo.update(
+  async markAsReadByAdmin(
+    notificationId: string,
+    tenantScope: NotificationAdminScope,
+  ): Promise<void> {
+    await this.assertInAdminScope(notificationId, tenantScope);
+    await this.notificationRepo.update(
       { id: notificationId },
       { isRead: true },
     );
-
-    if (result.affected === 0) {
-      throw new ForbiddenException('Notification not found');
-    }
   }
 
   async markAllAsRead(userId: string): Promise<void> {
@@ -222,11 +248,37 @@ export class NotificationsService {
   /**
    * ✅ جديد: المدير يقدر يحذف أي إشعار
    */
-  async deleteByAdmin(notificationId: string): Promise<void> {
-    const result = await this.notificationRepo.delete({ id: notificationId });
+  async deleteByAdmin(
+    notificationId: string,
+    tenantScope: NotificationAdminScope,
+  ): Promise<void> {
+    await this.assertInAdminScope(notificationId, tenantScope);
+    await this.notificationRepo.delete({ id: notificationId });
+  }
 
-    if (result.affected === 0) {
-      throw new ForbiddenException('Notification not found');
+  /**
+   * ✅ عزل الشركات: مدير الشركة يرى إشعارات مستخدمي شركته فقط،
+   * ومالك النظام (tenantScope = null) يرى الكل.
+   */
+  private scopedAdminQuery(
+    tenantScope: NotificationAdminScope,
+  ): SelectQueryBuilder<Notification> {
+    const query = this.notificationRepo.createQueryBuilder('notification');
+    if (tenantScope) {
+      query
+        .innerJoin('notification.recipient', 'scopeRecipient')
+        .where('scopeRecipient.tenantId = :tenantScope', { tenantScope });
     }
+    return query;
+  }
+
+  private async assertInAdminScope(
+    notificationId: string,
+    tenantScope: NotificationAdminScope,
+  ): Promise<void> {
+    const exists = await this.scopedAdminQuery(tenantScope)
+      .andWhere('notification.id = :notificationId', { notificationId })
+      .getExists();
+    if (!exists) throw new NotFoundException('Notification not found');
   }
 }

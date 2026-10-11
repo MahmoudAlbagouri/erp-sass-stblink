@@ -1,5 +1,5 @@
 // src/modules/salaries/entities/salary.entity.ts
-import { Employee } from 'src/modules/employees/entities/employee.entity';
+import { Employee } from '../../employees/entities/employee.entity';
 import {
   Entity,
   PrimaryGeneratedColumn,

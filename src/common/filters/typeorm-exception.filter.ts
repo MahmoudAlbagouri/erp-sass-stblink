@@ -12,19 +12,23 @@ export class TypeOrmExceptionFilter implements ExceptionFilter {
   catch(exception: QueryFailedError, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
-    const detail = (exception as any).detail; // استخراج التفاصيل من PostgreSQL
+    // استخراج التفاصيل من PostgreSQL
+    const { code, detail } = exception.driverError as {
+      code?: string;
+      detail?: string;
+    };
 
     let message = 'حدث خطأ في قاعدة البيانات';
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
 
     // معالجة خطأ القيم المكررة (كود 23505 في Postgres)
-    if ((exception as any).code === '23505') {
+    if (code === '23505') {
       status = HttpStatus.CONFLICT;
       message =
         'عفواً، هذه البيانات موجودة مسبقاً. يرجى التأكد من الـ SKU أو الحقول الفريدة.';
 
       // لوجيك إضافي لتحديد الحقل المسبب للمشكلة
-      if (detail && detail.includes('sku')) {
+      if (detail?.includes('sku')) {
         message = 'رمز المنتج (SKU) مستخدم بالفعل لمنتج آخر، يرجى تغيير الرمز.';
       }
     }

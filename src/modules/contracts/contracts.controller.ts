@@ -9,7 +9,6 @@ import {
   Delete,
   UseGuards,
   Res,
-  BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { ContractsService } from './contracts.service';
@@ -21,9 +20,14 @@ import { SubscriptionGuard } from '../../common/guards/subscription.guard'; // �
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { RequiresFeature } from '../../common/decorators/requires-feature.decorator'; // ✅ استيراد ديكوراتور الميزة
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
-import { ReportService } from '../../common/reports/report.service';
-import { PERMS } from 'src/common/constants/permissions';
-import { FEATURES } from 'src/common/constants/features'; // ✅ استيراد الثوابت
+import {
+  DETAIL_COLUMNS,
+  ReportService,
+  type ReportRow,
+} from '../../common/reports/report.service';
+import { PERMS } from '../../common/constants/permissions';
+import { formatDate } from '../../common/utils/format.util';
+import { FEATURES } from '../../common/constants/features'; // ✅ استيراد الثوابت
 
 @Controller('contracts')
 @UseGuards(JwtAuthGuard, SubscriptionGuard, PermissionsGuard) // ✅ تفعيل حراس الاشتراك والصلاحيات
@@ -45,7 +49,7 @@ export class ContractsController {
   @Permissions(PERMS.CONTRACT_EXPORT)
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
   async exportContracts(
-    @Param('type') type: 'excel' | 'pdf',
+    @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
     @Res() res: Response,
   ) {
@@ -67,10 +71,8 @@ export class ContractsController {
       employeeFullName: contract.employee?.fullName || '-',
       employeeCode: contract.employee?.employeeCode || '-',
       contractType: contract.contractType,
-      startDate: new Date(contract.startDate).toLocaleDateString('ar-SA'),
-      endDate: contract.endDate
-        ? new Date(contract.endDate).toLocaleDateString('ar-SA')
-        : 'غير محدد',
+      startDate: formatDate(contract.startDate),
+      endDate: contract.endDate ? formatDate(contract.endDate) : 'غير محدد',
       durationYears: contract.contractDurationYears
         ? `${contract.contractDurationYears} سنوات`
         : '-',
@@ -80,35 +82,12 @@ export class ContractsController {
       probationPeriod: contract.probationPeriod || '-',
     }));
 
-    if (type === 'excel') {
-      const buffer = await this.reportService.generateExcel(
-        formattedData,
-        columns,
-      );
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-      res.setHeader(
-        'Content-Disposition',
-        'attachment; filename=contracts.xlsx',
-      );
-      return res.send(buffer);
-    }
-
-    if (type === 'pdf') {
-      const buffer = await this.reportService.generatePdf(
-        formattedData,
-        columns,
-        'تقرير العقود',
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader(
-        'Content-Disposition',
-        'attachment; filename=contracts.pdf',
-      );
-      return res.send(buffer);
-    }
+    return this.reportService.sendReport(res, type, {
+      rows: formattedData,
+      columns,
+      title: 'تقرير العقود',
+      filename: 'contracts',
+    });
   }
 
   // ✅ مسار التصدير الفردي لعقد واحد (يجب أن يكون قبل findOne)
@@ -117,28 +96,25 @@ export class ContractsController {
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
   async exportSingleContract(
     @Param('id') id: string,
-    @Param('type') type: 'excel' | 'pdf',
+    @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
     @Res() res: Response,
   ) {
     const contract = await this.contractsService.findOne(id, tenantId);
-    if (!contract) throw new BadRequestException('العقد غير موجود');
 
-    const reportData: any[] = [
+    const reportData: ReportRow[] = [
       { label: 'اسم الموظف', value: contract.employee?.fullName || '-' },
       { label: 'كود الموظف', value: contract.employee?.employeeCode || '-' },
       { label: 'المسمى الوظيفي', value: contract.employee?.jobTitle || '-' },
-      { label: 'القسم', value: contract.employee?.department || '-' },
+      { label: 'القسم', value: contract.employee?.department?.name || '-' },
       { label: 'نوع العقد', value: contract.contractType },
       {
         label: 'تاريخ البداية',
-        value: new Date(contract.startDate).toLocaleDateString('ar-SA'),
+        value: formatDate(contract.startDate),
       },
       {
         label: 'تاريخ النهاية',
-        value: contract.endDate
-          ? new Date(contract.endDate).toLocaleDateString('ar-SA')
-          : 'غير محدد',
+        value: contract.endDate ? formatDate(contract.endDate) : 'غير محدد',
       },
       {
         label: 'مدة العقد',
@@ -156,7 +132,7 @@ export class ContractsController {
       { label: 'الجنسية', value: contract.nationality || '-' },
       {
         label: 'تاريخ الإنشاء',
-        value: new Date(contract.createdAt).toLocaleDateString('ar-SA'),
+        value: formatDate(contract.createdAt),
       },
     ];
 
@@ -171,42 +147,14 @@ export class ContractsController {
       });
     }
 
-    const columns = [
-      { header: 'البيان', key: 'label' },
-      { header: 'القيمة', key: 'value' },
-    ];
+    const columns = DETAIL_COLUMNS;
 
-    if (type === 'excel') {
-      const buffer = await this.reportService.generateExcel(
-        reportData,
-        columns,
-      );
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename=contract_${contract.employee?.employeeCode || id}.xlsx`,
-      );
-      return res.send(buffer);
-    }
-
-    if (type === 'pdf') {
-      const buffer = await this.reportService.generatePdf(
-        reportData,
-        columns,
-        `عقد الموظف: ${contract.employee?.fullName}`,
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename=contract_${contract.employee?.employeeCode || id}.pdf`,
-      );
-      return res.send(buffer);
-    }
-
-    throw new BadRequestException('نوع التصدير غير مدعوم');
+    return this.reportService.sendReport(res, type, {
+      rows: reportData,
+      columns,
+      title: `عقد الموظف: ${contract.employee?.fullName}`,
+      filename: `contract_${contract.employee?.employeeCode || id}`,
+    });
   }
 
   @Get()

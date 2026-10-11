@@ -10,6 +10,7 @@ import {
   NotificationCategory,
   Notification,
 } from '../entities/notification.entity';
+import { formatDate } from '../../../common/utils/format.util';
 
 @Injectable()
 export class ExpiryCheckStrategy {
@@ -36,7 +37,7 @@ export class ExpiryCheckStrategy {
    * دالة مساعدة لتحويل أي قيمة تاريخية (String أو Date) إلى كائن Date صالح
    * ترجع null إذا كانت القيمة غير صالحة
    */
-  private safeParseDate(value: any): Date | null {
+  private safeParseDate(value: Date | string | null | undefined): Date | null {
     if (!value) return null;
     const date = value instanceof Date ? value : new Date(value);
     return isNaN(date.getTime()) ? null : date;
@@ -55,7 +56,7 @@ export class ExpiryCheckStrategy {
   /**
    * فحص يومي للعقود التي ستنتهي خلال 30 يوم
    */
-  @Cron('*/1 * * * *') // ✅ مؤقتاً: كل دقيقة للاختبار (أعد تغييرها لـ EVERY_DAY_AT_MIDNIGHT بعد التأكد)
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   async checkContractExpiry(isManualTest: boolean = false) {
     if (!isManualTest) {
       this.logger.log('⏰ [CRON] Starting daily contract expiry check...');
@@ -105,7 +106,7 @@ export class ExpiryCheckStrategy {
           await this.notificationsService.create({
             recipientId: contract.employee.user.id,
             title: 'تنبيه: انتهاء العقد قريباً',
-            message: `عقدك سينتهي خلال ${daysLeft} يوم (${endDateObj.toLocaleDateString('ar-SA')})`,
+            message: `عقدك سينتهي خلال ${daysLeft} يوم (${formatDate(endDateObj)})`,
             category: NotificationCategory.CONTRACT_EXPIRY,
             referenceId: contract.id,
             referenceType: 'contract',

@@ -4,7 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { SalariesService } from './salaries.service';
 import { SalariesController } from './salaries.controller';
 import { Salary } from './entities/salary.entity';
-import { ReportService } from 'src/common/reports/report.service';
+import { ReportService } from '../../common/reports/report.service';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({

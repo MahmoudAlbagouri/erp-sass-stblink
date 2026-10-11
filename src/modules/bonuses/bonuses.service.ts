@@ -9,7 +9,7 @@ import { Bonus, BonusStatus } from './entities/bonus.entity';
 import { CreateBonusDto } from './dto/create-bonus.dto';
 import { UpdateBonusDto } from './dto/update-bonus.dto';
 import { Employee } from '../employees/entities/employee.entity';
-import { PayrollItem } from '../payroll/entities/payroll-item.entity';
+import { isPaidViaDisbursedPayroll } from '../payroll/utils/disbursed-payroll.util';
 
 @Injectable()
 export class BonusesService {
@@ -93,35 +93,6 @@ export class BonusesService {
   }
 
   /**
-   * ✅ تتحقق هل مبلغ هذا الشهر (لهذا الموظف) سبق ودُفع بالفعل ضمن مسير
-   * رواتب تم صرفه — لمنع تعليم مكافأة كـ"مصروفة استثنائياً" بعد فوات
-   * الأوان (بعد أن دخلت أصلاً ضمن مسير مصروف). لا تمنع الازدواجية
-   * المالية الفعلية (فات الأوان على ذلك)، لكنها تمنع تسجيل بيانات صرف
-   * كاذبة تُعطي انطباعاً بأن المبلغ صُرف مرتين.
-   */
-  private async isAlreadyPaidViaDisbursedPayroll(
-    employeeId: string,
-    tenantId: string,
-    referenceDate: Date,
-  ): Promise<boolean> {
-    const month = referenceDate.getMonth() + 1;
-    const year = referenceDate.getFullYear();
-
-    const paidItem = await this.dataSource
-      .getRepository(PayrollItem)
-      .createQueryBuilder('item')
-      .innerJoin('item.payroll', 'payroll')
-      .where('item.employeeId = :employeeId', { employeeId })
-      .andWhere('payroll.tenantId = :tenantId', { tenantId })
-      .andWhere('payroll.month = :month', { month })
-      .andWhere('payroll.year = :year', { year })
-      .andWhere('payroll.isDisbursed = true')
-      .getOne();
-
-    return !!paidItem;
-  }
-
-  /**
    * ✅ تأكيد الصرف الاستثنائي المباشر (Off-Cycle Disbursement)
    * يُستخدم عند صرف المكافأة للموظف مباشرة خارج دورة المسير الشهري.
    * ملاحظة: المبلغ يظل محسوباً ضمن إجمالي مستحقات الموظف عند توليد
@@ -148,7 +119,8 @@ export class BonusesService {
 
     // ✅ منع الصرف الاستثنائي لمكافأة سبق ودخلت ضمن مسير رواتب تم
     // صرفه بالفعل — عندها تكون قد صُرفت ماليًا مسبقاً عبر المسير نفسه
-    const alreadyPaid = await this.isAlreadyPaidViaDisbursedPayroll(
+    const alreadyPaid = await isPaidViaDisbursedPayroll(
+      this.dataSource,
       bonus.employeeId,
       tenantId,
       new Date(bonus.payoutDate),

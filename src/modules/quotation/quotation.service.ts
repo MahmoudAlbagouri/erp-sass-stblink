@@ -10,6 +10,7 @@ import { Quotation } from './entities/quotation.entity';
 import { CreateQuotationDto } from './dto/create-quotation.dto';
 import { UpdateQuotationDto } from './dto/update-quotation.dto';
 import { QuotationPdfService } from './quotation-pdf.service';
+import { formatDate } from '../../common/utils/format.util';
 
 @Injectable()
 export class QuotationService {
@@ -121,7 +122,7 @@ export class QuotationService {
 
     const pdfData = {
       quotationNumber: quotation.quotationNumber,
-      date: new Date().toLocaleDateString('ar-SA'),
+      date: formatDate(new Date()),
       customerName: quotation.customerName,
       customerPhone: quotation.customerPhone || '-',
       customerAddress: quotation.customerAddress || '-',
@@ -156,7 +157,7 @@ export class QuotationService {
     const pdfData = {
       invoiceNumber: quotation.invoiceNumber,
       quotationNumber: quotation.quotationNumber,
-      date: new Date().toLocaleDateString('ar-SA'),
+      date: formatDate(new Date()),
       customerName: quotation.customerName,
       customerPhone: quotation.customerPhone || '-',
       customerAddress: quotation.customerAddress || '-',

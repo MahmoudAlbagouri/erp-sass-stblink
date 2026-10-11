@@ -9,20 +9,22 @@ import {
 @ValidatorConstraint({ name: 'Match' })
 export class MatchConstraint implements ValidatorConstraintInterface {
   // الحقل المراد المقارنة به (مثلاً password)
-  validate(value: any, args: ValidationArguments) {
-    const [relatedPropertyName] = args.constraints;
-    const relatedValue = (args.object as any)[relatedPropertyName];
+  validate(value: unknown, args: ValidationArguments) {
+    const [relatedPropertyName] = args.constraints as [string];
+    const relatedValue = (args.object as Record<string, unknown>)[
+      relatedPropertyName
+    ];
     return value === relatedValue;
   }
 
   defaultMessage(args: ValidationArguments) {
-    const [relatedPropertyName] = args.constraints;
+    const [relatedPropertyName] = args.constraints as [string];
     return `${args.property} does not match ${relatedPropertyName}`;
   }
 }
 
 export function Match(property: string, validationOptions?: ValidationOptions) {
-  return (object: any, propertyName: string) => {
+  return (object: object, propertyName: string) => {
     registerDecorator({
       target: object.constructor,
       propertyName: propertyName,

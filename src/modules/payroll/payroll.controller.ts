@@ -24,8 +24,8 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 import { ReportService } from '../../common/reports/report.service';
-import { PERMS } from 'src/common/constants/permissions';
-import { FEATURES } from 'src/common/constants/features';
+import { PERMS } from '../../common/constants/permissions';
+import { FEATURES } from '../../common/constants/features';
 
 @Controller('payroll')
 @UseGuards(JwtAuthGuard, SubscriptionGuard)
@@ -96,7 +96,7 @@ export class PayrollController {
   @RequiresFeature(FEATURES.REPORTS_EXPORT)
   @UseGuards(PermissionsGuard)
   async exportPayroll(
-    @Param('type') type: 'excel' | 'pdf',
+    @Param('type') type: string,
     @Param('month') month: number,
     @Param('year') year: number,
     @CurrentTenantId() tenantId: string,
@@ -122,8 +122,7 @@ export class PayrollController {
     const employeeIds = payroll.items.map((item) => item.employeeId);
     const salaries = await this.salariesService.findByEmployeeIds(employeeIds);
 
-    const salaryMap = new Map();
-    salaries.forEach((s) => salaryMap.set(s.employeeId, s));
+    const salaryMap = new Map(salaries.map((s) => [s.employeeId, s]));
 
     const columns = [
       { header: 'الرقم الوظيفي', key: 'employeeCode' },
@@ -204,31 +203,11 @@ export class PayrollController {
       netSalary: totals.net.toLocaleString('en-US'),
     });
 
-    if (type === 'excel') {
-      const buffer = await this.reportService.generateExcel(data, columns);
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename=payroll_${year}_${month}.xlsx`,
-      );
-      return res.send(buffer);
-    }
-
-    if (type === 'pdf') {
-      const buffer = await this.reportService.generatePdf(
-        data,
-        columns,
-        `كشف رواتب شهر ${month}/${year}`,
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename=payroll_${year}_${month}.pdf`,
-      );
-      return res.send(buffer);
-    }
+    return this.reportService.sendReport(res, type, {
+      rows: data,
+      columns,
+      title: `كشف رواتب شهر ${month}/${year}`,
+      filename: `payroll_${year}_${month}`,
+    });
   }
 }

@@ -14,9 +14,9 @@ import { LeaveBalance } from './entities/leave-balance.entity';
 import { LeaveBalanceHistory } from './entities/leave-balance-history.entity';
 
 import { ContractsModule } from '../contracts/contracts.module';
-import { DateUtils } from 'src/common/utils/date.utils';
+import { DateUtils } from '../../common/utils/date.utils';
 import { LeavePolicyService } from './config/leave-policy.config';
-import { ReportService } from 'src/common/reports/report.service';
+import { ReportService } from '../../common/reports/report.service';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({

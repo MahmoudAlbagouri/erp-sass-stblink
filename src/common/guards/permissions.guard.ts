@@ -4,36 +4,20 @@ import {
   CanActivate,
   ExecutionContext,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { Request } from 'express';
 import {
   PERMISSIONS_KEY,
   PermissionMetadata,
 } from '../decorators/permissions.decorator';
-import { PermissionScope } from '../../modules/permissions/entities/permission.entity';
-
-interface AuthenticatedUser {
-  id: string;
-  tenantId?: string;
-  isSuperAdmin: boolean;
-  isSystemAdmin: boolean;
-  role?: {
-    scope: PermissionScope;
-    permissions?: {
-      name: string;
-      scope: PermissionScope;
-      tenantId?: string;
-    }[];
-  };
-}
-
-interface RequestWithUser extends Request {
-  user: AuthenticatedUser;
-}
+import type { AuthenticatedRequest } from '../types/auth.types';
+import { SYSTEM_PERMISSION_PREFIX } from '../../modules/permissions/utils/permission-scope.util';
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
+  private readonly logger = new Logger(PermissionsGuard.name);
+
   constructor(private reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
@@ -48,7 +32,9 @@ export class PermissionsGuard implements CanActivate {
       typeof p === 'string' ? p : p.name,
     );
 
-    const request = context.switchToHttp().getRequest<RequestWithUser>();
+    const request = context
+      .switchToHttp()
+      .getRequest<Partial<AuthenticatedRequest>>();
     const user = request.user;
 
     if (!user) throw new ForbiddenException('Not authenticated');
@@ -59,7 +45,7 @@ export class PermissionsGuard implements CanActivate {
     // ✅ 2. مدير الشركة: منع صلاحيات system فقط
     if (user.isSuperAdmin && user.tenantId) {
       const hasSystemPermission = requiredPermissions.some((perm) =>
-        perm.toLowerCase().startsWith('system:'),
+        perm.toLowerCase().startsWith(SYSTEM_PERMISSION_PREFIX),
       );
 
       if (hasSystemPermission) {
@@ -79,11 +65,9 @@ export class PermissionsGuard implements CanActivate {
     );
 
     if (!hasAllPermissions) {
-      console.log('🚫 Permission Denied:', {
-        required: requiredPermissions,
-        userHas: userPermNames,
-        userId: user.id,
-      });
+      this.logger.warn(
+        `Permission denied for user ${user.id}: requires [${requiredPermissions.join(', ')}]`,
+      );
 
       throw new ForbiddenException('Insufficient permissions');
     }

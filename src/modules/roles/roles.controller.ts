@@ -21,7 +21,7 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 // ✅ استيراد الثوابت
-import { PERMS } from 'src/common/constants/permissions';
+import { PERMS } from '../../common/constants/permissions';
 
 @Controller('roles')
 @UseGuards(JwtAuthGuard)
@@ -52,21 +52,34 @@ export class RolesController {
   @Get(':id')
   @Permissions(PERMS.ROLE_VIEW)
   @UseGuards(PermissionsGuard)
-  findOne(@Param('id') id: string) {
-    return this.rolesService.findOne(id);
+  findOne(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserData,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.rolesService.findOne(id, user, tenantId);
   }
 
   @Patch(':id')
   @Permissions(PERMS.ROLE_UPDATE)
   @UseGuards(PermissionsGuard)
-  update(@Param('id') id: string, @Body() dto: UpdateRoleDto) {
-    return this.rolesService.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateRoleDto,
+    @CurrentUser() user: CurrentUserData,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.rolesService.update(id, dto, user, tenantId);
   }
 
   @Delete(':id')
   @Permissions(PERMS.ROLE_DELETE)
   @UseGuards(PermissionsGuard)
-  remove(@Param('id') id: string) {
-    return this.rolesService.remove(id);
+  remove(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserData,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.rolesService.remove(id, user, tenantId);
   }
 }

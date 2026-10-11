@@ -6,7 +6,10 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Subscription, PlanQuotas } from './entities/subscription.entity';
-import { SubscriptionStatus } from '../../common/enums/subscription.enums';
+import {
+  BillingCycle,
+  SubscriptionStatus,
+} from '../../common/enums/subscription.enums';
 import { QuotaRegistryService } from './quota-registry.service';
 
 export interface QuotaCheckResult {
@@ -17,7 +20,13 @@ export interface QuotaCheckResult {
 }
 
 export interface SubscriptionUsageSummary {
-  plan: { id: string; name: string; nameAr: string };
+  plan: {
+    id: string;
+    name: string;
+    nameAr: string;
+    price: string;
+    billingCycle: BillingCycle;
+  };
   status: SubscriptionStatus;
   startDate: Date;
   endDate?: Date;
@@ -142,6 +151,8 @@ export class SubscriptionManagerService {
         id: subscription.plan.id,
         name: subscription.plan.name,
         nameAr: subscription.plan.nameAr,
+        price: subscription.plan.price,
+        billingCycle: subscription.plan.billingCycle,
       },
       status: subscription.status,
       startDate: subscription.startDate,

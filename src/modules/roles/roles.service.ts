@@ -10,6 +10,7 @@ import {
   Permission,
   PermissionScope,
 } from '../permissions/entities/permission.entity';
+import { filterTenantAssignablePermissions } from '../permissions/utils/permission-scope.util';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
 import { CurrentUserData } from '../../common/decorators/current-user.decorator';
@@ -20,6 +21,18 @@ export class RolesService {
     @InjectRepository(Role) private roleRepo: Repository<Role>,
     @InjectRepository(Permission) private permRepo: Repository<Permission>,
   ) {}
+
+  /** ✅ غير مالك النظام لا يستطيع إسناد صلاحيات system: أو صلاحيات شركة أخرى */
+  private async resolvePermissions(
+    permissionIds: string[],
+    user: CurrentUserData,
+    tenantId: string,
+  ): Promise<Permission[]> {
+    const permissions = await this.permRepo.findBy({ id: In(permissionIds) });
+    return user.isSystemAdmin
+      ? permissions
+      : filterTenantAssignablePermissions(permissions, tenantId);
+  }
 
   async create(
     dto: CreateRoleDto,
@@ -32,14 +45,14 @@ export class RolesService {
       throw new ForbiddenException('Only System Admin can create system roles');
     }
 
-    const permissions = await this.permRepo.findBy({
-      id: In(dto.permissionIds),
-    });
-
     const roleData = {
       name: dto.name,
       scope: dto.scope,
-      permissions,
+      permissions: await this.resolvePermissions(
+        dto.permissionIds,
+        user,
+        tenantId,
+      ),
       tenantId: isSystem ? null : tenantId,
     };
 
@@ -60,22 +73,47 @@ export class RolesService {
     });
   }
 
-  async findOne(id: string): Promise<Role> {
+  /**
+   * ✅ عزل الشركات: الأدوار العامة (tenantId = null) للقراءة فقط،
+   * وأدوار الشركات الأخرى غير مرئية إطلاقاً.
+   */
+  async findOne(
+    id: string,
+    user: CurrentUserData,
+    tenantId: string,
+    forWrite = false,
+  ): Promise<Role> {
     const role = await this.roleRepo.findOne({
       where: { id },
       relations: ['permissions'],
     });
     if (!role) throw new NotFoundException(`Role with ID ${id} not found`);
+    if (user.isSystemAdmin) return role;
+
+    const isOwnRole = role.tenantId === tenantId;
+    if (!isOwnRole && role.tenantId) {
+      throw new NotFoundException(`Role with ID ${id} not found`);
+    }
+    if (!isOwnRole && forWrite) {
+      throw new ForbiddenException('لا يمكن تعديل أو حذف أدوار النظام العامة');
+    }
     return role;
   }
 
-  async update(id: string, dto: UpdateRoleDto): Promise<Role> {
-    const role = await this.findOne(id);
+  async update(
+    id: string,
+    dto: UpdateRoleDto,
+    user: CurrentUserData,
+    tenantId: string,
+  ): Promise<Role> {
+    const role = await this.findOne(id, user, tenantId, true);
 
     if (dto.permissionIds) {
-      role.permissions = await this.permRepo.findBy({
-        id: In(dto.permissionIds),
-      });
+      role.permissions = await this.resolvePermissions(
+        dto.permissionIds,
+        user,
+        tenantId,
+      );
     }
 
     if (dto.name) role.name = dto.name;
@@ -83,8 +121,12 @@ export class RolesService {
     return await this.roleRepo.save(role);
   }
 
-  async remove(id: string): Promise<void> {
-    const role = await this.findOne(id);
+  async remove(
+    id: string,
+    user: CurrentUserData,
+    tenantId: string,
+  ): Promise<void> {
+    const role = await this.findOne(id, user, tenantId, true);
     await this.roleRepo.remove(role);
   }
 }

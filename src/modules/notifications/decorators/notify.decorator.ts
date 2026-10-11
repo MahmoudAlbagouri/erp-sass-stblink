@@ -13,7 +13,7 @@ export interface NotifyConfig {
   messageField?: string;
   recipientField?: string;
   referenceIdField?: string;
-  condition?: (data: any) => boolean;
+  condition?: (data: Record<string, unknown>) => boolean;
 }
 
 export function Notify(config: NotifyConfig) {

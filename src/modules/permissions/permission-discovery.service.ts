@@ -1,5 +1,5 @@
 // src/modules/permissions/permission-discovery.service.ts
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { DiscoveryService, Reflector } from '@nestjs/core';
 import {
   PERMISSIONS_KEY,
@@ -7,11 +7,10 @@ import {
 } from '../../common/decorators/permissions.decorator';
 import { PermissionCoreService } from './permission-core.service';
 import { PermissionScope } from './entities/permission.entity';
+import { SYSTEM_PERMISSION_PREFIX } from './utils/permission-scope.util';
 
 @Injectable()
 export class PermissionDiscoveryService implements OnModuleInit {
-  private readonly logger = new Logger(PermissionDiscoveryService.name);
-
   constructor(
     private readonly discoveryService: DiscoveryService,
     private readonly reflector: Reflector,
@@ -24,10 +23,9 @@ export class PermissionDiscoveryService implements OnModuleInit {
     for (const controller of controllers) {
       if (!controller.instance) continue;
 
-      // ✅ الحل 1: تحديد نوع prototype بوضوح
       const prototype = Object.getPrototypeOf(controller.instance) as Record<
         string,
-        any
+        unknown
       >;
 
       // ✅ الحل 2: تحديد نوع methodName كـ string
@@ -39,7 +37,7 @@ export class PermissionDiscoveryService implements OnModuleInit {
 
         const permissions = this.reflector.get<(string | PermissionMetadata)[]>(
           PERMISSIONS_KEY,
-          handler, // ✅ الآن handler معروف أنه Function
+          handler as (...args: unknown[]) => unknown,
         );
 
         if (!Array.isArray(permissions)) continue;
@@ -47,7 +45,7 @@ export class PermissionDiscoveryService implements OnModuleInit {
         for (const p of permissions) {
           const name = typeof p === 'string' ? p : p.name;
           const labelAr = typeof p === 'string' ? p : p.labelAr;
-          const scope = name.startsWith('system:')
+          const scope = name.startsWith(SYSTEM_PERMISSION_PREFIX)
             ? PermissionScope.SYSTEM
             : PermissionScope.TENANT;
 

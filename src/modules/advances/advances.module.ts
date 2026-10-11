@@ -5,7 +5,7 @@ import { AdvancesController } from './advances.controller';
 import { Advance } from './entities/advance.entity';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { SalariesModule } from '../salaries/salaries.module'; // استيراد موديول الرواتب
-import { ReportService } from 'src/common/reports/report.service';
+import { ReportService } from '../../common/reports/report.service';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({

@@ -1,7 +1,7 @@
 // src/common/constants/features.ts
 import { FeatureMetadata } from '../decorators/requires-feature.decorator';
 
-export const FEATURES: Record<string, FeatureMetadata> = {
+export const FEATURES = {
   // ─── الموديولات الأساسية ─────────────────────────────
   EMPLOYEES_MODULE: {
     name: 'employees_module',
@@ -69,4 +69,4 @@ export const FEATURES: Record<string, FeatureMetadata> = {
     name: 'api_access',
     labelAr: 'الوصول عبر API خارجي',
   },
-};
+} as const satisfies Record<string, FeatureMetadata>;

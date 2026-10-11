@@ -7,6 +7,7 @@ import {
   Param,
   UseGuards,
   Query,
+  NotFoundException,
 } from '@nestjs/common';
 import { ResignationsService } from './resignations.service';
 import { CreateResignationDto } from './dto/create-resignation.dto';
@@ -16,17 +17,14 @@ import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { SubscriptionGuard } from '../../common/guards/subscription.guard'; // ✅ استيراد الحارس
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { RequiresFeature } from '../../common/decorators/requires-feature.decorator'; // ✅ استيراد ديكوراتور الميزة
-import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import {
+  CurrentUser,
+  type CurrentUserData,
+} from '../../common/decorators/current-user.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 import { PERMS } from '../../common/constants/permissions';
 import { FEATURES } from '../../common/constants/features'; // ✅ استيراد الثوابت
 import { ResignationStatus } from './entities/resignation.entity';
-
-// ✅ تعريف واجهة للمستخدم لتجنب استخدام any
-interface CurrentUserData {
-  id: string;
-  employeeId?: string;
-}
 
 @Controller('resignations')
 @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
@@ -42,7 +40,8 @@ export class ResignationsController {
     @CurrentUser() user: CurrentUserData,
     @CurrentTenantId() tenantId: string,
   ) {
-    if (!user.employeeId) throw new Error('حسابك غير مرتبط بموظف');
+    if (!user.employeeId)
+      throw new NotFoundException('حسابك غير مرتبط بملف موظف');
     return this.resignationsService.findMyRequests(user.employeeId, tenantId);
   }
 
@@ -55,7 +54,8 @@ export class ResignationsController {
     @CurrentTenantId() tenantId: string,
     @Body() dto: CreateResignationDto,
   ) {
-    if (!user.employeeId) throw new Error('حسابك غير مرتبط بموظف');
+    if (!user.employeeId)
+      throw new NotFoundException('حسابك غير مرتبط بملف موظف');
     return this.resignationsService.create(dto, user.employeeId, tenantId);
   }
 
@@ -67,7 +67,8 @@ export class ResignationsController {
     @CurrentUser() user: CurrentUserData,
     @CurrentTenantId() tenantId: string,
   ) {
-    if (!user.employeeId) throw new Error('حسابك غير مرتبط بموظف');
+    if (!user.employeeId)
+      throw new NotFoundException('حسابك غير مرتبط بملف موظف');
     return this.resignationsService.cancelMyRequest(user.employeeId, tenantId);
   }
 
@@ -78,10 +79,9 @@ export class ResignationsController {
   makeDecision(
     @Param('id') id: string,
     @Body() dto: DecisionResignationDto,
-    @CurrentUser() user: CurrentUserData,
     @CurrentTenantId() tenantId: string,
   ) {
-    return this.resignationsService.makeDecision(id, dto, user.id, tenantId);
+    return this.resignationsService.makeDecision(id, dto, tenantId);
   }
 
   @Get()

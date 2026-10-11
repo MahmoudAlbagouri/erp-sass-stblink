@@ -23,6 +23,10 @@ import {
 } from './dto/query-notifications.dto';
 import { CreateNotificationDto } from './dto/create-notification.dto';
 
+/** مالك النظام يرى كل الشركات (null)، وغيره يُقيَّد بشركته */
+const adminScope = (user: CurrentUserData): string | null =>
+  user.isSystemAdmin ? null : user.tenantId;
+
 @Controller('notifications')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class NotificationsController {
@@ -83,17 +87,20 @@ export class NotificationsController {
   @Post()
   @Permissions(PERMS.NOTIFICATION_CREATE)
   async createNotification(
-    @Body() body: CreateNotificationDto, // ✅ DTO بدلاً من any
+    @Body() body: CreateNotificationDto,
+    @CurrentUser() user: CurrentUserData,
   ) {
-    // ✅ إزالة user غير المستخدم
-    const notification = await this.notificationsService.create({
-      recipientId: body.recipientId,
-      title: body.title,
-      message: body.message,
-      category: body.category,
-      referenceId: body.referenceId,
-      referenceType: body.referenceType,
-    });
+    const notification = await this.notificationsService.create(
+      {
+        recipientId: body.recipientId,
+        title: body.title,
+        message: body.message,
+        category: body.category,
+        referenceId: body.referenceId,
+        referenceType: body.referenceType,
+      },
+      adminScope(user),
+    );
     return { success: true, data: notification };
   }
 
@@ -103,9 +110,11 @@ export class NotificationsController {
 
   @Get('admin/all')
   @Permissions(PERMS.NOTIFICATION_VIEW_ALL)
-  async findAllForAdmin(@Query() query: FindAllForAdminDto) {
-    // ✅ DTO بدلاً من any
-    return this.notificationsService.findAllForAdmin({
+  async findAllForAdmin(
+    @Query() query: FindAllForAdminDto,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.notificationsService.findAllForAdmin(adminScope(user), {
       isRead:
         query.isRead === 'true'
           ? true
@@ -122,21 +131,27 @@ export class NotificationsController {
 
   @Get('admin/stats')
   @Permissions(PERMS.NOTIFICATION_VIEW_ALL)
-  async getAdminStats() {
-    return this.notificationsService.getAdminStats();
+  async getAdminStats(@CurrentUser() user: CurrentUserData) {
+    return this.notificationsService.getAdminStats(adminScope(user));
   }
 
   @Post('admin/:id/read')
   @Permissions(PERMS.NOTIFICATION_VIEW_ALL)
-  async markAsReadByAdmin(@Param('id') id: string) {
-    await this.notificationsService.markAsReadByAdmin(id);
+  async markAsReadByAdmin(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    await this.notificationsService.markAsReadByAdmin(id, adminScope(user));
     return { success: true };
   }
 
   @Delete('admin/:id')
   @Permissions(PERMS.NOTIFICATION_VIEW_ALL)
-  async deleteByAdmin(@Param('id') id: string) {
-    await this.notificationsService.deleteByAdmin(id);
+  async deleteByAdmin(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    await this.notificationsService.deleteByAdmin(id, adminScope(user));
     return { success: true };
   }
 }

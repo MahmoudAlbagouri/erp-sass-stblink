@@ -10,6 +10,7 @@ import { Permission, PermissionScope } from './entities/permission.entity';
 import { CreatePermissionDto } from './dto/create-permission.dto';
 import { UpdatePermissionDto } from './dto/update-permission.dto';
 import { CurrentUserData } from '../../common/decorators/current-user.decorator';
+import { isSystemPermission } from './utils/permission-scope.util';
 
 @Injectable()
 export class PermissionsService {
@@ -60,27 +61,65 @@ export class PermissionsService {
       });
 
       // ✅ حذف صلاحيات system: من نتائج الموظفين العاديين والـ SuperAdmin
-      return allPerms.filter((p) => !p.name.startsWith('system:'));
+      return allPerms.filter((p) => !isSystemPermission(p));
     }
 
     return [];
   }
 
-  async findOne(id: string): Promise<Permission> {
+  /**
+   * ✅ عزل الشركات: الصلاحيات العامة (tenantId = null) للقراءة فقط لغير
+   * مالك النظام، وصلاحيات system: والشركات الأخرى غير مرئية إطلاقاً.
+   */
+  async findOne(
+    id: string,
+    user: CurrentUserData,
+    tenantId: string,
+    forWrite = false,
+  ): Promise<Permission> {
     const permission = await this.repo.findOneBy({ id });
-    if (!permission)
-      throw new NotFoundException(`Permission with ID "${id}" not found`);
+    const notFound = new NotFoundException(
+      `Permission with ID "${id}" not found`,
+    );
+    if (!permission) throw notFound;
+    if (user.isSystemAdmin) return permission;
+
+    const isOwn = permission.tenantId === tenantId;
+    if (isSystemPermission(permission) || (!isOwn && permission.tenantId)) {
+      throw notFound;
+    }
+    if (!isOwn && forWrite) {
+      throw new ForbiddenException(
+        'لا يمكن تعديل أو حذف صلاحيات النظام العامة',
+      );
+    }
     return permission;
   }
 
-  async update(id: string, dto: UpdatePermissionDto): Promise<Permission> {
-    const permission = await this.findOne(id);
+  async update(
+    id: string,
+    dto: UpdatePermissionDto,
+    user: CurrentUserData,
+    tenantId: string,
+  ): Promise<Permission> {
+    const permission = await this.findOne(id, user, tenantId, true);
+
+    if (dto.scope === PermissionScope.SYSTEM && !user.isSystemAdmin) {
+      throw new ForbiddenException(
+        'Only System Admin can create system permissions',
+      );
+    }
+
     Object.assign(permission, dto);
     return this.repo.save(permission);
   }
 
-  async remove(id: string): Promise<void> {
-    await this.findOne(id);
+  async remove(
+    id: string,
+    user: CurrentUserData,
+    tenantId: string,
+  ): Promise<void> {
+    await this.findOne(id, user, tenantId, true);
     await this.repo.delete(id);
   }
 }

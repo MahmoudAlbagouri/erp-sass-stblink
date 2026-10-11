@@ -26,7 +26,7 @@ export class DisclaimerGuard extends AuthGuard('jwt') {
     super();
   }
 
-  async canActivate(context: ExecutionContext): Promise<boolean> {
+  override async canActivate(context: ExecutionContext): Promise<boolean> {
     if (context.getType() !== 'http') return true;
 
     const skip = this.reflector.getAllAndOverride<boolean>(
@@ -58,7 +58,7 @@ export class DisclaimerGuard extends AuthGuard('jwt') {
   }
 
   // عدم رمي 401 هنا: هذا الـ Guard وظيفته الحجب بسبب الإقرار فقط
-  handleRequest<TUser = unknown>(err: unknown, user: TUser): TUser {
+  override handleRequest<TUser = unknown>(err: unknown, user: TUser): TUser {
     if (err) {
       throw err instanceof Error
         ? err

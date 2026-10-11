@@ -23,8 +23,9 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 import { ReportService } from '../../common/reports/report.service';
-import { PERMS } from 'src/common/constants/permissions';
-import { FEATURES } from 'src/common/constants/features';
+import { PERMS } from '../../common/constants/permissions';
+import { FEATURES } from '../../common/constants/features';
+import { DISPLAY_LOCALE, formatDate } from '../../common/utils/format.util';
 
 @Controller('settlements')
 @UseGuards(JwtAuthGuard, SubscriptionGuard)
@@ -74,7 +75,7 @@ export class SettlementsController {
   @RequiresFeature(FEATURES.REPORTS_EXPORT)
   @UseGuards(PermissionsGuard)
   async exportSettlements(
-    @Param('type') type: 'excel' | 'pdf',
+    @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
     @Res() res: Response,
   ) {
@@ -94,47 +95,24 @@ export class SettlementsController {
     const formattedData = data.map((s) => ({
       employeeName: s.employee?.fullName || '-',
       employeeCode: s.employee?.employeeCode || '-',
-      settlementDate: new Date(s.settlementDate).toLocaleDateString('ar-SA'),
+      settlementDate: formatDate(s.settlementDate),
       unusedLeaveDays: `${s.unusedLeaveDays} يوم`,
-      totalAmount: Number(s.totalAmount).toLocaleString('ar-SA', {
+      totalAmount: Number(s.totalAmount).toLocaleString(DISPLAY_LOCALE, {
         minimumFractionDigits: 2,
       }),
       disbursementStatus: s.isDisbursed ? 'تم الصرف ✅' : 'غير مصروف',
       disbursedBy: s.isDisbursed
-        ? `${s.disbursedBy?.id || '-'} (${new Date(s.disbursedAt!).toLocaleDateString('ar-SA')})`
+        ? `${s.disbursedBy?.id || '-'} (${formatDate(s.disbursedAt!)})`
         : '-',
       notes: s.notes || '-',
     }));
 
-    if (type === 'excel') {
-      const buffer = await this.reportService.generateExcel(
-        formattedData,
-        columns,
-      );
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-      res.setHeader(
-        'Content-Disposition',
-        'attachment; filename=settlements.xlsx',
-      );
-      return res.send(buffer);
-    }
-
-    if (type === 'pdf') {
-      const buffer = await this.reportService.generatePdf(
-        formattedData,
-        columns,
-        'تقرير تسويات بدل الاجازة',
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader(
-        'Content-Disposition',
-        'attachment; filename=settlements.pdf',
-      );
-      return res.send(buffer);
-    }
+    return this.reportService.sendReport(res, type, {
+      rows: formattedData,
+      columns,
+      title: 'تقرير تسويات بدل الاجازة',
+      filename: 'settlements',
+    });
   }
 
   @Get()

@@ -9,7 +9,6 @@ import {
   UseGuards,
   NotFoundException,
   Res,
-  BadRequestException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { AdvancesService } from './advances.service';
@@ -25,9 +24,14 @@ import {
   type CurrentUserData,
 } from '../../common/decorators/current-user.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
-import { ReportService } from '../../common/reports/report.service';
-import { PERMS } from 'src/common/constants/permissions';
-import { FEATURES } from 'src/common/constants/features'; // ✅ استيراد الثوابت
+import {
+  DETAIL_COLUMNS,
+  ReportService,
+  type ReportRow,
+} from '../../common/reports/report.service';
+import { PERMS } from '../../common/constants/permissions';
+import { formatAmount, formatDate } from '../../common/utils/format.util';
+import { FEATURES } from '../../common/constants/features'; // ✅ استيراد الثوابت
 
 @Controller('advances')
 @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
@@ -38,6 +42,9 @@ export class AdvancesController {
   ) {}
 
   @Patch(':id/disburse')
+  @Permissions(PERMS.ADVANCE_APPROVE)
+  @RequiresFeature(FEATURES.ADVANCES_MODULE)
+  @UseGuards(PermissionsGuard)
   async disburse(
     @Param('id') id: string,
     @CurrentUser() user: CurrentUserData,
@@ -77,7 +84,7 @@ export class AdvancesController {
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
   @UseGuards(PermissionsGuard)
   async exportAdvances(
-    @Param('type') type: 'excel' | 'pdf',
+    @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
     @Res() res: Response,
   ) {
@@ -94,11 +101,9 @@ export class AdvancesController {
 
     const formattedData = data.map((adv) => ({
       employeeName: adv.employee?.fullName || '-',
-      amount: Number(adv.amount).toLocaleString('ar-SA'),
+      amount: formatAmount(adv.amount),
       reason: adv.reason || '-',
-      repaymentDate: adv.repaymentDate
-        ? new Date(adv.repaymentDate).toLocaleDateString('ar-SA')
-        : '-',
+      repaymentDate: adv.repaymentDate ? formatDate(adv.repaymentDate) : '-',
       // ✅ الإصلاح: استخدام String() لتجنب خطأ enum comparison
       status:
         String(adv.status) === 'pending'
@@ -110,35 +115,15 @@ export class AdvancesController {
               : String(adv.status) === 'paid'
                 ? 'مدفوعة'
                 : '-',
-      createdAt: new Date(adv.createdAt).toLocaleDateString('ar-SA'),
+      createdAt: formatDate(adv.createdAt),
     }));
 
-    if (type === 'excel') {
-      const buffer = await this.reportService.generateExcel(
-        formattedData,
-        columns,
-      );
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-      res.setHeader(
-        'Content-Disposition',
-        'attachment; filename=advances.xlsx',
-      );
-      return res.send(buffer);
-    }
-
-    if (type === 'pdf') {
-      const buffer = await this.reportService.generatePdf(
-        formattedData,
-        columns,
-        'تقرير السلف',
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', 'attachment; filename=advances.pdf');
-      return res.send(buffer);
-    }
+    return this.reportService.sendReport(res, type, {
+      rows: formattedData,
+      columns,
+      title: 'تقرير السلف',
+      filename: 'advances',
+    });
   }
 
   // ✅ مسار التصدير الفردي لسلفة واحدة
@@ -148,26 +133,25 @@ export class AdvancesController {
   @UseGuards(PermissionsGuard)
   async exportSingleAdvance(
     @Param('id') id: string,
-    @Param('type') type: 'excel' | 'pdf',
+    @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
     @Res() res: Response,
   ) {
     const advance = await this.advancesService.findOne(id, tenantId);
-    if (!advance) throw new BadRequestException('السلفة غير موجودة');
 
-    const reportData: any[] = [
+    const reportData: ReportRow[] = [
       { label: 'اسم الموظف', value: advance.employee?.fullName || '-' },
       { label: 'كود الموظف', value: advance.employee?.employeeCode || '-' },
       { label: 'المسمى الوظيفي', value: advance.employee?.jobTitle || '-' },
       {
         label: 'المبلغ',
-        value: `${Number(advance.amount).toLocaleString('ar-SA')} ر.س`,
+        value: `${formatAmount(advance.amount)} ر.س`,
       },
       { label: 'السبب', value: advance.reason || '-' },
       {
         label: 'تاريخ السداد',
         value: advance.repaymentDate
-          ? new Date(advance.repaymentDate).toLocaleDateString('ar-SA')
+          ? formatDate(advance.repaymentDate)
           : 'غير محدد',
       },
       {
@@ -185,46 +169,18 @@ export class AdvancesController {
       },
       {
         label: 'تاريخ الطلب',
-        value: new Date(advance.createdAt).toLocaleDateString('ar-SA'),
+        value: formatDate(advance.createdAt),
       },
     ];
 
-    const columns = [
-      { header: 'البيان', key: 'label' },
-      { header: 'القيمة', key: 'value' },
-    ];
+    const columns = DETAIL_COLUMNS;
 
-    if (type === 'excel') {
-      const buffer = await this.reportService.generateExcel(
-        reportData,
-        columns,
-      );
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename=advance_${advance.employee?.employeeCode || id}.xlsx`,
-      );
-      return res.send(buffer);
-    }
-
-    if (type === 'pdf') {
-      const buffer = await this.reportService.generatePdf(
-        reportData,
-        columns,
-        `سلفة: ${advance.employee?.fullName}`,
-      );
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename=advance_${advance.employee?.employeeCode || id}.pdf`,
-      );
-      return res.send(buffer);
-    }
-
-    throw new BadRequestException('نوع التصدير غير مدعوم');
+    return this.reportService.sendReport(res, type, {
+      rows: reportData,
+      columns,
+      title: `سلفة: ${advance.employee?.fullName}`,
+      filename: `advance_${advance.employee?.employeeCode || id}`,
+    });
   }
 
   @Get()

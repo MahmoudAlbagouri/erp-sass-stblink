@@ -14,9 +14,9 @@ import { Permissions } from '../../common/decorators/permissions.decorator';
 import { ShiftsService } from './shifts.service';
 import { CreateShiftDto } from './dto/create-shift.dto';
 import { UpdateShiftDto } from './dto/update-shift.dto';
-import { CurrentTenantId } from 'src/common/decorators/current-tenant-id.decorator';
+import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 // ✅ استيراد الثوابت
-import { PERMS } from 'src/common/constants/permissions';
+import { PERMS } from '../../common/constants/permissions';
 
 @Controller('shifts')
 @UseGuards(JwtAuthGuard)

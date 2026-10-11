@@ -7,18 +7,28 @@ import {
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
+const DEFAULT_UPLOADS_BASE_URL = 'https://erp.api.stblink.com/uploads';
+
 @Injectable()
 export class UploadInterceptor implements NestInterceptor {
-  // الرابط الأساسي للسيرفر
-  private readonly baseUrl = 'https://erp.api.stblink.com/uploads';
+  // الرابط الأساسي للسيرفر (قابل للتغيير عبر UPLOADS_BASE_URL)
+  private get baseUrl(): string {
+    return process.env.UPLOADS_BASE_URL || DEFAULT_UPLOADS_BASE_URL;
+  }
 
-  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+  intercept(
+    _context: ExecutionContext,
+    next: CallHandler,
+  ): Observable<unknown> {
     return next
       .handle()
       .pipe(map((data: unknown): unknown => this.transformData(data)));
   }
 
-  private transformData(data: any, visited = new WeakSet()): unknown {
+  private transformData(
+    data: unknown,
+    visited = new WeakSet<object>(),
+  ): unknown {
     // 1. إذا لم تكن البيانات كائناً أو كانت null/undefined، نرجعها كما هي
     if (!data || typeof data !== 'object') return data;
 
@@ -30,13 +40,13 @@ export class UploadInterceptor implements NestInterceptor {
 
     // 3. إذا كانت مصفوفة، نطبق التحويل على كل عنصر
     if (Array.isArray(data)) {
-      return data.map((item) => this.transformData(item, visited));
+      return data.map((item: unknown) => this.transformData(item, visited));
     }
 
     // 4. نمر على كل مفاتيح الكائن
-    const keys = Object.keys(data as Record<string, any>);
-    for (const key of keys) {
-      const value = data[key];
+    const record = data as Record<string, unknown>;
+    for (const key of Object.keys(record)) {
+      const value = record[key];
 
       // حالة خاصة: تجاهل بعض المفاتيح إذا لزم الأمر (مثل filename الداخلي)
       if (key === 'filename') continue;
@@ -44,12 +54,12 @@ export class UploadInterceptor implements NestInterceptor {
       // معالجة النصوص المفردة (مثل mainImage أو logo)
       if (typeof value === 'string' && this.isImagePath(value)) {
         if (!value.startsWith('http')) {
-          data[key] = `${this.baseUrl}/${value}`;
+          record[key] = `${this.baseUrl}/${value}`;
         }
       }
       // معالجة القيم التي هي كائنات أو مصفوفات للدخول فيها recursively
       else if (value && typeof value === 'object') {
-        data[key] = this.transformData(value, visited);
+        record[key] = this.transformData(value, visited);
       }
     }
 

@@ -12,7 +12,7 @@ import {
 import { Tenant } from '../../tenants/entities/tenant.entity';
 import { Role } from '../../roles/entities/role.entity';
 import { UserStatus } from '../../../common/enums/user.enums';
-import { Employee } from 'src/modules/employees/entities/employee.entity';
+import { Employee } from '../../employees/entities/employee.entity';
 
 @Entity('users')
 export class User {

@@ -3,6 +3,30 @@ import { Injectable } from '@nestjs/common';
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
+/** يُطبّع أي Date/string إلى منتصف الليل المحلي (بدون وقت) لتفادي أخطاء الفاصلة الزمنية/التوقيت الصيفي */
+function normalizeDate(date: Date | string): Date {
+  const d = date instanceof Date ? date : new Date(date);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+/**
+ * عدد الأيام بين تاريخين (انظر DateUtils.calculateDurationDays للشرح).
+ * نسخة دالة مجردة للاستخدام خارج الـ DI (Controllers / تنسيق التقارير).
+ */
+export function calculateDurationDays(
+  startDate: Date | string,
+  endDate: Date | string,
+  isInclusive: boolean,
+): number {
+  const start = normalizeDate(startDate);
+  const end = normalizeDate(endDate);
+
+  const diff = Math.round((end.getTime() - start.getTime()) / MS_PER_DAY);
+  const days = isInclusive ? diff + 1 : diff;
+
+  return Math.max(days, 0);
+}
+
 /**
  * DateUtils — المصدر الوحيد للحقيقة لحساب الأيام في كامل النظام.
  *
@@ -16,10 +40,8 @@ const MS_PER_DAY = 1000 * 60 * 60 * 24;
  */
 @Injectable()
 export class DateUtils {
-  /** يُطبّع أي Date/string إلى منتصف الليل المحلي (بدون وقت) لتفادي أخطاء الفاصلة الزمنية/التوقيت الصيفي */
   private normalize(date: Date | string): Date {
-    const d = date instanceof Date ? date : new Date(date);
-    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    return normalizeDate(date);
   }
 
   /**
@@ -38,13 +60,7 @@ export class DateUtils {
     endDate: Date | string,
     isInclusive: boolean,
   ): number {
-    const start = this.normalize(startDate);
-    const end = this.normalize(endDate);
-
-    const diff = Math.round((end.getTime() - start.getTime()) / MS_PER_DAY);
-    const days = isInclusive ? diff + 1 : diff;
-
-    return Math.max(days, 0);
+    return calculateDurationDays(startDate, endDate, isInclusive);
   }
 
   /**

@@ -15,6 +15,8 @@ import { Role } from '../roles/entities/role.entity';
 import { UserStatus } from '../../common/enums/user.enums';
 import { CurrentUserData } from '../../common/decorators/current-user.decorator';
 
+const ASSIGN_SUPER_ADMIN_PERMISSION = 'assign_super_admin';
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -22,6 +24,7 @@ export class UsersService {
     @InjectRepository(Role) private readonly roleRepository: Repository<Role>,
   ) {}
 
+  /** استخدام داخلي (Auth) — بدون عزل شركات. للـ API استخدم findOneScoped */
   async findOne(id: string): Promise<User> {
     const user = await this.userRepository.findOne({
       where: { id },
@@ -29,6 +32,15 @@ export class UsersService {
     });
 
     if (!user) throw new NotFoundException('User not found');
+    return user;
+  }
+
+  /** ✅ عزل الشركات: لا يرى/يعدّل المستخدم إلا مستخدمي شركته (عدا مالك النظام) */
+  async findOneScoped(id: string, currentUser: CurrentUserData): Promise<User> {
+    const user = await this.findOne(id);
+    if (!currentUser.isSystemAdmin && user.tenantId !== currentUser.tenantId) {
+      throw new NotFoundException('User not found');
+    }
     return user;
   }
 
@@ -58,27 +70,49 @@ export class UsersService {
     });
   }
 
+  /** الدور يجب أن يكون دوراً عاماً أو تابعاً لنفس الشركة */
+  private async resolveAssignableRole(
+    roleId: string,
+    currentUser: CurrentUserData,
+    tenantId: string | undefined,
+  ): Promise<Role> {
+    const role = await this.roleRepository.findOneBy({ id: roleId });
+    const isForeignRole =
+      !!role?.tenantId &&
+      !currentUser.isSystemAdmin &&
+      role.tenantId !== tenantId;
+
+    if (!role || isForeignRole) throw new NotFoundException('Role not found');
+    return role;
+  }
+
+  private canAssignSuperAdmin(currentUser: CurrentUserData): boolean {
+    return (
+      currentUser.isSystemAdmin ||
+      (currentUser.permissions?.includes(ASSIGN_SUPER_ADMIN_PERMISSION) ??
+        false)
+    );
+  }
+
   async create(
     dto: CreateUserDto,
     currentUser: CurrentUserData,
     tenantId: string,
   ): Promise<User> {
     const { roleId, password, ...userData } = dto;
-    let role: Role | undefined;
-    if (roleId) {
-      role = (await this.roleRepository.findOneBy({ id: roleId })) ?? undefined;
-      if (!role) throw new NotFoundException('Role not found');
-    }
+    const role = roleId
+      ? await this.resolveAssignableRole(roleId, currentUser, tenantId)
+      : undefined;
     const hashedPassword = await argon2.hash(password);
-    const canAssignSuperAdmin =
-      currentUser.permissions?.includes('assign_super_admin') ?? false;
 
     const user = this.userRepository.create({
       ...userData,
       password: hashedPassword,
       tenantId: tenantId,
       role: role,
-      isSuperAdmin: canAssignSuperAdmin ? (dto.isSuperAdmin ?? false) : false,
+      isSuperAdmin: this.canAssignSuperAdmin(currentUser)
+        ? (dto.isSuperAdmin ?? false)
+        : false,
       status: dto.status || UserStatus.ACTIVE,
       // 🔒 المستخدم الجديد يبدأ دائماً بدون إقرار (ولا يمكن تمريره من الـ DTO)
       isDisclaimerAccepted: false,
@@ -92,9 +126,7 @@ export class UsersService {
     tenantId: string,
   ): Promise<User[]> {
     const whereCondition: FindOptionsWhere<User> = {};
-    const isSystemAdmin =
-      currentUser.permissions?.includes('system:admin') ?? false;
-    if (!isSystemAdmin) whereCondition.tenantId = tenantId;
+    if (!currentUser.isSystemAdmin) whereCondition.tenantId = tenantId;
 
     return this.userRepository.find({
       where: whereCondition,
@@ -108,19 +140,35 @@ export class UsersService {
     dto: UpdateUserDto,
     currentUser: CurrentUserData,
   ): Promise<User> {
-    const user = await this.findOne(id);
+    const user = await this.findOneScoped(id, currentUser);
 
     // 🔒 حقول الإقرار لا تتغير إلا عبر POST /auth/accept-disclaimer
-    const safeDto = dto as UpdateUserDto & Record<string, unknown>;
-    delete safeDto.isDisclaimerAccepted;
-    delete safeDto.disclaimerAcceptedAt;
+    const { roleId, ...changes } = dto as UpdateUserDto &
+      Record<string, unknown>;
+    delete changes.isDisclaimerAccepted;
+    delete changes.disclaimerAcceptedAt;
 
-    if (dto.password) dto.password = await argon2.hash(dto.password);
-    const canUpdateSuperAdmin =
-      currentUser.permissions?.includes('assign_super_admin') ?? false;
-    if (dto.isSuperAdmin !== undefined && !canUpdateSuperAdmin)
-      delete dto.isSuperAdmin;
-    Object.assign(user, dto);
+    if (changes.password)
+      changes.password = await argon2.hash(changes.password);
+    if (
+      changes.isSuperAdmin !== undefined &&
+      !this.canAssignSuperAdmin(currentUser)
+    )
+      delete changes.isSuperAdmin;
+
+    Object.assign(user, changes);
+
+    // ✅ تغيير الدور عبر العلاقة نفسها (تعديل roleId وحده يتجاهله TypeORM
+    // لأن العلاقة role المحمّلة لها الأولوية عند الحفظ)
+    if (roleId) {
+      user.role = await this.resolveAssignableRole(
+        roleId,
+        currentUser,
+        user.tenantId,
+      );
+      user.roleId = user.role.id;
+    }
+
     return this.userRepository.save(user);
   }
 
@@ -134,8 +182,7 @@ export class UsersService {
     const userToDelete = await this.findOne(id);
 
     // 3. عزل الشركات: التأكد من أن المستخدم ينتمي لشركة المستعلم نفسها
-    const isSystemAdmin =
-      currentUser.permissions?.includes('system:admin') ?? false;
+    const isSystemAdmin = currentUser.isSystemAdmin;
     if (!isSystemAdmin && userToDelete.tenantId !== currentUser.tenantId) {
       throw new ForbiddenException('لا تملك صلاحية الوصول لهذا المستخدم');
     }

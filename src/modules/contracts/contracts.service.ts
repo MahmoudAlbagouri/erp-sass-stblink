@@ -5,11 +5,14 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, ILike, Like } from 'typeorm';
-import { Contract, ProbationPeriod } from './entities/contract.entity'; // تأكد من استيراد ProbationPeriod
+import { Repository, ILike, In } from 'typeorm';
+import { Contract, ContractType } from './entities/contract.entity';
 import { CreateContractDto } from './dto/create-contract.dto';
 import { UpdateContractDto } from './dto/update-contract.dto';
-import { addMonths } from 'date-fns'; // تأكد من تثبيت date-fns
+import {
+  calculateContractEndDate,
+  calculateProbationEndDate,
+} from './utils/contract-dates.util';
 
 @Injectable()
 export class ContractsService {
@@ -28,25 +31,18 @@ export class ContractsService {
       throw new BadRequestException('هذا الموظف لديه عقد مسجل بالفعل');
     }
 
+    const contractStart = new Date(dto.startDate);
     // ✅ 1. حساب تاريخ نهاية فترة التجربة
-    let probationEndDate: Date | undefined = undefined;
-    if (dto.probationPeriod && dto.probationPeriod !== ProbationPeriod.NONE) {
-      const startDate = new Date(dto.startDate);
-      if (dto.probationPeriod === ProbationPeriod.THREE_MONTHS) {
-        probationEndDate = addMonths(startDate, 3);
-      } else if (dto.probationPeriod === ProbationPeriod.SIX_MONTHS) {
-        probationEndDate = addMonths(startDate, 6);
-      }
-    }
-
+    const probationEndDate = calculateProbationEndDate(
+      contractStart,
+      dto.probationPeriod,
+    );
     // ✅ 2. حساب تاريخ نهاية العقد (إذا لم يُدخل يدوياً وكانت هناك مدة بالشهور)
-    let calculatedEndDate: Date | undefined = undefined;
-    if (dto.endDate) {
-      calculatedEndDate = new Date(dto.endDate);
-    } else if (dto.contractDurationMonths) {
-      const startDate = new Date(dto.startDate);
-      calculatedEndDate = addMonths(startDate, dto.contractDurationMonths);
-    }
+    const calculatedEndDate = calculateContractEndDate(
+      contractStart,
+      dto.endDate,
+      dto.contractDurationMonths,
+    );
 
     const contract = this.repo.create({
       ...dto,
@@ -75,6 +71,11 @@ export class ContractsService {
   }
 
   async search(tenantId: string, query: string) {
+    // contractType عمود enum — LIKE لا يعمل عليه في Postgres، فنطابق قيمه هنا
+    const matchingTypes = Object.values(ContractType).filter((type) =>
+      String(type).includes(query),
+    );
+
     return await this.repo.find({
       where: [
         {
@@ -83,10 +84,9 @@ export class ContractsService {
             fullName: ILike(`%${query}%`),
           },
         },
-        {
-          tenantId,
-          contractType: Like(`%${query}%`) as any,
-        },
+        ...(matchingTypes.length
+          ? [{ tenantId, contractType: In(matchingTypes) }]
+          : []),
       ],
       relations: ['employee'],
     });
@@ -95,7 +95,7 @@ export class ContractsService {
   async findOne(id: string, tenantId: string): Promise<Contract> {
     const contract = await this.repo.findOne({
       where: { id, tenantId },
-      relations: ['employee'],
+      relations: ['employee', 'employee.department'],
     });
     if (!contract) throw new NotFoundException('العقد غير موجود');
     return contract;
@@ -113,23 +113,20 @@ export class ContractsService {
       ? new Date(dto.startDate)
       : contract.startDate;
 
-    if (dto.probationPeriod !== undefined) {
-      if (dto.probationPeriod === ProbationPeriod.THREE_MONTHS) {
-        contract.probationEndDate = addMonths(startDate, 3);
-      } else if (dto.probationPeriod === ProbationPeriod.SIX_MONTHS) {
-        contract.probationEndDate = addMonths(startDate, 6);
-      } else {
-        contract.probationEndDate = undefined;
-      }
-    }
-
-    if (dto.endDate) {
-      contract.endDate = new Date(dto.endDate);
-    } else if (dto.contractDurationMonths) {
-      contract.endDate = addMonths(startDate, dto.contractDurationMonths);
-    }
-
     Object.assign(contract, dto);
+
+    if (dto.probationPeriod !== undefined) {
+      // null (وليس undefined) حتى يُمسح التاريخ فعلياً من قاعدة البيانات
+      contract.probationEndDate =
+        calculateProbationEndDate(startDate, dto.probationPeriod) ?? null;
+    }
+
+    const endDate = calculateContractEndDate(
+      startDate,
+      dto.endDate,
+      dto.contractDurationMonths,
+    );
+    if (endDate) contract.endDate = endDate;
     return await this.repo.save(contract);
   }
 

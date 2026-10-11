@@ -52,7 +52,8 @@ export class LeaveCarryoverCronService {
         if (result.cyclesProcessed.length > 0) updatedCount++;
       } catch (err) {
         this.logger.error(
-          `فشل ترحيل الرصيد للموظف ${contract.employeeId}: ${err}`,
+          `فشل ترحيل الرصيد للموظف ${contract.employeeId}`,
+          err,
         );
       }
     }
@@ -77,8 +78,11 @@ export class LeaveCarryoverCronService {
   }
 
   /** ✅ Endpoint يدوي: إعادة حساب الترحيل لجميع الموظفين دفعة واحدة */
-  async recalculateAll(): Promise<CarryOverRunResult[]> {
-    const contracts = await this.dataSource.getRepository(Contract).find();
+  async recalculateAll(tenantId?: string): Promise<CarryOverRunResult[]> {
+    // tenantId = null/undefined (مالك النظام) → كل الشركات
+    const contracts = await this.dataSource
+      .getRepository(Contract)
+      .find(tenantId ? { where: { tenantId } } : {});
     const results: CarryOverRunResult[] = [];
 
     for (const contract of contracts) {
@@ -86,7 +90,8 @@ export class LeaveCarryoverCronService {
         results.push(await this.processContractCarryOver(contract, new Date()));
       } catch (err) {
         this.logger.error(
-          `فشل إعادة حساب الترحيل للموظف ${contract.employeeId}: ${err}`,
+          `فشل إعادة حساب الترحيل للموظف ${contract.employeeId}`,
+          err,
         );
       }
     }

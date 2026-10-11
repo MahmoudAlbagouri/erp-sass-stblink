@@ -1,9 +1,12 @@
-import { CurrentUserData } from '../modules/auth/dto/current-user.data'; // مسار الـ Interface الخاص بك
+import type { CurrentUserData } from '../common/types/auth.types';
 
+// passport يعرّف Request.user على أنه Express.User — نوسّعه هنا مرة واحدة
+// ليصبح request.user معروف النوع في كامل المشروع.
 declare global {
   namespace Express {
-    interface Request {
-      user: CurrentUserData; // هنا نخبر TypeScript أن كل request سيكون فيه user بهذا الشكل
-    }
+    // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+    interface User extends CurrentUserData {}
   }
 }
+
+export {};

@@ -4,7 +4,7 @@ import { Bonus } from './entities/bonus.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { BonusesService } from './bonuses.service';
 import { BonusesController } from './bonuses.controller';
-import { ReportService } from 'src/common/reports/report.service';
+import { ReportService } from '../../common/reports/report.service';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({

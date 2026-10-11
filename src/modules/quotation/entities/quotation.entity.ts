@@ -7,6 +7,18 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
+export interface QuotationItem {
+  description: string;
+  qty: number;
+  unitPrice: number;
+  total: number;
+}
+
+export interface QuotationBankAccount {
+  bankName: string;
+  iban: string;
+}
+
 @Entity('quotations')
 export class Quotation {
   @PrimaryGeneratedColumn('uuid')
@@ -30,7 +42,7 @@ export class Quotation {
   customerAddress: string;
 
   @Column({ type: 'jsonb', default: [] })
-  items: any[];
+  items: QuotationItem[];
 
   @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
   subTotal: number;
@@ -45,7 +57,7 @@ export class Quotation {
   notes: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  bankAccounts: any[];
+  bankAccounts: QuotationBankAccount[];
 
   @Column({ type: 'jsonb', nullable: true })
   termsAndConditions: string[];

@@ -17,6 +17,7 @@ import {
   LeaveBalanceAction,
 } from './entities/leave-balance-history.entity';
 import { CreateLeaveDto } from './dto/create-leave.dto';
+import { SetLeaveBalanceDto } from './dto/set-leave-balance.dto';
 import { ContractsService } from '../contracts/contracts.service';
 import { LeaveAccrualService } from './leave-accrual.service';
 import { DateUtils } from '../../common/utils/date.utils';
@@ -291,10 +292,7 @@ export class LeavesService {
     return await this.repo.save(leave);
   }
 
-  async setBalance(
-    dto: { employeeId: string; year: number; amount: number },
-    tenantId: string,
-  ) {
+  async setBalance(dto: SetLeaveBalanceDto, tenantId: string) {
     const existing = await this.balanceRepo.findOne({
       where: { employeeId: dto.employeeId, year: dto.year, tenantId },
     });

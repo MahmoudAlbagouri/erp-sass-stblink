@@ -2,7 +2,7 @@
 
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, MoreThanOrEqual } from 'typeorm';
+import { Repository, In, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
 import { User } from '../users/entities/user.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { Contract } from '../contracts/entities/contract.entity';
@@ -16,6 +16,16 @@ import {
 import { Advance, AdvanceStatus } from '../advances/entities/advance.entity';
 import { Loan, LoanStatus } from '../loans/entities/loan.entity';
 import { type CurrentUserData } from '../../common/decorators/current-user.decorator';
+import { calculateDurationDays } from '../../common/utils/date.utils';
+
+export interface LeaveAnalysis {
+  year: number;
+  totalAllowance: number;
+  consumedDays: number;
+  remaining: number;
+  usagePercentage: number;
+  breakdown: Record<LeaveType, number>;
+}
 
 @Injectable()
 export class ProfileService {
@@ -74,7 +84,7 @@ export class ProfileService {
       currentYear,
     );
 
-    let leaveAnalysis: any = null;
+    let leaveAnalysis: LeaveAnalysis | null = null;
     if (currentBalance) {
       const remaining =
         currentBalance.totalAllowance - currentBalance.consumedDays;
@@ -182,16 +192,8 @@ export class ProfileService {
       status: req.status,
       reason: req.reason,
       createdAt: req.createdAt,
-      durationDays: this.calculateDuration(req.startDate, req.endDate),
+      durationDays: calculateDurationDays(req.startDate, req.endDate, true),
     }));
-  }
-
-  // ✅ دالة مساعدة لحساب عدد الأيام
-  private calculateDuration(start: Date, end: Date): number {
-    const diffTime = Math.abs(
-      new Date(end).getTime() - new Date(start).getTime(),
-    );
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
   }
 
   // ✅ دالة جديدة لجلب القروض المرفوضة
@@ -236,29 +238,27 @@ export class ProfileService {
   }
 
   private async getLeaveStatsByType(employeeId: string, year: number) {
-    const startDate = new Date(`${year}-01-01`);
-    const endDate = new Date(`${year}-12-31`);
+    const yearStart = new Date(year, 0, 1);
+    const yearEnd = new Date(year, 11, 31);
 
     const requests = await this.leaveReqRepo.find({
       where: {
         employeeId,
         status: LeaveStatus.APPROVED,
-        startDate: MoreThanOrEqual(startDate),
-        endDate: MoreThanOrEqual(startDate),
+        // ✅ أي إجازة تتقاطع مع السنة (كان الشرط يُدخل إجازات السنوات القادمة)
+        startDate: LessThanOrEqual(yearEnd),
+        endDate: MoreThanOrEqual(yearStart),
       },
     });
 
-    const stats = {
+    const stats: Record<LeaveType, number> = {
       [LeaveType.ANNUAL]: 0,
       [LeaveType.UNPAID]: 0,
       [LeaveType.OTHER]: 0,
     };
 
     requests.forEach((req) => {
-      const diffTime = Math.abs(
-        new Date(req.endDate).getTime() - new Date(req.startDate).getTime(),
-      );
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+      const diffDays = calculateDurationDays(req.startDate, req.endDate, true);
 
       if (stats[req.type] !== undefined) {
         stats[req.type] += diffDays;
@@ -317,9 +317,18 @@ export class ProfileService {
       0,
     );
 
-    const totalRemainingLoans = activeLoans.reduce((sum, l) => {
-      return sum + Number(l.monthlyInstallment) * Number(l.installmentsCount);
-    }, 0);
+    // ✅ المتبقي = الأقساط غير المسددة فقط (كان يُحسب كامل القرض)
+    const remainingLoanAmount = (l: Loan) =>
+      Number(l.monthlyInstallment) *
+      Math.max(
+        Number(l.installmentsCount) - Number(l.paidInstallments || 0),
+        0,
+      );
+
+    const totalRemainingLoans = activeLoans.reduce(
+      (sum, l) => sum + remainingLoanAmount(l),
+      0,
+    );
 
     const totalDebt = totalPendingAdvances + totalRemainingLoans;
 
@@ -343,8 +352,7 @@ export class ProfileService {
         totalAmount: l.totalAmount,
         monthlyInstallment: l.monthlyInstallment,
         installmentsCount: l.installmentsCount,
-        remainingAmount:
-          Number(l.monthlyInstallment) * Number(l.installmentsCount),
+        remainingAmount: remainingLoanAmount(l),
         status: l.status,
         startDate: l.startDate,
       })),

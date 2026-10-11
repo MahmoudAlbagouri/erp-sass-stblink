@@ -63,7 +63,7 @@ export class SalariesService {
   async findOne(id: string, tenantId: string) {
     const salary = await this.repo.findOne({
       where: { id, tenantId },
-      relations: ['employee'], // ✅ ضروري للتصدير الفردي
+      relations: ['employee', 'employee.department'], // ✅ ضروري للتصدير الفردي
     });
     if (!salary) throw new NotFoundException('الراتب غير موجود');
     return salary;

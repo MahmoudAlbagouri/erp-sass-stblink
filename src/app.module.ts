@@ -49,8 +49,6 @@ import { DepartmentsModule } from './modules/departments/departments.module';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
-    // The package's typings are not resolved by the ESLint type checker.
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
     EventEmitterModule.forRoot(), // ✅ تم إضافته لتفعيل الـ Event Listeners
     ConfigModule.forRoot({
       isGlobal: true,

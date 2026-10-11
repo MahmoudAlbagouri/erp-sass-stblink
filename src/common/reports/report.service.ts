@@ -1,13 +1,107 @@
 // src/common/reports/report.service.ts
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import type { Response } from 'express';
 import * as ExcelJS from 'exceljs';
 import * as puppeteer from 'puppeteer';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { DISPLAY_LOCALE } from '../utils/format.util';
+
+export type ReportFormat = 'excel' | 'pdf';
+
+export interface ReportColumn {
+  header: string;
+  key: string;
+}
+
+export type ReportCell = string | number | boolean | null | undefined;
+export type ReportRow = Record<string, ReportCell>;
+
+export interface ReportDefinition {
+  rows: ReportRow[];
+  columns: ReportColumn[];
+  /** عنوان التقرير (يظهر في الـ PDF) */
+  title: string;
+}
+
+/** أعمدة تقارير "البيان / القيمة" المستخدمة في تصدير سجل واحد */
+export const DETAIL_COLUMNS: ReportColumn[] = [
+  { header: 'البيان', key: 'label' },
+  { header: 'القيمة', key: 'value' },
+];
+
+const REPORT_FILE_META: Record<
+  ReportFormat,
+  { contentType: string; extension: string }
+> = {
+  excel: {
+    contentType:
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    extension: 'xlsx',
+  },
+  pdf: { contentType: 'application/pdf', extension: 'pdf' },
+};
+
+/** يمنع حقن HTML داخل قالب الـ PDF (القيم تأتي من بيانات يُدخلها المستخدمون) */
+function escapeHtml(value: unknown): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+export function assertReportFormat(
+  format: string,
+): asserts format is ReportFormat {
+  if (format !== 'excel' && format !== 'pdf') {
+    throw new BadRequestException('نوع التصدير غير مدعوم');
+  }
+}
+
+/** يضبط ترويسات التنزيل ويرسل الملف — `filename` بدون امتداد */
+export function sendReportBuffer(
+  res: Response,
+  format: ReportFormat,
+  filename: string,
+  buffer: Buffer,
+): void {
+  const { contentType, extension } = REPORT_FILE_META[format];
+  res.setHeader('Content-Type', contentType);
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename=${filename}.${extension}`,
+  );
+  res.send(buffer);
+}
 
 @Injectable()
 export class ReportService {
+  private readonly logger = new Logger(ReportService.name);
+
+  /** يولّد التقرير بالصيغة المطلوبة (يرفض أي صيغة غير مدعومة بـ 400) */
+  async generate(format: string, report: ReportDefinition): Promise<Buffer> {
+    assertReportFormat(format);
+    return format === 'excel'
+      ? this.generateExcel(report.rows, report.columns)
+      : this.generatePdf(report.rows, report.columns, report.title);
+  }
+
+  /**
+   * المسار الموحّد لكل endpoints التصدير: توليد + ترويسات + إرسال.
+   * `filename` بدون امتداد.
+   */
+  async sendReport(
+    res: Response,
+    format: string,
+    report: ReportDefinition & { filename: string },
+  ): Promise<void> {
+    assertReportFormat(format);
+    const buffer = await this.generate(format, report);
+    sendReportBuffer(res, format, report.filename, buffer);
+  }
+
   // ✅ ألوان الهوية البصرية لـ STB
   private readonly brand = {
     primary: '#0a4fa8',
@@ -36,21 +130,21 @@ export class ReportService {
       const logoPath = path.join(process.cwd(), 'assets', 'logo.png');
 
       if (!fs.existsSync(logoPath)) {
-        console.warn(`⚠️ لم يتم العثور على اللوجو في: ${logoPath}`);
+        this.logger.warn(`لم يتم العثور على اللوجو في: ${logoPath}`);
         return '';
       }
 
       const imageBuffer = fs.readFileSync(logoPath);
       return `data:image/png;base64,${imageBuffer.toString('base64')}`;
     } catch (error) {
-      console.error('❌ خطأ في قراءة ملف اللوجو:', error);
+      this.logger.error('خطأ في قراءة ملف اللوجو', error);
       return '';
     }
   }
 
   private buildHtmlTemplate(
-    data: any[],
-    columns: { header: string; key: string }[],
+    data: ReportRow[],
+    columns: ReportColumn[],
     title: string,
   ): string {
     const b = this.brand;
@@ -61,21 +155,20 @@ export class ReportService {
       ? `<img src="${logoBase64}" class="logo" alt="STB Logo" />`
       : `<div class="logo-fallback">STB</div>`;
 
-    const tableHeaders = columns.map((c) => `<th>${c.header}</th>`).join('');
+    const tableHeaders = columns
+      .map((c) => `<th>${escapeHtml(c.header)}</th>`)
+      .join('');
 
     const tableRows = data
       .map((row, i) => {
         const cells = columns
-          .map((c) => {
-            const rowData = row as Record<string, any>;
-            return `<td>${rowData[c.key] ?? '—'}</td>`;
-          })
+          .map((c) => `<td>${escapeHtml(row[c.key] ?? '—')}</td>`)
           .join('');
         return `<tr data-index="${i}">${cells}</tr>`;
       })
       .join('');
 
-    const issueDate = new Date().toLocaleDateString('ar-SA', {
+    const issueDate = new Date().toLocaleDateString(DISPLAY_LOCALE, {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
@@ -338,7 +431,7 @@ export class ReportService {
         <div class="report-header__underline"></div>
 
         <div class="report-title">
-          <h1>${title}</h1>
+          <h1>${escapeHtml(title)}</h1>
           <div class="report-title__underline"></div>
           <div class="report-meta-row">
             <span>عدد السجلات: ${data.length}</span>
@@ -364,8 +457,8 @@ export class ReportService {
   }
 
   async generateExcel(
-    data: any[],
-    columns: { header: string; key: string }[],
+    data: ReportRow[],
+    columns: ReportColumn[],
   ): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Report');
@@ -420,8 +513,8 @@ export class ReportService {
   }
 
   async generatePdf(
-    data: any[],
-    columns: { header: string; key: string }[],
+    data: ReportRow[],
+    columns: ReportColumn[],
     title: string,
   ): Promise<Buffer> {
     const html = this.buildHtmlTemplate(data, columns, title);

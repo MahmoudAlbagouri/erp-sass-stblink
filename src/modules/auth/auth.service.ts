@@ -4,7 +4,9 @@ import {
   ForbiddenException,
   ConflictException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
+import { randomInt } from 'crypto';
 import { JwtService } from '@nestjs/jwt';
 import { InjectEntityManager } from '@nestjs/typeorm';
 import { EntityManager } from 'typeorm';
@@ -12,7 +14,6 @@ import * as argon2 from 'argon2';
 import { MailerService } from '@nestjs-modules/mailer';
 import { UsersService } from '../users/users.service';
 import { TenantsService } from '../tenants/tenants.service';
-import { SubscriptionManagerService } from '../subscriptions/subscription-manager.service';
 import { Subscription } from '../subscriptions/entities/subscription.entity'; // ✅ استيراد Entity الاشتراك
 import { User } from '../users/entities/user.entity';
 import { LoginDto } from './dto/login.dto';
@@ -21,13 +22,20 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { UserStatus } from '../../common/enums/user.enums';
 import { SubscriptionStatus } from '../../common/enums/subscription.enums'; // ✅ استيراد Enum الحالات
+import {
+  getJwtAccessSecret,
+  getJwtRefreshSecret,
+  JWT_ACCESS_EXPIRES_IN,
+} from '../../config/jwt.config';
+import type { JwtPayload } from '../../common/types/auth.types';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly usersService: UsersService,
     private readonly tenantsService: TenantsService,
-    private readonly subscriptionManager: SubscriptionManagerService,
     private readonly jwtService: JwtService,
     private readonly mailerService: MailerService,
     @InjectEntityManager() private readonly entityManager: EntityManager,
@@ -82,6 +90,13 @@ export class AuthService {
     ) {
       throw new ForbiddenException(
         'البريد الإلكتروني أو كلمة المرور غير صحيحة',
+      );
+    }
+
+    // ✅ الحسابات الموقوفة/غير النشطة لا يُسمح لها بالدخول
+    if (user.status !== UserStatus.ACTIVE) {
+      throw new ForbiddenException(
+        'حسابك غير نشط. يرجى التواصل مع مدير النظام.',
       );
     }
 
@@ -140,6 +155,11 @@ export class AuthService {
   async refreshTokens(userId: string) {
     const user = await this.usersService.findOne(userId);
     if (!user) throw new ForbiddenException('User not found');
+    if (user.status !== UserStatus.ACTIVE) {
+      throw new ForbiddenException(
+        'حسابك غير نشط. يرجى التواصل مع مدير النظام.',
+      );
+    }
     return this.getTokens(user.id);
   }
 
@@ -166,9 +186,8 @@ export class AuthService {
       return { message: 'إذا كان البريد مسجلاً، ستصلك تعليمات إعادة التعيين' };
     }
 
-    const resetCode = Math.floor(
-      100000000000 + Math.random() * 900000000000,
-    ).toString();
+    // ✅ مولّد آمن تشفيرياً (Math.random قابل للتوقع)
+    const resetCode = randomInt(100000000000, 1000000000000).toString();
     const hashedCode = await argon2.hash(resetCode);
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
@@ -194,7 +213,7 @@ export class AuthService {
         `,
       });
     } catch (error) {
-      console.error('Failed to send reset email:', error);
+      this.logger.error('Failed to send reset email', error);
     }
 
     return { message: 'إذا كان البريد مسجلاً، ستصلك تعليمات إعادة التعيين' };
@@ -238,7 +257,7 @@ export class AuthService {
 
   private async getTokens(userId: string) {
     const user = await this.usersService.findOne(userId);
-    const jwtPayload = {
+    const jwtPayload: JwtPayload = {
       sub: user.id,
       tenantId: user.tenantId,
       isSuperAdmin: user.isSuperAdmin,
@@ -256,11 +275,11 @@ export class AuthService {
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(jwtPayload, {
-        secret: process.env.JWT_ACCESS_SECRET || 'access-key',
-        expiresIn: '15m',
+        secret: getJwtAccessSecret(),
+        expiresIn: JWT_ACCESS_EXPIRES_IN,
       }),
       this.jwtService.signAsync(jwtPayload, {
-        secret: process.env.JWT_REFRESH_SECRET || 'refresh-key',
+        secret: getJwtRefreshSecret(),
         expiresIn: '7d',
       }),
     ]);

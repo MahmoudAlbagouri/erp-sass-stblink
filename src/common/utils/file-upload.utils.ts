@@ -1,14 +1,25 @@
 import { diskStorage } from 'multer';
+import type { Request } from 'express';
 import { extname, join } from 'path';
 import { BadRequestException } from '@nestjs/common';
 import { existsSync, mkdirSync } from 'fs';
 import { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer-options.interface';
 
+/** مقطع مسار آمن: يمنع ".." والفواصل وأي محارف غير متوقعة */
+export const isSafePathSegment = (value: string): boolean =>
+  /^[a-zA-Z0-9_-]+$/.test(value);
+
 export const storageConfig = (defaultFolder: string): MulterOptions => ({
   storage: diskStorage({
-    destination: (req: any, file, cb) => {
+    destination: (req: Request, file, cb) => {
       // سحب المجلد الأساسي من الـ URL (مثال: employees)
-      const folder = (req.params.folder || defaultFolder) as string;
+      const requested = req.params.folder;
+      const folder =
+        typeof requested === 'string' && requested ? requested : defaultFolder;
+      // ✅ منع Path Traversal: اسم المجلد حروف/أرقام/شرطات فقط
+      if (!isSafePathSegment(folder)) {
+        return cb(new BadRequestException('اسم المجلد غير صالح'), '');
+      }
 
       // تحديد المجلد الفرعي تلقائياً (image للصور، files للمستندات)
       const subFolder = file.mimetype.startsWith('image/') ? 'image' : 'files';
@@ -22,7 +33,7 @@ export const storageConfig = (defaultFolder: string): MulterOptions => ({
       }
       cb(null, uploadPath);
     },
-    filename: (req, file, cb) => {
+    filename: (_req, file, cb) => {
       const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
       cb(
         null,
@@ -31,8 +42,8 @@ export const storageConfig = (defaultFolder: string): MulterOptions => ({
     },
   }),
   fileFilter: (
-    req: any,
-    file: any,
+    _req: Request,
+    file: Express.Multer.File,
     cb: (error: Error | null, acceptFile: boolean) => void,
   ) => {
     // التعديل: قبول الصور وملفات الـ PDF

@@ -26,8 +26,12 @@ import { UpdateDeviceDto } from './dto/update-device.dto';
 import { AttendanceQueryDto } from './dto/attendance-query.dto';
 import { UpdateAttendanceLogDto } from './dto/update-attendance-log.dto';
 import { CreateManualAttendanceLogDto } from './dto/create-manual-attendance-log.dto';
-import { PERMS } from 'src/common/constants/permissions';
-import { FEATURES } from 'src/common/constants/features';
+import { PERMS } from '../../common/constants/permissions';
+import { FEATURES } from '../../common/constants/features';
+import {
+  assertReportFormat,
+  sendReportBuffer,
+} from '../../common/reports/report.service';
 
 @Controller('attendance')
 @UseGuards(JwtAuthGuard, SubscriptionGuard)
@@ -137,30 +141,14 @@ export class AttendanceController {
   @RequiresFeature(FEATURES.ATTENDANCE_MODULE)
   @UseGuards(PermissionsGuard)
   async exportLogs(
-    @Param('type') type: 'excel' | 'pdf',
+    @Param('type') type: string,
     @Query() query: AttendanceQueryDto,
     @CurrentUser() user: CurrentUserData,
     @Res() res: Response,
   ) {
+    assertReportFormat(type);
     const buffer = await this.attendanceService.exportLogs(query, type, user);
-
-    if (type === 'excel') {
-      res.setHeader(
-        'Content-Type',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      );
-      res.setHeader(
-        'Content-Disposition',
-        'attachment; filename=attendance_logs.xlsx',
-      );
-    } else {
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader(
-        'Content-Disposition',
-        'attachment; filename=attendance_logs.pdf',
-      );
-    }
-    res.send(buffer);
+    sendReportBuffer(res, type, 'attendance_logs', buffer);
   }
 
   @Get('logs/employee/:employeeId')

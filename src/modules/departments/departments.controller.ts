@@ -15,7 +15,7 @@ import { DepartmentsService } from './departments.service';
 import { CreateDepartmentDto } from './dto/create-department.dto';
 import { UpdateDepartmentDto } from './dto/update-department.dto';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
-import { PERMS } from 'src/common/constants/permissions';
+import { PERMS } from '../../common/constants/permissions';
 
 @Controller('departments')
 @UseGuards(JwtAuthGuard)

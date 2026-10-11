@@ -11,6 +11,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../../modules/users/entities/user.entity';
 import { PROTECTED_DELETE } from '../decorators/protected-delete.decorator';
+import type { AuthenticatedRequest } from '../types/auth.types';
 
 @Injectable()
 export class DeleteProtectionGuard implements CanActivate {
@@ -28,15 +29,17 @@ export class DeleteProtectionGuard implements CanActivate {
     );
     if (!isProtected) return true;
 
-    const request = context.switchToHttp().getRequest();
-    const { user, params, route } = request;
-    const targetId = params.id;
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+    const { user, params } = request;
+    const targetId = String(params.id);
+    const routePath =
+      (request.route as { path?: string } | undefined)?.path ?? '';
 
     // 2. السماح لمالك النظام (System Admin) بتجاوز كافة القيود
     if (user.isSystemAdmin) return true;
 
     // --- حماية المستخدمين ---
-    if (route.path.includes('/users')) {
+    if (routePath.includes('/users')) {
       if (targetId === user.id) {
         throw new ForbiddenException('لا يمكنك حذف حسابك الشخصي.');
       }
@@ -53,7 +56,7 @@ export class DeleteProtectionGuard implements CanActivate {
     }
 
     // --- حماية الشركات ---
-    if (route.path.includes('/tenants')) {
+    if (routePath.includes('/tenants')) {
       if (targetId === user.tenantId) {
         throw new ForbiddenException('لا يمكنك حذف شركتك الحالية.');
       }

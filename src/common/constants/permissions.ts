@@ -1,7 +1,7 @@
 // src/common/constants/permissions.ts
 import { PermissionMetadata } from '../decorators/permissions.decorator';
 
-export const PERMS: Record<string, PermissionMetadata> = {
+export const PERMS = {
   // ─── Users ─────────────────────────────────────────
   USER_CREATE: { name: 'create_user', labelAr: 'إضافة مستخدم' },
   USER_VIEW: { name: 'view_users', labelAr: 'عرض المستخدمين' },
@@ -325,4 +325,4 @@ export const PERMS: Record<string, PermissionMetadata> = {
     name: 'system:view_platform_stats',
     labelAr: 'عرض إحصائيات النظام',
   },
-};
+} as const satisfies Record<string, PermissionMetadata>;

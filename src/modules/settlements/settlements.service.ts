@@ -21,7 +21,7 @@ import { ContractsService } from '../contracts/contracts.service';
 import { LeaveAccrualService } from '../leaves/leave-accrual.service';
 import { DateUtils } from '../../common/utils/date.utils';
 import type { CurrentUserData } from '../../common/decorators/current-user.decorator';
-import { PayrollItem } from '../payroll/entities/payroll-item.entity';
+import { isPaidViaDisbursedPayroll } from '../payroll/utils/disbursed-payroll.util';
 
 export interface SettlementPreview {
   employeeId: string;
@@ -39,8 +39,6 @@ export class SettlementsService {
     private readonly repo: Repository<Settlement>,
     @InjectRepository(LeaveBalance)
     private readonly balanceRepo: Repository<LeaveBalance>,
-    @InjectRepository(LeaveBalanceHistory)
-    private readonly historyRepo: Repository<LeaveBalanceHistory>,
     private readonly salariesService: SalariesService,
     private readonly contractsService: ContractsService,
     private readonly accrualService: LeaveAccrualService,
@@ -251,35 +249,6 @@ export class SettlementsService {
     }
   }
 
-  /**
-   * ✅ تتحقق هل مبلغ هذا الشهر (لهذا الموظف) سبق ودُفع بالفعل ضمن مسير
-   * رواتب تم صرفه — لمنع تعليم تسوية/مكافأة كـ"مصروفة استثنائياً" بعد
-   * فوات الأوان (أي بعد أن دخلت أصلاً ضمن مسير مصروف). هذا لا يمنع
-   * ازدواجية الصرف المالي الفعلي (فات الأوان على ذلك)، لكنه يمنع
-   * تسجيل بيانات صرف كاذبة تُعطي انطباعاً بأن المبلغ صُرف مرتين.
-   */
-  private async isAlreadyPaidViaDisbursedPayroll(
-    employeeId: string,
-    tenantId: string,
-    referenceDate: Date,
-  ): Promise<boolean> {
-    const month = referenceDate.getMonth() + 1;
-    const year = referenceDate.getFullYear();
-
-    const paidItem = await this.dataSource
-      .getRepository(PayrollItem)
-      .createQueryBuilder('item')
-      .innerJoin('item.payroll', 'payroll')
-      .where('item.employeeId = :employeeId', { employeeId })
-      .andWhere('payroll.tenantId = :tenantId', { tenantId })
-      .andWhere('payroll.month = :month', { month })
-      .andWhere('payroll.year = :year', { year })
-      .andWhere('payroll.isDisbursed = true')
-      .getOne();
-
-    return !!paidItem;
-  }
-
   // ✅ دالة جديدة لتأكيد الصرف
   async disburseSettlement(
     settlementId: string,
@@ -297,7 +266,8 @@ export class SettlementsService {
 
     // ✅ منع الصرف الاستثنائي لتسوية سبق ودخلت ضمن مسير رواتب تم صرفه
     // بالفعل — عندها تكون قد صُرفت ماليًا مسبقاً عبر المسير نفسه
-    const alreadyPaid = await this.isAlreadyPaidViaDisbursedPayroll(
+    const alreadyPaid = await isPaidViaDisbursedPayroll(
+      this.dataSource,
       settlement.employeeId,
       tenantId,
       new Date(settlement.settlementDate),
@@ -314,6 +284,7 @@ export class SettlementsService {
 
     return await this.repo.save(settlement);
   }
+
   async findAll(tenantId: string): Promise<Settlement[]> {
     return await this.repo
       .createQueryBuilder('s')

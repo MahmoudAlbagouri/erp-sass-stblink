@@ -4,11 +4,11 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository, In, EntityManager } from 'typeorm';
 import * as argon2 from 'argon2';
-import { addMonths } from 'date-fns';
 
 import { Employee } from './entities/employee.entity';
 import { User } from '../users/entities/user.entity';
@@ -22,7 +22,12 @@ import { UserStatus } from '../../common/enums/user.enums';
 import { PaymentMethodEnum } from '../../common/enums/salary.enums';
 import { normalizeIban } from '../../common/utils/iban.util';
 import { PermissionScope } from '../permissions/entities/permission.entity';
-import { ProbationPeriod } from '../contracts/entities/contract.entity';
+import {
+  calculateContractEndDate,
+  calculateProbationEndDate,
+} from '../contracts/utils/contract-dates.util';
+import { filterTenantAssignablePermissions } from '../permissions/utils/permission-scope.util';
+import { generateEmployeeCode } from './utils/employee-code.util';
 
 // ✅ استيراد خدمة الإشعارات
 import { NotificationsService } from '../notifications/notifications.service';
@@ -38,17 +43,13 @@ export interface OnboardingResult {
 
 @Injectable()
 export class EmployeesOnboardingService {
+  private readonly logger = new Logger(EmployeesOnboardingService.name);
+
   constructor(
     private readonly dataSource: DataSource,
     @InjectRepository(Employee)
     private readonly employeeRepo: Repository<Employee>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-    @InjectRepository(Role) private readonly roleRepo: Repository<Role>,
-    @InjectRepository(Permission)
-    private readonly permissionRepo: Repository<Permission>,
-    @InjectRepository(Contract)
-    private readonly contractRepo: Repository<Contract>,
-    @InjectRepository(Salary) private readonly salaryRepo: Repository<Salary>,
     // ✅ حقن خدمة الإشعارات
     private readonly notificationsService: NotificationsService,
   ) {}
@@ -95,16 +96,24 @@ export class EmployeesOnboardingService {
               where: { id: dto.user.roleId },
               relations: ['permissions'],
             });
-            if (!existingRole)
+            // ✅ عزل الشركات: لا يُسمح بإسناد دور يخص شركة أخرى
+            if (
+              !existingRole ||
+              (existingRole.tenantId && existingRole.tenantId !== tenantId)
+            )
               throw new NotFoundException(
                 `الدور بالمعرف "${dto.user.roleId}" غير موجود`,
               );
             role = existingRole;
           } else if (dto.user.roleName) {
+            // ✅ استبعاد صلاحيات system: وصلاحيات الشركات الأخرى
             const permissions = dto.user.permissionIds?.length
-              ? await manager.find(Permission, {
-                  where: { id: In(dto.user.permissionIds) },
-                })
+              ? filterTenantAssignablePermissions(
+                  await manager.find(Permission, {
+                    where: { id: In(dto.user.permissionIds) },
+                  }),
+                  tenantId,
+                )
               : [];
             const newRole = manager.create(Role, {
               name: dto.user.roleName,
@@ -134,7 +143,10 @@ export class EmployeesOnboardingService {
           result.user = user;
         }
 
-        const employeeCode = await this.generateEmployeeCode(tenantId, manager);
+        const employeeCode = await generateEmployeeCode(
+          manager.getRepository(Employee),
+          tenantId,
+        );
 
         const processedEducations = dto.educations?.map((edu) => ({
           ...edu,
@@ -164,26 +176,15 @@ export class EmployeesOnboardingService {
 
         if (dto.contract) {
           const startDate = new Date(dto.contract.startDate);
-          let probationEndDate: Date | undefined;
-          if (
-            dto.contract.probationPeriod &&
-            dto.contract.probationPeriod !== ProbationPeriod.NONE
-          ) {
-            probationEndDate =
-              dto.contract.probationPeriod === ProbationPeriod.THREE_MONTHS
-                ? addMonths(startDate, 3)
-                : addMonths(startDate, 6);
-          }
-
-          let calculatedEndDate: Date | undefined;
-          if (dto.contract.endDate) {
-            calculatedEndDate = new Date(dto.contract.endDate);
-          } else if (dto.contract.contractDurationMonths) {
-            calculatedEndDate = addMonths(
-              startDate,
-              dto.contract.contractDurationMonths,
-            );
-          }
+          const probationEndDate = calculateProbationEndDate(
+            startDate,
+            dto.contract.probationPeriod,
+          );
+          const calculatedEndDate = calculateContractEndDate(
+            startDate,
+            dto.contract.endDate,
+            dto.contract.contractDurationMonths,
+          );
 
           const newContract = manager.create(Contract, {
             contractType: dto.contract.contractType,
@@ -253,45 +254,9 @@ export class EmployeesOnboardingService {
       });
     } catch (error) {
       // ⚠️ لا نفشل العملية بسبب خطأ في الإشعار
-      console.error('Failed to send onboarding notification:', error);
+      this.logger.error('Failed to send onboarding notification', error);
     }
 
     return result;
-  }
-
-  // ... باقي الدوال (generateEmployeeCode, getTenantPrefix) كما هي ...
-  private readonly TENANT_PREFIX_DIGITS = 3;
-  private readonly SEQUENCE_DIGITS = 4;
-
-  private getTenantPrefix(tenantId: string): string {
-    const mod = 10 ** this.TENANT_PREFIX_DIGITS;
-    let hash = 0;
-    for (let i = 0; i < tenantId.length; i++) {
-      hash = (hash * 31 + tenantId.charCodeAt(i)) % mod;
-    }
-    return hash.toString().padStart(this.TENANT_PREFIX_DIGITS, '0');
-  }
-
-  private async generateEmployeeCode(
-    tenantId: string,
-    manager: EntityManager,
-  ): Promise<string> {
-    const prefix = this.getTenantPrefix(tenantId);
-    const totalLength = this.TENANT_PREFIX_DIGITS + this.SEQUENCE_DIGITS;
-    const employees = await manager.find(Employee, {
-      where: { tenantId },
-      select: ['employeeCode'],
-      withDeleted: true,
-    });
-    let maxNumber = 0;
-    for (const emp of employees) {
-      const code = emp.employeeCode;
-      if (!code) continue;
-      if (code.length === totalLength && code.startsWith(prefix)) {
-        const num = parseInt(code.slice(this.TENANT_PREFIX_DIGITS), 10);
-        if (!isNaN(num) && num > maxNumber) maxNumber = num;
-      }
-    }
-    return `${prefix}${(maxNumber + 1).toString().padStart(this.SEQUENCE_DIGITS, '0')}`;
   }
 }

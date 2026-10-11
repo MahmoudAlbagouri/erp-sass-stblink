@@ -4,15 +4,30 @@ import {
   Delete,
   Param,
   UploadedFiles,
+  UseGuards,
   UseInterceptors,
   BadRequestException,
   Get,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
-import { storageConfig } from '../../common/utils/file-upload.utils';
+import {
+  isSafePathSegment,
+  storageConfig,
+} from '../../common/utils/file-upload.utils';
 import { FilesService } from '../files/files.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+
+const SUB_FOLDERS = ['image', 'files'];
+
+/** يرفض أي اسم مجلد/ملف قد يُستخدم للخروج من مجلد uploads (Path Traversal) */
+function assertSafeSegment(value: string, label: string): void {
+  if (!isSafePathSegment(value)) {
+    throw new BadRequestException(`${label} غير صالح`);
+  }
+}
 
 @Controller('media')
+@UseGuards(JwtAuthGuard) // ✅ الرفع/العرض/الحذف للمستخدمين المسجلين فقط
 export class MediaController {
   constructor(private readonly filesService: FilesService) {}
 
@@ -22,6 +37,8 @@ export class MediaController {
     @Param('folder') folder: string,
     @UploadedFiles() files: Express.Multer.File[],
   ) {
+    assertSafeSegment(folder, 'اسم المجلد');
+
     if (!files || files.length === 0) {
       throw new BadRequestException('لم يتم رفع أي ملفات');
     }
@@ -42,6 +59,7 @@ export class MediaController {
 
   @Get('list/:folder/images')
   async listImages(@Param('folder') folder: string) {
+    assertSafeSegment(folder, 'اسم المجلد');
     const images = await this.filesService.getFilesByFolder(`${folder}/image`);
     return {
       success: true,
@@ -52,6 +70,7 @@ export class MediaController {
   // استجابة للملفات فقط
   @Get('list/:folder/files')
   async listFiles(@Param('folder') folder: string) {
+    assertSafeSegment(folder, 'اسم المجلد');
     const files = await this.filesService.getFilesByFolder(`${folder}/files`);
     return {
       success: true,
@@ -65,6 +84,14 @@ export class MediaController {
     @Param('subFolder') subFolder: string, // سيتم تمرير image أو files
     @Param('fileName') fileName: string,
   ) {
+    assertSafeSegment(folder, 'اسم المجلد');
+    if (!SUB_FOLDERS.includes(subFolder)) {
+      throw new BadRequestException('المجلد الفرعي غير صالح');
+    }
+    if (!/^[a-zA-Z0-9_.-]+$/.test(fileName) || fileName.includes('..')) {
+      throw new BadRequestException('اسم الملف غير صالح');
+    }
+
     // المسار الكامل للملف يتضمن المجلد الفرعي
     const folderPath = `${folder}/${subFolder}`;
     const deleted = await this.filesService.deleteFile(folderPath, fileName);

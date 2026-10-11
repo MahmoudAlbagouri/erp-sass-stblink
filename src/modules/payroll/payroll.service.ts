@@ -11,6 +11,7 @@ import {
   In,
   LessThanOrEqual,
   MoreThanOrEqual,
+  FindOptionsWhere,
 } from 'typeorm';
 import { Payroll } from './entities/payroll.entity';
 import { PayrollItem } from './entities/payroll-item.entity';
@@ -72,7 +73,6 @@ function overlapDaysInclusive(
 export class PayrollService {
   constructor(
     @InjectRepository(Payroll) private payrollRepo: Repository<Payroll>,
-    @InjectRepository(PayrollItem) private itemRepo: Repository<PayrollItem>,
     private dataSource: DataSource,
   ) {}
 
@@ -600,7 +600,7 @@ export class PayrollService {
   }
 
   async findAllPayrolls(tenantId: string, year?: number, month?: number) {
-    const where: any = { tenantId };
+    const where: FindOptionsWhere<Payroll> = { tenantId };
     if (year) where.year = year;
     if (month && year) where.month = month;
     return this.payrollRepo.find({
