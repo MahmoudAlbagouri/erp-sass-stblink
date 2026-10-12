@@ -13,6 +13,7 @@ import {
 import { Stocktake, StocktakeLine } from './entities/stocktake.entity';
 import { Warehouse } from './entities/warehouse.entity';
 import { StockController } from './stock.controller';
+import { StockImportService } from './stock-import.service';
 import { StockService } from './stock.service';
 import { StocktakesController } from './stocktakes.controller';
 import { StocktakesService } from './stocktakes.service';
@@ -53,6 +54,7 @@ import { WarehousesService } from './warehouses.service';
   providers: [
     WarehousesService,
     StockService,
+    StockImportService,
     TransfersService,
     StocktakesService,
     WarehousesQuotaResolver,

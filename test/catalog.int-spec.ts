@@ -70,6 +70,24 @@ describe('catalog module', () => {
       expect(taxes.find((t) => t.isDefault)?.rate).toBe(15);
     });
 
+    it('seeds defaults once when a new tenant is hit by parallel requests', async () => {
+      // صفحة الأصناف تطلب الوحدات والضرائب معاً عند أول فتح لشركة جديدة
+      const results = await Promise.all([
+        settings.findUnits(tenantB),
+        settings.findTaxRates(tenantB),
+        settings.findUnits(tenantB),
+        settings.findTaxRates(tenantB),
+        settings.getDefaultTaxRate(tenantB),
+      ]);
+
+      const units = await settings.findUnits(tenantB);
+      const taxes = await settings.findTaxRates(tenantB);
+      expect(results).toHaveLength(5);
+      expect(new Set(units.map((u) => u.name)).size).toBe(units.length);
+      expect(units.length).toBeGreaterThan(0);
+      expect(taxes.filter((t) => t.isDefault)).toHaveLength(1);
+    });
+
     it('does not re-seed units a tenant deleted on purpose', async () => {
       for (const unit of await settings.findUnits(tenantA)) {
         await settings.removeUnit(unit.id, tenantA);

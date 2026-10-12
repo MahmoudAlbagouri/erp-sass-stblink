@@ -4,6 +4,8 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
+  HttpStatus,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -26,13 +28,33 @@ import {
   ProductQueryDto,
   UpdateProductDto,
 } from './dto/product.dto';
+import { ImportProductsDto } from './dto/import-products.dto';
+import { ProductsImportService } from './products-import.service';
 import { ProductsService } from './products.service';
 
 @Controller('catalog/products')
 @UseGuards(JwtAuthGuard, TenantScopeGuard, SubscriptionGuard, PermissionsGuard)
 @RequiresFeature(FEATURES.PRODUCTS_MODULE)
 export class ProductsController {
-  constructor(private readonly productsService: ProductsService) {}
+  constructor(
+    private readonly productsService: ProductsService,
+    private readonly productsImport: ProductsImportService,
+  ) {}
+
+  /**
+   * استيراد أصناف دفعة واحدة (حتى 1000). الموجود باسمه يُتخطى، والتصنيفات
+   * والوحدات تُنشأ بالاسم. للاستيراد مع رصيد افتتاحي:
+   * POST /inventory/stock/import-products
+   */
+  @Post('import')
+  @HttpCode(HttpStatus.OK)
+  @Permissions(PERMS.PRODUCT_CREATE, PERMS.CATALOG_SETTINGS_MANAGE)
+  importMany(
+    @Body() dto: ImportProductsDto,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.productsImport.import(dto, tenantId);
+  }
 
   @Post()
   @Permissions(PERMS.PRODUCT_CREATE)

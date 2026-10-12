@@ -342,6 +342,11 @@ export class CatalogSettingsService {
    * ينشئ الوحدات والضرائب الأساسية لشركة لم تُعرّف شيئاً بعد.
    * يعتمد على العدّ شاملاً المحذوف: شركة حذفت كل وحداتها عمداً لا نعيد
    * إنشاءها لها.
+   *
+   * الإدراج بـ ON CONFLICT DO NOTHING: صفحة الأصناف تطلب الوحدات والضرائب
+   * والتصنيفات معاً، فتصل عدة طلبات لشركة جديدة في نفس اللحظة وكلها ترى
+   * العدّ صفراً. الفهرس الفريد (الشركة + الاسم) يجعل الأول يُدرج والباقي
+   * يمرّ بلا خطأ.
    */
   async ensureDefaults(tenantId: string): Promise<void> {
     const [unitCount, taxCount] = await Promise.all([
@@ -350,16 +355,20 @@ export class CatalogSettingsService {
     ]);
 
     if (unitCount === 0) {
-      await this.units.save(
-        DEFAULT_UNITS.map((unit) => this.units.create({ ...unit, tenantId })),
-      );
+      await this.units
+        .createQueryBuilder()
+        .insert()
+        .values(DEFAULT_UNITS.map((unit) => ({ ...unit, tenantId })))
+        .orIgnore()
+        .execute();
     }
     if (taxCount === 0) {
-      await this.taxRates.save(
-        DEFAULT_TAX_RATES.map((tax) =>
-          this.taxRates.create({ ...tax, tenantId }),
-        ),
-      );
+      await this.taxRates
+        .createQueryBuilder()
+        .insert()
+        .values(DEFAULT_TAX_RATES.map((tax) => ({ ...tax, tenantId })))
+        .orIgnore()
+        .execute();
     }
   }
 }

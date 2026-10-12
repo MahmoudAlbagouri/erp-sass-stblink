@@ -11,6 +11,7 @@ import { Product } from './entities/product.entity';
 import { TaxRate } from './entities/tax-rate.entity';
 import { Unit } from './entities/unit.entity';
 import { ProductsQuotaResolver } from './products-quota.resolver';
+import { ProductsImportService } from './products-import.service';
 import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
 
@@ -39,7 +40,12 @@ import { ProductsService } from './products.service';
     CatalogSettingsController,
     ProductsController,
   ],
-  providers: [CatalogSettingsService, ProductsService, ProductsQuotaResolver],
-  exports: [CatalogSettingsService, ProductsService],
+  providers: [
+    CatalogSettingsService,
+    ProductsService,
+    ProductsImportService,
+    ProductsQuotaResolver,
+  ],
+  exports: [CatalogSettingsService, ProductsService, ProductsImportService],
 })
 export class CatalogModule {}

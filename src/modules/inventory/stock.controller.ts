@@ -4,6 +4,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   ParseUUIDPipe,
   Patch,
   Post,
@@ -26,13 +28,38 @@ import {
   SetMinQuantityDto,
   StockQueryDto,
 } from './dto/inventory.dto';
+import { ImportProductsWithStockDto } from './dto/import-stock.dto';
+import { StockImportService } from './stock-import.service';
 import { StockService } from './stock.service';
 
 @Controller('inventory')
 @UseGuards(JwtAuthGuard, TenantScopeGuard, SubscriptionGuard, PermissionsGuard)
 @RequiresFeature(FEATURES.INVENTORY_MODULE)
 export class StockController {
-  constructor(private readonly stock: StockService) {}
+  constructor(
+    private readonly stock: StockService,
+    private readonly stockImport: StockImportService,
+  ) {}
+
+  /**
+   * استيراد أصناف مع رصيدها الافتتاحي في طلب واحد (قائمة عميل جديد).
+   * يتطلب موديولي الأصناف والمخزون معاً.
+   */
+  @Post('stock/import-products')
+  @HttpCode(HttpStatus.OK)
+  @RequiresFeature(FEATURES.INVENTORY_MODULE)
+  @Permissions(
+    PERMS.PRODUCT_CREATE,
+    PERMS.CATALOG_SETTINGS_MANAGE,
+    PERMS.STOCK_ADJUST,
+  )
+  importProducts(
+    @Body() dto: ImportProductsWithStockDto,
+    @CurrentTenantId() tenantId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.stockImport.import(dto, tenantId, userId);
+  }
 
   @Get('stock')
   @Permissions(PERMS.INVENTORY_VIEW)

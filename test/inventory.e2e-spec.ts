@@ -139,6 +139,58 @@ describe('Inventory API (e2e)', () => {
     expect(summary.value).toBe(142.5);
   });
 
+  it('imports a price list with opening stock in one request', async () => {
+    const list = {
+      defaultUnit: 'كيلوجرام',
+      quantity: 200,
+      costRatio: 0.8,
+      items: [
+        { name: 'فلفل أبيض', category: 'التوابل', salePrice: 560 },
+        {
+          name: 'كمون بلدي',
+          category: 'التوابل',
+          salePrice: 250,
+          quantity: 50,
+        },
+        { name: 'ملح ليمون', salePrice: 69, unitCost: 40 },
+      ],
+    };
+
+    const res = await post('/inventory/stock/import-products', list);
+
+    expect(res.status).toBe(200);
+    expect(data(res)).toMatchObject({
+      stocked: 3,
+      warehouse: { name: 'المخزن الرئيسي' },
+      failed: [],
+    });
+
+    const levels = data<{
+      data: { productName: string; quantity: number; avgCost: number }[];
+    }>(await get('/inventory/stock'));
+    const byName = new Map(levels.data.map((l) => [l.productName, l]));
+    expect(byName.get('فلفل أبيض')).toMatchObject({
+      quantity: 200,
+      avgCost: 448,
+    });
+    expect(byName.get('كمون بلدي')).toMatchObject({
+      quantity: 50,
+      avgCost: 200,
+    });
+    expect(byName.get('ملح ليمون')).toMatchObject({
+      quantity: 200,
+      avgCost: 40,
+    });
+
+    // إعادة إرسال القائمة لا تضاعف الرصيد
+    const again = await post('/inventory/stock/import-products', list);
+    expect(data(again)).toMatchObject({ created: [], stocked: 0 });
+    const after = data<{ data: { quantity: number }[] }>(
+      await get('/inventory/stock?search=فلفل'),
+    );
+    expect(after.data).toMatchObject([{ quantity: 200 }]);
+  });
+
   it('rejects invalid input with 400', async () => {
     const productId = await createProduct('مياه');
     const warehouseId = await mainWarehouseId();
