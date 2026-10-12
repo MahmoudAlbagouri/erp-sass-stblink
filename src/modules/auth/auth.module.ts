@@ -12,19 +12,23 @@ import { AccessTokenStrategy } from './strategies/access-token.strategy';
 import { RefreshTokenStrategy } from './strategies/refresh-token.strategy';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { DisclaimerGuard } from './guards/disclaimer.guard';
+import { SupportSession } from './entities/support-session.entity';
+import { SupportController } from './support.controller';
+import { SupportService } from './support.service';
 
 @Module({
   imports: [
     UsersModule,
     TenantsModule,
     PassportModule,
-    TypeOrmModule,
+    TypeOrmModule.forFeature([SupportSession]),
     JwtModule.register({}),
     SubscriptionsModule,
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, SupportController],
   providers: [
     AuthService,
+    SupportService,
     AccessTokenStrategy,
     RefreshTokenStrategy,
     { provide: APP_GUARD, useClass: DisclaimerGuard },

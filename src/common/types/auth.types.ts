@@ -25,6 +25,11 @@ export interface JwtPayload {
   isDisclaimerAccepted?: boolean;
   employeeId?: string;
   role?: AuthRole | null;
+  /**
+   * وضع الدعم: معرّف مالك النظام الذي يعمل داخل هذه الشركة بهذا التوكن.
+   * يغيب في التوكنات العادية.
+   */
+  supportBy?: string;
 }
 
 /**
@@ -43,6 +48,8 @@ export interface CurrentUserData {
   role?: AuthRole | null;
   /** أسماء الصلاحيات فقط (مشتقة من role.permissions) */
   permissions?: string[];
+  /** وضع الدعم: مالك النظام الذي يعمل داخل الشركة (انظر JwtPayload) */
+  supportBy?: string;
 }
 
 export type AuthenticatedRequest = Request & { user: CurrentUserData };

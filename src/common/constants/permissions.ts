@@ -320,6 +320,94 @@ export const PERMS = {
     labelAr: 'إدارة الاشتراكات (ترقية/تجديد/إلغاء)',
   },
 
+  // ─── Catalog (الأصناف) ──────────────────────────────
+  PRODUCT_VIEW: { name: 'view_products', labelAr: 'عرض الأصناف' },
+  PRODUCT_CREATE: { name: 'create_product', labelAr: 'إضافة صنف' },
+  PRODUCT_UPDATE: { name: 'update_product', labelAr: 'تعديل صنف' },
+  PRODUCT_DELETE: { name: 'delete_product', labelAr: 'حذف صنف' },
+  CATALOG_SETTINGS_MANAGE: {
+    name: 'manage_catalog_settings',
+    labelAr: 'إدارة التصنيفات والوحدات والضرائب',
+  },
+
+  // ─── Inventory (المخزون) ────────────────────────────
+  INVENTORY_VIEW: { name: 'view_inventory', labelAr: 'عرض المخزون وحركاته' },
+  WAREHOUSE_MANAGE: { name: 'manage_warehouses', labelAr: 'إدارة المخازن' },
+  STOCK_ADJUST: {
+    name: 'adjust_stock',
+    labelAr: 'تسوية المخزون والرصيد الافتتاحي',
+  },
+  STOCK_TRANSFER_MANAGE: {
+    name: 'manage_stock_transfers',
+    labelAr: 'إنشاء وإرسال التحويلات بين المخازن',
+  },
+  STOCK_TRANSFER_RECEIVE: {
+    name: 'receive_stock_transfers',
+    labelAr: 'استلام التحويلات بين المخازن',
+  },
+  STOCKTAKE_MANAGE: { name: 'manage_stocktakes', labelAr: 'الجرد واعتماده' },
+
+  // ─── Purchasing (المشتريات والموردون) ───────────────
+  SUPPLIER_VIEW: { name: 'view_suppliers', labelAr: 'عرض الموردين' },
+  SUPPLIER_MANAGE: {
+    name: 'manage_suppliers',
+    labelAr: 'إضافة وتعديل وحذف الموردين',
+  },
+  PURCHASE_VIEW: { name: 'view_purchases', labelAr: 'عرض فواتير الشراء' },
+  PURCHASE_MANAGE: {
+    name: 'manage_purchases',
+    labelAr: 'إنشاء وتعديل فواتير الشراء (مسودة)',
+  },
+  PURCHASE_POST: {
+    name: 'post_purchases',
+    labelAr: 'اعتماد وإلغاء فواتير الشراء',
+  },
+  PURCHASE_RETURN_MANAGE: {
+    name: 'manage_purchase_returns',
+    labelAr: 'مرتجعات الشراء',
+  },
+  SUPPLIER_PAYMENT_MANAGE: {
+    name: 'manage_supplier_payments',
+    labelAr: 'سداد الموردين',
+  },
+
+  // ─── Sales (المبيعات والعملاء) ──────────────────────
+  CUSTOMER_VIEW: { name: 'view_customers', labelAr: 'عرض العملاء' },
+  CUSTOMER_MANAGE: {
+    name: 'manage_customers',
+    labelAr: 'إضافة وتعديل وحذف العملاء',
+  },
+  SALES_VIEW: { name: 'view_sales', labelAr: 'عرض فواتير البيع' },
+  SALES_MANAGE: {
+    name: 'manage_sales',
+    labelAr: 'إنشاء وتعديل فواتير البيع (مسودة)',
+  },
+  SALES_ISSUE: { name: 'issue_sales', labelAr: 'إصدار فواتير البيع' },
+  SALES_RETURN_MANAGE: {
+    name: 'manage_sales_returns',
+    labelAr: 'مرتجعات البيع (إشعارات دائنة)',
+  },
+  CUSTOMER_PAYMENT_MANAGE: {
+    name: 'manage_customer_payments',
+    labelAr: 'مقبوضات العملاء',
+  },
+  SALES_PROFIT_VIEW: {
+    name: 'view_sales_profit',
+    labelAr: 'عرض تكلفة البضاعة وأرباح المبيعات',
+  },
+  SALES_SETTINGS_MANAGE: {
+    name: 'manage_sales_settings',
+    labelAr: 'إعدادات الفوترة (بيانات البائع والرقم الضريبي)',
+  },
+
+  // ─── POS (نقاط البيع) ───────────────────────────────
+  POS_VIEW: { name: 'view_pos', labelAr: 'عرض أجهزة الكاشير والورديات' },
+  POS_USE: { name: 'use_pos', labelAr: 'البيع من شاشة الكاشير' },
+  POS_DEVICE_MANAGE: {
+    name: 'manage_pos_devices',
+    labelAr: 'إضافة وتعديل أجهزة الكاشير',
+  },
+
   // ── System (system admins only) ─────────────────────
   SYSTEM_STATS: {
     name: 'system:view_platform_stats',

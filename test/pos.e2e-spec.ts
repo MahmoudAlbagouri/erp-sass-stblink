@@ -1,0 +1,269 @@
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import { randomUUID } from 'crypto';
+import request from 'supertest';
+import { App } from 'supertest/types';
+import { DataSource } from 'typeorm';
+import { AppModule } from '../src/app.module';
+import { createTenantFixture, TenantFixture } from './utils/fixtures';
+import { truncateAllTables } from './utils/test-database';
+
+/**
+ * نقاط البيع عبر الـ HTTP كما يستخدمها جهاز الكاشير: تسجيل الجهاز، تنزيل
+ * بيانات البيع، ثم رفع وردية كاملة بيعت محلياً.
+ */
+describe('POS API (e2e)', () => {
+  let app: INestApplication<App>;
+  let dataSource: DataSource;
+  let tenant: TenantFixture;
+
+  const FEATURES = [
+    'products_module',
+    'inventory_module',
+    'sales_module',
+    'pos_module',
+  ];
+
+  const api = () => request(app.getHttpServer());
+  const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
+  // كل الردود تُغلَّف بـ TransformInterceptor: { success, data, ... }
+  const data = <T>(res: request.Response): T => (res.body as { data: T }).data;
+
+  const get = (path: string, token = tenant.adminToken) =>
+    api().get(path).set(auth(token));
+  const post = (path: string, body: object = {}, token = tenant.adminToken) =>
+    api().post(path).set(auth(token)).send(body);
+
+  /** صنف + جهاز كاشير على المخزن الرئيسي */
+  const setup = async () => {
+    const units = data<{ id: string }[]>(await get('/catalog/units'));
+    const product = await post('/catalog/products', {
+      name: 'مياه 330 مل',
+      baseUnitId: units[0].id,
+      salePrice: 2.3,
+      barcodes: [{ barcode: '6281000000017' }],
+    });
+    const warehouses = data<{ id: string; type: string }[]>(
+      await get('/inventory/warehouses'),
+    );
+    const warehouseId = warehouses.find((w) => w.type === 'main')!.id;
+    const productId = data<{ id: string }>(product).id;
+    await post('/inventory/adjustments', {
+      warehouseId,
+      type: 'opening',
+      lines: [{ productId, quantity: 50, unitCost: 1 }],
+    });
+    const device = await post('/pos/devices', {
+      name: 'كاشير 1',
+      code: 'POS1',
+      warehouseId,
+    });
+
+    return {
+      productId,
+      warehouseId,
+      deviceId: data<{ id: string }>(device).id,
+    };
+  };
+
+  const sale = (shiftId: string, productId: string, counter: number) => ({
+    id: `sale-${counter}`,
+    type: 'sale',
+    payload: {
+      uuid: randomUUID(),
+      number: `POS1-00000${counter}`,
+      issuedAt: '2026-10-12T06:30:00.000Z',
+      shiftId,
+      pricesIncludeTax: true,
+      lines: [
+        {
+          productId,
+          quantity: 2,
+          unitPrice: 2.3,
+          discount: 0,
+          taxRate: 15,
+          subtotal: 4,
+          taxAmount: 0.6,
+          total: 4.6,
+        },
+      ],
+      payments: [{ method: 'cash', amount: 4.6 }],
+    },
+  });
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleRef.createNestApplication();
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    );
+    await app.init();
+    dataSource = app.get(DataSource);
+  });
+
+  beforeEach(async () => {
+    await truncateAllTables(dataSource);
+    tenant = await createTenantFixture(dataSource, { features: FEATURES });
+  });
+
+  afterAll(async () => {
+    await app?.close();
+  });
+
+  it('bootstraps a device then syncs a shift sold offline', async () => {
+    const { productId, deviceId } = await setup();
+    const shiftId = randomUUID();
+
+    const bootstrap = await get(`/pos/bootstrap?deviceId=${deviceId}`);
+    expect(bootstrap.status).toBe(200);
+    expect(
+      data<{ products: { id: string; barcodes: unknown[] }[] }>(bootstrap)
+        .products,
+    ).toMatchObject([
+      { id: productId, barcodes: [{ barcode: '6281000000017' }] },
+    ]);
+
+    const synced = await post('/pos/sync', {
+      deviceId,
+      operations: [
+        {
+          id: 'open',
+          type: 'shift.open',
+          payload: {
+            id: shiftId,
+            openedAt: '2026-10-12T05:00:00.000Z',
+            openingCash: 50,
+          },
+        },
+        sale(shiftId, productId, 1),
+        sale(shiftId, productId, 2),
+        {
+          id: 'close',
+          type: 'shift.close',
+          payload: {
+            id: shiftId,
+            closedAt: '2026-10-12T14:00:00.000Z',
+            closingCash: 59.2,
+          },
+        },
+      ],
+    });
+
+    expect(synced.status).toBe(200);
+    expect(
+      data<{ results: { status: string }[]; lastCounter: number }>(synced),
+    ).toMatchObject({
+      results: [
+        { status: 'ok' },
+        { status: 'ok' },
+        { status: 'ok' },
+        { status: 'ok' },
+      ],
+      lastCounter: 2,
+    });
+
+    // المبيعات ظهرت في لوحة التحكم كأي فاتورة بيع، والمخزون نقص
+    const invoices = data<{ total: number; data: { number: string }[] }>(
+      await get('/sales/invoices'),
+    );
+    expect(invoices.total).toBe(2);
+    const stockLevels = data<{ data: { quantity: number }[] }>(
+      await get('/inventory/stock'),
+    );
+    expect(stockLevels.data).toMatchObject([{ quantity: 46 }]);
+
+    const shifts = data<{ data: object[] }>(await get('/pos/shifts'));
+    expect(shifts.data).toMatchObject([
+      {
+        status: 'closed',
+        salesTotal: 9.2,
+        expectedCash: 59.2,
+        cashDifference: 0,
+      },
+    ]);
+  });
+
+  it('rejects a malformed sync request with 400', async () => {
+    const { deviceId } = await setup();
+
+    expect(
+      (await post('/pos/sync', { deviceId: 'x', operations: [] })).status,
+    ).toBe(400);
+    expect(
+      (
+        await post('/pos/sync', {
+          deviceId,
+          operations: [{ id: '1', type: 'refund', payload: {} }],
+        })
+      ).status,
+    ).toBe(400);
+    expect((await get('/pos/bootstrap')).status).toBe(400);
+    expect(
+      (
+        await post('/pos/devices', {
+          name: 'x',
+          code: 'bad code',
+          warehouseId: deviceId,
+        })
+      ).status,
+    ).toBe(400);
+  });
+
+  it('enforces the device quota and the plan feature', async () => {
+    tenant = await createTenantFixture(dataSource, {
+      features: FEATURES,
+      quotas: { max_pos_devices: 1 },
+    });
+    const { warehouseId } = await setup(); // الجهاز الأول
+
+    expect(
+      (await post('/pos/devices', { name: 'ثانٍ', code: 'POS2', warehouseId }))
+        .status,
+    ).toBe(403);
+
+    const noFeature = await createTenantFixture(dataSource, {
+      features: FEATURES.filter((f) => f !== 'pos_module'),
+    });
+    expect((await get('/pos/devices', noFeature.adminToken)).status).toBe(403);
+    expect((await get('/pos/ping', noFeature.adminToken)).status).toBe(403);
+  });
+
+  it('checks permissions and keeps tenants isolated', async () => {
+    const { deviceId, warehouseId } = await setup();
+    const cashier = tenant.tokenWith(['view_pos', 'use_pos']);
+    const other = await createTenantFixture(dataSource, { features: FEATURES });
+
+    // الكاشير يبيع ويرى الأجهزة، لكنه لا يضيف جهازاً
+    expect((await get('/pos/ping', cashier)).status).toBe(200);
+    expect((await get('/pos/devices', cashier)).status).toBe(200);
+    expect(
+      (
+        await post(
+          '/pos/devices',
+          { name: 'x', code: 'POS3', warehouseId },
+          cashier,
+        )
+      ).status,
+    ).toBe(403);
+
+    // شركة أخرى لا ترى الجهاز ولا تنزّل بياناته ولا ترفع عليه
+    expect(
+      data<unknown[]>(await get('/pos/devices', other.adminToken)),
+    ).toEqual([]);
+    expect(
+      (await get(`/pos/bootstrap?deviceId=${deviceId}`, other.adminToken))
+        .status,
+    ).toBe(404);
+    expect(
+      (await post('/pos/sync', { deviceId, operations: [] }, other.adminToken))
+        .status,
+    ).toBe(404);
+  });
+});

@@ -1,0 +1,967 @@
+// src/modules/sales/sales-invoices.service.ts
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import Decimal from 'decimal.js';
+import { randomUUID } from 'crypto';
+import { DataSource, EntityManager, Repository } from 'typeorm';
+import {
+  paginated,
+  Paginated,
+  resolvePagination,
+} from '../../common/dto/pagination.dto';
+import {
+  lockDocumentSequence,
+  nextDocumentNumber,
+} from '../../common/utils/document-number.util';
+import { computeLine, sumMoney } from '../../common/utils/document-totals.util';
+import { Product, ProductType } from '../catalog/entities/product.entity';
+import { TaxCategory } from '../catalog/entities/tax-rate.entity';
+import { ProductsService } from '../catalog/products.service';
+import { StockMovementType } from '../inventory/entities/stock-movement.entity';
+import { StockService } from '../inventory/stock.service';
+import { WarehousesService } from '../inventory/warehouses.service';
+import { CustomersService } from './customers.service';
+import {
+  CreateSalesInvoiceDto,
+  IssueSalesInvoiceDto,
+  SalesInvoiceQueryDto,
+  SalesLineDto,
+  TenderDto,
+  UpdateSalesInvoiceDto,
+} from './dto/sales.dto';
+import { PaymentDirection } from './entities/customer-payment.entity';
+import { Customer } from './entities/customer.entity';
+import {
+  SalesInvoice,
+  SalesInvoiceLine,
+  SalesInvoiceStatus,
+  SalesInvoiceType,
+} from './entities/sales-invoice.entity';
+import { SalesSettings } from './entities/sales-settings.entity';
+import { SalesSettingsService } from './sales-settings.service';
+import { dateOnly, recordPayment } from './utils/payment-recorder';
+import { buildZatcaQr, computeInvoiceHash } from './utils/zatca.util';
+
+export const SALES_INVOICE_REFERENCE = 'sales_invoice';
+const NUMBER_PREFIX = 'INV-';
+/** أقصى فرق تقريب مقبول بين حساب الجهاز وحساب السيرفر (هللتان) */
+const AMOUNT_TOLERANCE = 0.02;
+/** سماحية مقارنة الأسعار (نصف هللة) لتفادي رفض بسبب التقريب */
+const PRICE_TOLERANCE = 0.005;
+
+/** سطر محسوب جاهز للحفظ */
+type ComputedLine = Pick<
+  SalesInvoiceLine,
+  | 'sortOrder'
+  | 'productId'
+  | 'productName'
+  | 'sku'
+  | 'isStocked'
+  | 'unitId'
+  | 'unitName'
+  | 'factor'
+  | 'quantity'
+  | 'unitPrice'
+  | 'discount'
+  | 'taxRate'
+  | 'taxCategory'
+  | 'subtotal'
+  | 'taxAmount'
+  | 'total'
+  | 'baseQuantity'
+>;
+
+/** فاتورة أصدرها جهاز كاشير، كما يرفعها */
+export interface PosSaleInput {
+  uuid: string;
+  /** رقم الفاتورة كما وُلّد على الجهاز وطُبع */
+  number: string;
+  /** وقت البيع الفعلي على الجهاز */
+  issuedAt: Date;
+  deviceId: string;
+  shiftId: string;
+  warehouseId: string;
+  customerId?: string | null;
+  pricesIncludeTax: boolean;
+  lines: {
+    productId: string;
+    unitId?: string;
+    quantity: number;
+    unitPrice: number;
+    discount: number;
+    /** نسبة الضريبة وقت البيع */
+    taxRate: number;
+    subtotal: number;
+    taxAmount: number;
+    total: number;
+  }[];
+  payments: TenderDto[];
+}
+
+export interface ShiftTotals {
+  invoicesCount: number;
+  salesTotal: number;
+  /** صافي المقبوض لكل طريقة دفع: { cash: 120, card: 80 } */
+  byMethod: Record<string, number>;
+}
+
+interface FinalizeOptions {
+  issuedAt: Date;
+  tenders: TenderDto[];
+  seller: SalesSettings;
+  userId?: string;
+  /** رقم جاهز من جهاز الكاشير. بدونه يؤخذ الرقم التسلسلي التالي */
+  number?: string;
+  deviceId?: string;
+  shiftId?: string;
+}
+
+interface Totals {
+  subtotal: number;
+  discountTotal: number;
+  taxTotal: number;
+  total: number;
+}
+
+export interface SalesSummary {
+  /** صافي مبيعات اليوم (بعد المرتجعات) شامل الضريبة */
+  todaySales: number;
+  monthSales: number;
+  /** مجمل ربح الشهر = المبيعات قبل الضريبة − تكلفة البضاعة المباعة */
+  monthProfit: number;
+  /** إجمالي ما على العملاء */
+  receivables: number;
+  /** المتبقي على فواتير آجلة تجاوزت تاريخ استحقاقها */
+  overdue: number;
+  draftInvoices: number;
+}
+
+/**
+ * فواتير البيع:
+ *   مسودة ──إصدار──▶ صادرة   (رقم تسلسلي + QR + خروج البضاعة + قيد على العميل)
+ * الفاتورة الصادرة لا تُعدَّل ولا تُلغى (متطلب هيئة الزكاة والضريبة)؛ تصحيحها
+ * بمرتجع بيع (إشعار دائن).
+ */
+@Injectable()
+export class SalesInvoicesService {
+  constructor(
+    @InjectRepository(SalesInvoice)
+    private readonly invoices: Repository<SalesInvoice>,
+    private readonly customers: CustomersService,
+    private readonly warehouses: WarehousesService,
+    private readonly products: ProductsService,
+    private readonly stock: StockService,
+    private readonly settings: SalesSettingsService,
+    private readonly dataSource: DataSource,
+  ) {}
+
+  // ══════════════════════════ القراءة ══════════════════════════
+
+  async findAll(
+    tenantId: string,
+    query: SalesInvoiceQueryDto,
+  ): Promise<Paginated<SalesInvoice>> {
+    const { page, limit, skip } = resolvePagination(query);
+
+    const qb = this.invoices
+      .createQueryBuilder('invoice')
+      .leftJoinAndSelect('invoice.customer', 'customer')
+      .leftJoinAndSelect('invoice.warehouse', 'warehouse')
+      .loadRelationCountAndMap('invoice.linesCount', 'invoice.lines')
+      .where('invoice.tenantId = :tenantId', { tenantId });
+
+    const search = query.search?.trim();
+    if (search) {
+      qb.andWhere(
+        '(invoice.number ILIKE :like OR customer.name ILIKE :like OR customer.phone ILIKE :like)',
+        { like: `%${search}%` },
+      );
+    }
+    if (query.status) {
+      qb.andWhere('invoice.status = :status', { status: query.status });
+    }
+    if (query.customerId) {
+      qb.andWhere('invoice.customerId = :customerId', {
+        customerId: query.customerId,
+      });
+    }
+    if (query.warehouseId) {
+      qb.andWhere('invoice.warehouseId = :warehouseId', {
+        warehouseId: query.warehouseId,
+      });
+    }
+    if (query.payment) {
+      qb.andWhere('invoice.status = :issued', {
+        issued: SalesInvoiceStatus.ISSUED,
+      }).andWhere(
+        'invoice.total - invoice.returnedAmount - invoice.paidAmount > 0',
+      );
+      if (query.payment === 'overdue') {
+        qb.andWhere('invoice.dueDate < CURRENT_DATE');
+      }
+    }
+    if (query.from) {
+      qb.andWhere('invoice.invoiceDate >= :from', { from: query.from });
+    }
+    if (query.to) {
+      qb.andWhere('invoice.invoiceDate <= :to', { to: query.to });
+    }
+
+    const [data, total] = await qb
+      .orderBy('invoice.invoiceDate', 'DESC')
+      .addOrderBy('invoice.createdAt', 'DESC')
+      .addOrderBy('invoice.id', 'ASC')
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
+
+    return paginated(data, total, page, limit);
+  }
+
+  async findOne(id: string, tenantId: string): Promise<SalesInvoice> {
+    const invoice = await this.invoices.findOne({
+      where: { id, tenantId },
+      relations: ['customer', 'warehouse', 'lines'],
+    });
+    if (!invoice) throw new NotFoundException('فاتورة البيع غير موجودة');
+
+    invoice.lines?.sort((a, b) => a.sortOrder - b.sortOrder);
+    return invoice;
+  }
+
+  /**
+   * يقفل الفاتورة حتى نهاية المعاملة — للإصدار هنا، وللقبض والمرتجع اللذين
+   * يعدّلان مبالغها (فلا يُقبض أو يُرجَع أكثر من المتاح بطلبين متزامنين).
+   */
+  async lock(
+    manager: EntityManager,
+    id: string,
+    tenantId: string,
+  ): Promise<SalesInvoice> {
+    const invoice = await manager.findOne(SalesInvoice, {
+      where: { id, tenantId },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!invoice) throw new NotFoundException('فاتورة البيع غير موجودة');
+    return invoice;
+  }
+
+  /** عدد الفواتير الصادرة هذا الشهر — يستخدمه حد الخطة (max_invoices) */
+  async countIssuedThisMonth(tenantId: string): Promise<number> {
+    const [row] = await this.invoices.query<{ count: number }[]>(
+      `SELECT COUNT(*)::int AS "count" FROM sales_invoices
+        WHERE "tenantId" = $1 AND "status" = 'issued'
+          AND "issuedAt" >= date_trunc('month', now())`,
+      [tenantId],
+    );
+    return row.count;
+  }
+
+  /** مبيعات وردية كاشير ومقبوضاتها حسب طريقة الدفع — لتقفيل الدرج */
+  async shiftTotals(tenantId: string, shiftId: string): Promise<ShiftTotals> {
+    const [sales] = await this.invoices.query<
+      { count: number; total: string }[]
+    >(
+      `SELECT COUNT(*)::int AS "count", COALESCE(SUM("total"), 0) AS "total"
+         FROM sales_invoices
+        WHERE "tenantId" = $1 AND "shiftId" = $2 AND "status" = 'issued'`,
+      [tenantId, shiftId],
+    );
+    const methods = await this.invoices.query<
+      { method: string; amount: string }[]
+    >(
+      `SELECT p."method",
+              SUM(CASE WHEN p."direction" = 'in' THEN p."amount" ELSE -p."amount" END) AS "amount"
+         FROM customer_payments p
+         JOIN sales_invoices i ON i."id" = p."invoiceId"
+        WHERE i."tenantId" = $1 AND i."shiftId" = $2 AND p."status" = 'posted'
+        GROUP BY p."method"`,
+      [tenantId, shiftId],
+    );
+
+    return {
+      invoicesCount: sales.count,
+      salesTotal: Number(sales.total),
+      byMethod: Object.fromEntries(
+        methods.map((m) => [m.method, Number(m.amount)]),
+      ),
+    };
+  }
+
+  async summary(tenantId: string): Promise<SalesSummary> {
+    const [row] = await this.invoices.query<
+      {
+        today: string;
+        month: string;
+        profit: string;
+        overdue: string;
+        drafts: number;
+      }[]
+    >(
+      `SELECT
+         COALESCE(SUM("total" - "returnedAmount") FILTER (
+           WHERE "status" = 'issued' AND "invoiceDate" = CURRENT_DATE), 0) AS "today",
+         COALESCE(SUM("total" - "returnedAmount") FILTER (
+           WHERE "status" = 'issued'
+             AND "invoiceDate" >= date_trunc('month', CURRENT_DATE)), 0) AS "month",
+         COALESCE(SUM("subtotal" - "costTotal") FILTER (
+           WHERE "status" = 'issued'
+             AND "invoiceDate" >= date_trunc('month', CURRENT_DATE)), 0) AS "profit",
+         COALESCE(SUM("total" - "returnedAmount" - "paidAmount") FILTER (
+           WHERE "status" = 'issued' AND "dueDate" < CURRENT_DATE
+             AND "total" - "returnedAmount" - "paidAmount" > 0), 0) AS "overdue",
+         (COUNT(*) FILTER (WHERE "status" = 'draft'))::int AS "drafts"
+       FROM sales_invoices
+       WHERE "tenantId" = $1 AND "deletedAt" IS NULL`,
+      [tenantId],
+    );
+
+    return {
+      todaySales: Number(row.today),
+      monthSales: Number(row.month),
+      monthProfit: Number(row.profit),
+      receivables: await this.customers.totalReceivables(tenantId),
+      overdue: Number(row.overdue),
+      draftInvoices: row.drafts,
+    };
+  }
+
+  // ══════════════════════════ المسودة ══════════════════════════
+
+  async create(
+    dto: CreateSalesInvoiceDto,
+    tenantId: string,
+    userId?: string,
+  ): Promise<SalesInvoice> {
+    // نفس الـ uuid أُرسل من قبل (إعادة محاولة بعد انقطاع): نعيد الفاتورة نفسها
+    if (dto.uuid) {
+      const existing = await this.invoices.findOne({
+        where: { tenantId, uuid: dto.uuid },
+      });
+      if (existing) return this.findOne(existing.id, tenantId);
+    }
+
+    const customer = dto.customerId
+      ? await this.customers.findActive(dto.customerId, tenantId)
+      : null;
+    await this.warehouses.findActiveByIds([dto.warehouseId], tenantId);
+
+    const pricesIncludeTax = dto.pricesIncludeTax ?? true;
+    const lines = await this.computeLines(
+      dto.lines,
+      pricesIncludeTax,
+      tenantId,
+    );
+
+    const id = await this.dataSource.transaction(async (manager) => {
+      const invoice = await manager.save(
+        manager.create(SalesInvoice, {
+          tenantId,
+          uuid: dto.uuid ?? randomUUID(),
+          customerId: customer?.id ?? null,
+          invoiceType: invoiceTypeFor(customer),
+          warehouseId: dto.warehouseId,
+          invoiceDate: dto.invoiceDate,
+          dueDate: dto.dueDate ?? defaultDueDate(dto.invoiceDate, customer),
+          pricesIncludeTax,
+          note: dto.note ?? null,
+          createdById: userId ?? null,
+          ...totalsOf(lines),
+        }),
+      );
+      await this.replaceLines(manager, invoice.id, tenantId, lines);
+      return invoice.id;
+    });
+
+    return this.findOne(id, tenantId);
+  }
+
+  async update(
+    id: string,
+    dto: UpdateSalesInvoiceDto,
+    tenantId: string,
+  ): Promise<SalesInvoice> {
+    const current = await this.findOne(id, tenantId);
+    assertStatus(current, SalesInvoiceStatus.DRAFT, 'تعديل');
+
+    const customerId =
+      dto.customerId === undefined ? current.customerId : dto.customerId;
+    const customer = customerId
+      ? await this.customers.findActive(customerId, tenantId)
+      : null;
+    const warehouseId = dto.warehouseId ?? current.warehouseId;
+    if (dto.warehouseId) {
+      await this.warehouses.findActiveByIds([warehouseId], tenantId);
+    }
+
+    // الأسطر تُعاد حسابها دائماً: تغيير "شامل الضريبة" وحده يغيّر كل المبالغ
+    const pricesIncludeTax = dto.pricesIncludeTax ?? current.pricesIncludeTax;
+    const lineInputs: SalesLineDto[] =
+      dto.lines ??
+      (current.lines ?? []).map((line) => ({
+        productId: line.productId,
+        unitId: line.unitId,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        discount: line.discount,
+      }));
+    const lines = await this.computeLines(
+      lineInputs,
+      pricesIncludeTax,
+      tenantId,
+    );
+
+    await this.dataSource.transaction(async (manager) => {
+      const invoice = await this.lock(manager, id, tenantId);
+      assertStatus(invoice, SalesInvoiceStatus.DRAFT, 'تعديل');
+
+      await manager.update(
+        SalesInvoice,
+        { id, tenantId },
+        {
+          customerId: customer?.id ?? null,
+          invoiceType: invoiceTypeFor(customer),
+          warehouseId,
+          pricesIncludeTax,
+          invoiceDate: dto.invoiceDate ?? current.invoiceDate,
+          ...(dto.dueDate !== undefined ? { dueDate: dto.dueDate } : {}),
+          ...(dto.note !== undefined ? { note: dto.note } : {}),
+          ...totalsOf(lines),
+        },
+      );
+      await this.replaceLines(manager, id, tenantId, lines);
+    });
+
+    return this.findOne(id, tenantId);
+  }
+
+  /** إلغاء مسودة فقط. الصادرة لا تُلغى — تُصحَّح بمرتجع بيع */
+  async cancel(id: string, tenantId: string): Promise<SalesInvoice> {
+    await this.dataSource.transaction(async (manager) => {
+      const invoice = await this.lock(manager, id, tenantId);
+      if (invoice.status === SalesInvoiceStatus.ISSUED) {
+        throw new BadRequestException(
+          'الفاتورة الصادرة لا تُلغى — سجّل مرتجع بيع (إشعار دائن) لتصحيحها',
+        );
+      }
+      assertStatus(invoice, SalesInvoiceStatus.DRAFT, 'إلغاء');
+
+      await manager.update(
+        SalesInvoice,
+        { id, tenantId },
+        { status: SalesInvoiceStatus.CANCELLED },
+      );
+    });
+
+    return this.findOne(id, tenantId);
+  }
+
+  // ══════════════════════════ الإصدار ══════════════════════════
+
+  /**
+   * إصدار الفاتورة: رقم تسلسلي، رمز QR، خروج البضاعة من المخزن بمتوسط
+   * تكلفتها، وتسجيل ما قُبض. بعدها الفاتورة لا تتغير.
+   */
+  async issue(
+    id: string,
+    dto: IssueSalesInvoiceDto,
+    tenantId: string,
+    userId?: string,
+  ): Promise<SalesInvoice> {
+    // ─── تحقق قبل المعاملة (قراءات لا تحتاج قفلاً) ───
+    const draft = await this.findOne(id, tenantId);
+    assertStatus(draft, SalesInvoiceStatus.DRAFT, 'إصدار');
+
+    const tenders = dto.payments ?? [];
+    const tendered = sumMoney(tenders.map((t) => t.amount));
+    if (tendered > draft.total) {
+      throw new BadRequestException(
+        `المقبوض (${tendered}) أكبر من إجمالي الفاتورة (${draft.total})`,
+      );
+    }
+
+    const customer = draft.customerId
+      ? await this.customers.findOne(draft.customerId, tenantId)
+      : null;
+    const credit = sumMoney([draft.total, -tendered]);
+    if (!customer && credit > 0) {
+      throw new BadRequestException(
+        'البيع الآجل يحتاج عميلاً — اختر العميل أو اقبض كامل المبلغ',
+      );
+    }
+    if (customer) {
+      if (!customer.isActive) {
+        throw new BadRequestException(`العميل "${customer.name}" موقوف`);
+      }
+      const limit = customer.creditLimit;
+      const balanceAfter = sumMoney([customer.balance ?? 0, credit]);
+      if (limit !== null && limit !== undefined && balanceAfter > limit) {
+        throw new BadRequestException(
+          `تجاوز الحد الائتماني للعميل "${customer.name}": الحد ${limit} وسيصبح عليه ${balanceAfter}`,
+        );
+      }
+    }
+
+    const seller = await this.settings.get(tenantId);
+
+    await this.dataSource.transaction(async (manager) => {
+      const invoice = await this.lock(manager, id, tenantId);
+      assertStatus(invoice, SalesInvoiceStatus.DRAFT, 'إصدار');
+
+      const lines = await manager.find(SalesInvoiceLine, {
+        where: { invoiceId: id },
+        order: { sortOrder: 'ASC' },
+      });
+      await this.finalize(manager, invoice, lines, {
+        issuedAt: new Date(),
+        tenders,
+        seller,
+        userId,
+      });
+    });
+
+    return this.findOne(id, tenantId);
+  }
+
+  // ══════════════════════════ نقاط البيع ══════════════════════════
+
+  /**
+   * يسجّل فاتورة أصدرها جهاز كاشير (ربما بلا إنترنت ثم رُفعت لاحقاً).
+   *
+   * البيع وقع فعلاً والإيصال طُبع، فالسيرفر هنا **يسجّل ولا يفاوض**: الرقم
+   * والوقت والمبالغ كما أصدرها الجهاز، وقواعد التسعير لا تُعاد (طُبّقت على
+   * الجهاز). يُرفض فقط ما لا يمكن تسجيله (صنف غير معروف، مبالغ لا تطابق
+   * الحساب). نفس الـ uuid مرتين ← الفاتورة نفسها (الرفع قد يتكرر بعد انقطاع).
+   */
+  async recordPosSale(
+    sale: PosSaleInput,
+    tenantId: string,
+    userId?: string,
+  ): Promise<{ invoice: SalesInvoice; duplicate: boolean }> {
+    const existing = await this.invoices.findOne({
+      where: { tenantId, uuid: sale.uuid },
+    });
+    if (existing) {
+      return {
+        invoice: await this.findOne(existing.id, tenantId),
+        duplicate: true,
+      };
+    }
+
+    const customer = sale.customerId
+      ? await this.customers.findOne(sale.customerId, tenantId)
+      : null;
+    const lines = await this.posLines(sale, tenantId);
+    const totals = totalsOf(lines);
+
+    const tendered = sumMoney(sale.payments.map((t) => t.amount));
+    if (Math.abs(tendered - totals.total) > AMOUNT_TOLERANCE) {
+      throw new BadRequestException(
+        `المقبوض (${tendered}) لا يساوي إجمالي الفاتورة (${totals.total})`,
+      );
+    }
+    const seller = await this.settings.get(tenantId);
+
+    const id = await this.dataSource.transaction(async (manager) => {
+      const invoice = await manager.save(
+        manager.create(SalesInvoice, {
+          tenantId,
+          uuid: sale.uuid,
+          customerId: customer?.id ?? null,
+          invoiceType: invoiceTypeFor(customer),
+          warehouseId: sale.warehouseId,
+          invoiceDate: dateOnly(sale.issuedAt),
+          dueDate: dateOnly(sale.issuedAt),
+          pricesIncludeTax: sale.pricesIncludeTax,
+          createdById: userId ?? null,
+          ...totals,
+        }),
+      );
+      await this.replaceLines(manager, invoice.id, tenantId, lines);
+
+      await this.finalize(
+        manager,
+        invoice,
+        await manager.find(SalesInvoiceLine, {
+          where: { invoiceId: invoice.id },
+          order: { sortOrder: 'ASC' },
+        }),
+        {
+          issuedAt: sale.issuedAt,
+          tenders: sale.payments,
+          seller,
+          userId,
+          number: sale.number,
+          deviceId: sale.deviceId,
+          shiftId: sale.shiftId,
+        },
+      );
+      return invoice.id;
+    });
+
+    return { invoice: await this.findOne(id, tenantId), duplicate: false };
+  }
+
+  /** أسطر فاتورة الكاشير: بيانات الصنف من السيرفر، والمبالغ كما طُبعت */
+  private async posLines(
+    sale: PosSaleInput,
+    tenantId: string,
+  ): Promise<ComputedLine[]> {
+    const productIds = [...new Set(sale.lines.map((l) => l.productId))];
+    const found = await this.products.findSoldByIds(productIds, tenantId);
+    if (found.length !== productIds.length) {
+      throw new NotFoundException('الصنف غير موجود');
+    }
+    const products = new Map(found.map((p) => [p.id, p]));
+
+    return sale.lines.map((input, index) => {
+      const product = products.get(input.productId)!;
+
+      const unitId = input.unitId ?? product.baseUnitId;
+      let factor = 1;
+      let unitName = product.baseUnit?.name ?? '';
+      if (unitId !== product.baseUnitId) {
+        const productUnit = product.units?.find((u) => u.unitId === unitId);
+        if (!productUnit) {
+          throw new BadRequestException(
+            `الوحدة المختارة ليست من وحدات الصنف "${product.name}"`,
+          );
+        }
+        factor = productUnit.factor;
+        unitName = productUnit.unit?.name ?? '';
+      }
+
+      // نعيد الحساب للتحقق فقط؛ المعتمد ما طبعه الجهاز على الإيصال
+      const expected = computeLine({
+        quantity: input.quantity,
+        unitPrice: input.unitPrice,
+        discount: input.discount,
+        taxRate: input.taxRate,
+        pricesIncludeTax: sale.pricesIncludeTax,
+        factor,
+      });
+      if (
+        Math.abs(expected.total - input.total) > AMOUNT_TOLERANCE ||
+        Math.abs(input.subtotal + input.taxAmount - input.total) >
+          AMOUNT_TOLERANCE
+      ) {
+        throw new BadRequestException(
+          `مبالغ الصنف "${product.name}" لا تطابق الحساب (${input.total} ≠ ${expected.total})`,
+        );
+      }
+
+      return {
+        sortOrder: index,
+        productId: product.id,
+        productName: product.name,
+        sku: product.sku,
+        isStocked: product.type === ProductType.STOCKED,
+        unitId,
+        unitName,
+        factor,
+        quantity: input.quantity,
+        unitPrice: input.unitPrice,
+        discount: input.discount,
+        taxRate: input.taxRate,
+        taxCategory: product.taxRate?.category ?? TaxCategory.STANDARD,
+        subtotal: input.subtotal,
+        taxAmount: input.taxAmount,
+        total: input.total,
+        baseQuantity: expected.baseQuantity,
+      };
+    });
+  }
+
+  // ══════════════════════════ داخلي ══════════════════════════
+
+  /**
+   * إتمام الإصدار داخل معاملة المستدعي: خروج المخزون، الرقم، سلسلة البصمات،
+   * رمز QR، ثم تسجيل المقبوض. مشترك بين الإصدار من لوحة التحكم وتسجيل مبيعات
+   * الكاشير.
+   */
+  private async finalize(
+    manager: EntityManager,
+    invoice: SalesInvoice,
+    lines: SalesInvoiceLine[],
+    options: FinalizeOptions,
+  ): Promise<void> {
+    const { issuedAt, tenders, seller, userId } = options;
+    const { id, tenantId } = invoice;
+
+    // ─── المخزون: الأصناف المخزنية تخرج بمتوسط تكلفتها ───
+    const stocked = lines.filter((line) => line.isStocked);
+    const movements = await this.stock.apply(
+      manager,
+      tenantId,
+      stocked.map((line) => ({
+        warehouseId: invoice.warehouseId,
+        productId: line.productId,
+        type: StockMovementType.SALE,
+        quantity: -line.baseQuantity,
+      })),
+      {
+        referenceType: SALES_INVOICE_REFERENCE,
+        referenceId: id,
+        userId,
+        occurredAt: issuedAt,
+      },
+    );
+
+    let costTotal = new Decimal(0);
+    for (const [index, line] of stocked.entries()) {
+      const unitCost = movements[index].unitCost;
+      costTotal = costTotal.plus(new Decimal(unitCost).mul(line.baseQuantity));
+      await manager.update(SalesInvoiceLine, { id: line.id }, { unitCost });
+    }
+
+    // ─── الترقيم وسلسلة البصمات: القفل يجعل الإصدارات تتوالى واحداً واحداً ───
+    // رقم الكاشير يولّده الجهاز (يعمل بلا إنترنت)؛ غيره تسلسلي من السيرفر
+    await lockDocumentSequence(manager, 'sales_invoices', tenantId);
+    const number =
+      options.number ??
+      (await nextDocumentNumber(
+        manager,
+        'sales_invoices',
+        NUMBER_PREFIX,
+        tenantId,
+      ));
+    const [last] = await manager.query<
+      { counter: number; invoiceHash: string }[]
+    >(
+      `SELECT "counter", "invoiceHash" FROM sales_invoices
+        WHERE "tenantId" = $1 AND "counter" IS NOT NULL
+        ORDER BY "counter" DESC LIMIT 1`,
+      [tenantId],
+    );
+    const previousInvoiceHash = last?.invoiceHash ?? '';
+
+    await manager.update(
+      SalesInvoice,
+      { id, tenantId },
+      {
+        number,
+        status: SalesInvoiceStatus.ISSUED,
+        issuedAt,
+        issuedById: userId ?? null,
+        costTotal: costTotal.toDecimalPlaces(2).toNumber(),
+        paidAmount: sumMoney(tenders.map((t) => t.amount)),
+        deviceId: options.deviceId ?? null,
+        shiftId: options.shiftId ?? null,
+        counter: (last?.counter ?? 0) + 1,
+        previousInvoiceHash,
+        invoiceHash: computeInvoiceHash({
+          uuid: invoice.uuid,
+          number,
+          issuedAt,
+          total: invoice.total,
+          taxTotal: invoice.taxTotal,
+          previousHash: previousInvoiceHash,
+        }),
+        // بلا رقم ضريبي للبائع لا يوجد ما يُرمَّز (منشأة غير مسجلة ضريبياً)
+        qrCode: seller.taxNumber
+          ? buildZatcaQr({
+              sellerName: seller.sellerName ?? '',
+              taxNumber: seller.taxNumber,
+              issuedAt,
+              total: invoice.total,
+              taxTotal: invoice.taxTotal,
+            })
+          : null,
+      },
+    );
+
+    // ─── المقبوض عند الإصدار ───
+    for (const tender of tenders) {
+      await recordPayment(manager, tenantId, {
+        customerId: invoice.customerId,
+        invoiceId: id,
+        direction: PaymentDirection.IN,
+        paymentDate: dateOnly(issuedAt),
+        amount: tender.amount,
+        method: tender.method,
+        reference: tender.reference,
+        createdById: userId,
+      });
+    }
+  }
+
+  /** يتحقق من الأصناف والوحدات وقواعد التسعير ويحسب مبالغ كل سطر */
+  private async computeLines(
+    inputs: SalesLineDto[],
+    pricesIncludeTax: boolean,
+    tenantId: string,
+  ): Promise<ComputedLine[]> {
+    const productIds = [...new Set(inputs.map((l) => l.productId))];
+    const found = await this.products.findByIds(
+      productIds,
+      tenantId,
+      undefined,
+      ['baseUnit', 'units', 'units.unit', 'taxRate'],
+    );
+    if (found.length !== productIds.length) {
+      throw new NotFoundException('الصنف غير موجود');
+    }
+    const products = new Map(found.map((p) => [p.id, p]));
+
+    return inputs.map((input, index) => {
+      const product = products.get(input.productId)!;
+      if (!product.isActive) {
+        throw new BadRequestException(`الصنف "${product.name}" موقوف`);
+      }
+
+      const unitId = input.unitId ?? product.baseUnitId;
+      let factor = 1;
+      let unitName = product.baseUnit?.name ?? '';
+      if (unitId !== product.baseUnitId) {
+        const productUnit = product.units?.find((u) => u.unitId === unitId);
+        if (!productUnit) {
+          throw new BadRequestException(
+            `الوحدة المختارة ليست من وحدات الصنف "${product.name}"`,
+          );
+        }
+        factor = productUnit.factor;
+        unitName = productUnit.unit?.name ?? '';
+      }
+
+      const discount = input.discount ?? 0;
+      const taxRate = product.taxRate?.rate ?? 0;
+      assertPricing(
+        product,
+        input,
+        discount,
+        factor,
+        taxRate,
+        pricesIncludeTax,
+      );
+
+      const amounts = computeLine({
+        quantity: input.quantity,
+        unitPrice: input.unitPrice,
+        discount,
+        taxRate,
+        pricesIncludeTax,
+        factor,
+      });
+
+      return {
+        sortOrder: index,
+        productId: product.id,
+        productName: product.name,
+        sku: product.sku,
+        isStocked: product.type === ProductType.STOCKED,
+        unitId,
+        unitName,
+        factor,
+        quantity: input.quantity,
+        unitPrice: input.unitPrice,
+        discount,
+        taxRate,
+        taxCategory: product.taxRate?.category ?? TaxCategory.STANDARD,
+        subtotal: amounts.subtotal,
+        taxAmount: amounts.taxAmount,
+        total: amounts.total,
+        baseQuantity: amounts.baseQuantity,
+      };
+    });
+  }
+
+  private async replaceLines(
+    manager: EntityManager,
+    invoiceId: string,
+    tenantId: string,
+    lines: ComputedLine[],
+  ): Promise<void> {
+    await manager.delete(SalesInvoiceLine, { invoiceId, tenantId });
+    await manager.save(
+      lines.map((line) =>
+        manager.create(SalesInvoiceLine, { ...line, invoiceId, tenantId }),
+      ),
+    );
+  }
+}
+
+/** قواعد التسعير المعرّفة على الصنف: منع الخصم، وأقل سعر بيع */
+function assertPricing(
+  product: Product,
+  input: SalesLineDto,
+  discount: number,
+  factor: number,
+  taxRate: number,
+  pricesIncludeTax: boolean,
+): void {
+  const gross = new Decimal(input.quantity).mul(input.unitPrice);
+  if (gross.lt(discount)) {
+    throw new BadRequestException(`خصم الصنف "${product.name}" أكبر من قيمته`);
+  }
+  if (discount > 0 && !product.allowDiscount) {
+    throw new BadRequestException(
+      `الصنف "${product.name}" لا يُسمح بالخصم عليه`,
+    );
+  }
+
+  const minPrice = product.minSalePrice;
+  if (minPrice === null || minPrice === undefined) return;
+
+  // سعر وحدة الأساس بعد الخصم، بنفس أساس سعر الصنف (شامل/قبل الضريبة)
+  let effective = gross.minus(discount).div(input.quantity).div(factor);
+  const rate = new Decimal(taxRate).div(100).plus(1);
+  if (pricesIncludeTax && !product.priceIncludesTax) {
+    effective = effective.div(rate);
+  } else if (!pricesIncludeTax && product.priceIncludesTax) {
+    effective = effective.mul(rate);
+  }
+
+  if (effective.plus(PRICE_TOLERANCE).lt(minPrice)) {
+    throw new BadRequestException(
+      `سعر "${product.name}" بعد الخصم (${effective.toDecimalPlaces(2).toNumber()}) أقل من أقل سعر مسموح (${minPrice})`,
+    );
+  }
+}
+
+function totalsOf(lines: ComputedLine[]): Totals {
+  return {
+    subtotal: sumMoney(lines.map((l) => l.subtotal)),
+    discountTotal: sumMoney(lines.map((l) => l.discount)),
+    taxTotal: sumMoney(lines.map((l) => l.taxAmount)),
+    total: sumMoney(lines.map((l) => l.total)),
+  };
+}
+
+/** عميل برقم ضريبي ← فاتورة ضريبية، غير ذلك ← مبسطة */
+function invoiceTypeFor(customer: Customer | null): SalesInvoiceType {
+  return customer?.taxNumber
+    ? SalesInvoiceType.STANDARD
+    : SalesInvoiceType.SIMPLIFIED;
+}
+
+/** استحقاق الفاتورة = تاريخها + مهلة سداد العميل (العابر: نفس اليوم) */
+function defaultDueDate(
+  invoiceDate: string,
+  customer: Customer | null,
+): string {
+  const result = new Date(`${invoiceDate}T00:00:00Z`);
+  result.setUTCDate(result.getUTCDate() + (customer?.paymentTermsDays ?? 0));
+  return result.toISOString().slice(0, 10);
+}
+
+const STATUS_LABEL: Record<SalesInvoiceStatus, string> = {
+  [SalesInvoiceStatus.DRAFT]: 'مسودة',
+  [SalesInvoiceStatus.ISSUED]: 'صادرة',
+  [SalesInvoiceStatus.CANCELLED]: 'ملغاة',
+};
+
+function assertStatus(
+  invoice: SalesInvoice,
+  expected: SalesInvoiceStatus,
+  action: string,
+): void {
+  if (invoice.status !== expected) {
+    throw new BadRequestException(
+      `لا يمكن ${action} فاتورة حالتها "${STATUS_LABEL[invoice.status]}"`,
+    );
+  }
+}

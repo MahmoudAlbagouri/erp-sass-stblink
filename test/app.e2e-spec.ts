@@ -1,29 +1,61 @@
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { AppModule } from './../src/app.module';
+import { AppModule } from '../src/app.module';
 
-describe('AppController (e2e)', () => {
+/**
+ * اختبار دخاني للتطبيق كاملاً (كل الموديولات + قاعدة الاختبار):
+ * يتأكد أن التطبيق يُقلع وأن الحماية الأساسية تعمل.
+ */
+describe('App (e2e)', () => {
   let app: INestApplication<App>;
 
-  beforeEach(async () => {
+  beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    );
     await app.init();
   });
 
-  it('/ (GET)', () => {
-    return request(app.getHttpServer())
-      .get('/')
-      .expect(200)
-      .expect('Hello World!');
+  afterAll(async () => {
+    await app?.close();
   });
 
-  afterEach(async () => {
-    await app.close();
+  it('rejects login with wrong credentials', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: 'nobody@example.com', password: 'wrong-password' });
+
+    expect(res.status).toBe(403);
+  });
+
+  it.each([
+    ['GET', '/tenants'],
+    ['GET', '/employees'],
+    ['GET', '/users'],
+    ['GET', '/media/list/employee/images'],
+    ['GET', '/subscriptions/me/access'],
+  ])('requires authentication for %s %s', async (_method, path) => {
+    const res = await request(app.getHttpServer()).get(path);
+
+    expect(res.status).toBe(401);
+  });
+
+  it('rejects a forged token', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/employees')
+      .set('Authorization', 'Bearer not-a-real-token');
+
+    expect(res.status).toBe(401);
   });
 });

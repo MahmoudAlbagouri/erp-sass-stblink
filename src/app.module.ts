@@ -45,6 +45,11 @@ import { EOSModule } from './modules/eos/eos.module';
 import { ResignationsModule } from './modules/resignations/resignations.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { DepartmentsModule } from './modules/departments/departments.module';
+import { CatalogModule } from './modules/catalog/catalog.module';
+import { InventoryModule } from './modules/inventory/inventory.module';
+import { PurchasingModule } from './modules/purchasing/purchasing.module';
+import { PosModule } from './modules/pos/pos.module';
+import { SalesModule } from './modules/sales/sales.module';
 
 @Module({
   imports: [
@@ -103,6 +108,13 @@ import { DepartmentsModule } from './modules/departments/departments.module';
     ResignationsModule,
     NotificationsModule,
     DepartmentsModule,
+
+    // ─── الموديولات التجارية ───
+    CatalogModule,
+    InventoryModule,
+    PurchasingModule,
+    SalesModule,
+    PosModule,
   ],
   providers: [
     {

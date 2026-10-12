@@ -52,6 +52,28 @@ export const FEATURES = {
     labelAr: 'موديول الاستقالات',
   },
 
+  // ─── الموديولات التجارية ─────────────────────────────
+  PRODUCTS_MODULE: {
+    name: 'products_module',
+    labelAr: 'موديول الأصناف',
+  },
+  INVENTORY_MODULE: {
+    name: 'inventory_module',
+    labelAr: 'موديول المخزون والمخازن',
+  },
+  PURCHASING_MODULE: {
+    name: 'purchasing_module',
+    labelAr: 'موديول المشتريات والموردين',
+  },
+  SALES_MODULE: {
+    name: 'sales_module',
+    labelAr: 'موديول المبيعات والعملاء',
+  },
+  POS_MODULE: {
+    name: 'pos_module',
+    labelAr: 'نقاط البيع (الكاشير) أونلاين وأوفلاين',
+  },
+
   // ─── ميزات إضافية (Add-ons) ──────────────────────────
   REPORTS_EXPORT: {
     name: 'reports_export',

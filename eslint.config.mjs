@@ -6,7 +6,8 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['eslint.config.mjs'],
+    // الـ migrations كود مولَّد من TypeORM — لا نعيد تنسيقه
+    ignores: ['eslint.config.mjs', 'src/database/migrations/**'],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,

@@ -29,6 +29,7 @@ export class AccessTokenStrategy extends PassportStrategy(Strategy, 'jwt') {
       employeeId: payload.employeeId,
       role: payload.role, // ✅ الدور موجود في التوكن
       permissions: payload.role?.permissions?.map((p) => p.name) ?? [], // ✅ أسماء الصلاحيات من التوكن
+      supportBy: payload.supportBy,
     };
   }
 }

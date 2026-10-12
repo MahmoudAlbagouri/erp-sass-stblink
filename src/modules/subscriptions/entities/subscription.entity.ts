@@ -15,6 +15,9 @@ import { Plan } from '../../plans/entities/plan.entity';
 export interface PlanQuotas {
   max_users?: number;
   max_employees?: number;
+  max_products?: number;
+  max_warehouses?: number;
+  max_pos_devices?: number;
   max_invoices?: number;
   max_storage_mb?: number;
   [key: string]: number | undefined;
