@@ -403,6 +403,10 @@ export const PERMS = {
   // ─── POS (نقاط البيع) ───────────────────────────────
   POS_VIEW: { name: 'view_pos', labelAr: 'عرض أجهزة الكاشير والورديات' },
   POS_USE: { name: 'use_pos', labelAr: 'البيع من شاشة الكاشير' },
+  POS_RETURN: {
+    name: 'process_pos_returns',
+    labelAr: 'عمل مرتجع وردّ مبلغ من شاشة الكاشير',
+  },
   POS_DEVICE_MANAGE: {
     name: 'manage_pos_devices',
     labelAr: 'إضافة وتعديل أجهزة الكاشير',

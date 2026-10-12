@@ -4731,6 +4731,11 @@
                   "disabled": true
                 },
                 {
+                  "key": "installationId",
+                  "value": "",
+                  "disabled": true
+                },
+                {
                   "key": "since",
                   "value": "",
                   "disabled": true
@@ -4770,6 +4775,97 @@
                 }
               }
             }
+          }
+        },
+        {
+          "name": "GET /pos/invoices/:number",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/pos/invoices/:number",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pos",
+                "invoices",
+                ":number"
+              ],
+              "variable": [
+                {
+                  "key": "number",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "فاتورة برقمها المطبوع: لاختيار ما يُرجَع منها على شاشة الكاشير\n\n**الصلاحيات:** POS_USE، POS_RETURN"
+          }
+        },
+        {
+          "name": "POST /pos/devices/:id/bind",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/pos/devices/:id/bind",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pos",
+                "devices",
+                ":id",
+                "bind"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "ربط هذا المتصفح بجهاز كاشير (مرة واحدة لكل شاشة بيع)\n\n**الصلاحيات:** POS_USE",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"installationId\": \"00000000-0000-4000-8000-000000000000\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /pos/devices/:id/unbind",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/pos/devices/:id/unbind",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pos",
+                "devices",
+                ":id",
+                "unbind"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "فكّ ربط الجهاز ليُربط بشاشة أخرى (قرار المدير)\n\n**الصلاحيات:** POS_DEVICE_MANAGE"
           }
         },
         {

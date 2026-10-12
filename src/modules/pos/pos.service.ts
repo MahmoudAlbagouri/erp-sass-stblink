@@ -2,13 +2,14 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { Repository } from 'typeorm';
+import { Not, Repository } from 'typeorm';
 import {
   paginated,
   Paginated,
@@ -24,12 +25,14 @@ import { CustomersService } from '../sales/customers.service';
 import { Customer } from '../sales/entities/customer.entity';
 import { SalesSettings } from '../sales/entities/sales-settings.entity';
 import { SalesInvoicesService } from '../sales/sales-invoices.service';
+import { SalesReturnsService } from '../sales/sales-returns.service';
 import { SalesSettingsService } from '../sales/sales-settings.service';
 import {
   CloseShiftOp,
   CreatePosDeviceDto,
   OpenShiftOp,
   PosOperationDto,
+  PosReturnOp,
   PosSaleOp,
   PosShiftQueryDto,
   PosSyncDto,
@@ -89,8 +92,31 @@ export interface PosOperationResult {
   message?: string;
 }
 
+/** فاتورة كما تعرضها شاشة الكاشير لاختيار ما يُرجَع منها */
+export interface PosInvoiceLookup {
+  number: string;
+  issuedAt: string | null;
+  customerName: string | null;
+  total: number;
+  paidAmount: number;
+  returnedAmount: number;
+  lines: {
+    /** ترتيب السطر: به يشير المرتجع إليه */
+    lineIndex: number;
+    productName: string;
+    unitName: string;
+    quantity: number;
+    returnedQuantity: number;
+    subtotal: number;
+    taxAmount: number;
+    total: number;
+  }[];
+}
+
 interface Actor {
   id?: string;
+  /** هل يملك صلاحية المرتجع من شاشة الكاشير؟ */
+  canReturn?: boolean;
 }
 
 @Injectable()
@@ -106,6 +132,7 @@ export class PosService {
     private readonly customers: CustomersService,
     private readonly salesSettings: SalesSettingsService,
     private readonly invoices: SalesInvoicesService,
+    private readonly returns: SalesReturnsService,
   ) {}
 
   // ══════════════════════════ الأجهزة ══════════════════════════
@@ -191,6 +218,55 @@ export class PosService {
     await this.devices.softRemove(device);
   }
 
+  // ══════════════════════════ ربط الجهاز بمتصفح ══════════════════════════
+
+  /**
+   * يربط الجهاز بالمتصفح الطالب. جهاز مربوط بمتصفح آخر لا يُؤخذ منه: يضيف
+   * المدير جهازاً جديداً لهذه الشاشة، أو يفكّ ربط القديم إن استُبدل.
+   */
+  async bindDevice(
+    id: string,
+    installationId: string,
+    tenantId: string,
+  ): Promise<PosDevice> {
+    const device = await this.activeDevice(id, tenantId);
+
+    if (device.installationId && device.installationId !== installationId) {
+      throw new ConflictException(
+        `الجهاز "${device.name}" مربوط بشاشة كاشير أخرى. لكل شاشة بيع جهازها: أضف جهاز كاشير جديداً لهذه الشاشة، أو اطلب من المدير فكّ ربط "${device.name}" إن استُبدل جهازه.`,
+      );
+    }
+    if (!device.installationId) {
+      // الشرط في الاستعلام يحسم متصفحين يربطان في نفس اللحظة: واحد فقط ينجح
+      const bound = await this.devices
+        .createQueryBuilder()
+        .update()
+        .set({ installationId, boundAt: new Date() })
+        .where('id = :id AND "installationId" IS NULL', { id })
+        .execute();
+      if (!bound.affected) return this.bindDevice(id, installationId, tenantId);
+    }
+    // الشاشة انتقلت لهذا الجهاز: جهازها السابق يصير حراً لشاشة أخرى
+    await this.devices.update(
+      { tenantId, installationId, id: Not(id) },
+      { installationId: null, boundAt: null },
+    );
+    return this.findDevice(id, tenantId);
+  }
+
+  /**
+   * يفكّ ربط الجهاز (استُبدل الحاسب أو مُسحت بيانات المتصفح) ليُربط بغيره.
+   * ما لم يرفعه المتصفح القديم من مبيعات لن يُقبل منه بعد ذلك.
+   */
+  async unbindDevice(id: string, tenantId: string): Promise<PosDevice> {
+    await this.findDevice(id, tenantId);
+    await this.devices.update(
+      { id, tenantId },
+      { installationId: null, boundAt: null },
+    );
+    return this.findDevice(id, tenantId);
+  }
+
   // ══════════════════════════ التنزيل للجهاز ══════════════════════════
 
   /**
@@ -199,12 +275,13 @@ export class PosService {
    */
   async bootstrap(
     deviceId: string,
+    installationId: string,
     tenantId: string,
     since?: string,
   ): Promise<PosBootstrap> {
     // قبل القراءة: ما يتغيّر أثناءها يدخل في المزامنة التالية
     const serverTime = new Date();
-    const device = await this.activeDevice(deviceId, tenantId);
+    const device = await this.boundDevice(deviceId, installationId, tenantId);
     const sinceDate = since ? new Date(since) : undefined;
 
     const [settings, categories, products, customers, openShift] =
@@ -251,7 +328,11 @@ export class PosService {
     tenantId: string,
     actor: Actor,
   ): Promise<{ results: PosOperationResult[]; lastCounter: number }> {
-    const device = await this.activeDevice(dto.deviceId, tenantId);
+    const device = await this.boundDevice(
+      dto.deviceId,
+      dto.installationId,
+      tenantId,
+    );
 
     const results: PosOperationResult[] = [];
     for (const operation of dto.operations) {
@@ -281,6 +362,13 @@ export class PosService {
         case 'sale':
           duplicate = await this.recordSale(
             await validated(PosSaleOp, operation.payload),
+            device,
+            actor,
+          );
+          break;
+        case 'return':
+          duplicate = await this.recordReturn(
+            await validated(PosReturnOp, operation.payload),
             device,
             actor,
           );
@@ -387,6 +475,65 @@ export class PosService {
     return duplicate;
   }
 
+  /** @returns true إذا كان المرتجع مسجّلاً من قبل (رفع مكرر) */
+  private async recordReturn(
+    op: PosReturnOp,
+    device: PosDevice,
+    actor: Actor,
+  ): Promise<boolean> {
+    if (!actor.canReturn) {
+      throw new ForbiddenException(
+        'ليست لديك صلاحية عمل مرتجع من شاشة الكاشير',
+      );
+    }
+    const shift = await this.shifts.findOne({ where: { id: op.shiftId } });
+    if (!shift) throw new NotFoundException('وردية المرتجع غير مسجّلة');
+    assertShiftOfDevice(shift, device);
+
+    const { duplicate } = await this.returns.recordPosReturn(
+      {
+        uuid: op.uuid,
+        invoiceNumber: op.invoiceNumber,
+        issuedAt: new Date(op.issuedAt),
+        deviceId: device.id,
+        shiftId: shift.id,
+        lines: op.lines,
+        refundMethod: op.refundMethod,
+        refundAmount: op.refundAmount,
+        reason: op.reason,
+      },
+      device.tenantId,
+      actor.id,
+    );
+    return duplicate;
+  }
+
+  /** فاتورة برقمها لاختيار ما يُرجَع منها (أي فاتورة صادرة للشركة) */
+  async lookupInvoice(
+    number: string,
+    tenantId: string,
+  ): Promise<PosInvoiceLookup> {
+    const invoice = await this.invoices.findByNumber(number, tenantId);
+    return {
+      number: invoice.number ?? number,
+      issuedAt: invoice.issuedAt?.toISOString() ?? null,
+      customerName: invoice.customer?.name ?? null,
+      total: invoice.total,
+      paidAmount: invoice.paidAmount,
+      returnedAmount: invoice.returnedAmount,
+      lines: (invoice.lines ?? []).map((line) => ({
+        lineIndex: line.sortOrder,
+        productName: line.productName,
+        unitName: line.unitName,
+        quantity: line.quantity,
+        returnedQuantity: line.returnedQuantity,
+        subtotal: line.subtotal,
+        taxAmount: line.taxAmount,
+        total: line.total,
+      })),
+    };
+  }
+
   /** @returns true إذا كانت الوردية مقفّلة من قبل (رفع مكرر) */
   private async closeShift(
     op: CloseShiftOp,
@@ -398,8 +545,10 @@ export class PosService {
     if (shift.status === PosShiftStatus.CLOSED) return true;
 
     const totals = await this.invoices.shiftTotals(device.tenantId, shift.id);
+    const refunds = await this.returns.shiftRefunds(device.tenantId, shift.id);
     const cashTotal = totals.byMethod.cash ?? 0;
-    const expectedCash = sumMoney([shift.openingCash, cashTotal]);
+    const cashRefunds = refunds.byMethod.cash ?? 0;
+    const expectedCash = sumMoney([shift.openingCash, cashTotal, -cashRefunds]);
 
     await this.shifts.update(
       { id: shift.id },
@@ -412,6 +561,10 @@ export class PosService {
         salesTotal: totals.salesTotal,
         cashTotal,
         cardTotal: totals.byMethod.card ?? 0,
+        returnsCount: refunds.returnsCount,
+        returnsTotal: refunds.returnsTotal,
+        cashRefunds,
+        drawerOpens: op.drawerOpens ?? 0,
         expectedCash,
         cashDifference: sumMoney([op.closingCash, -expectedCash]),
       },
@@ -462,7 +615,15 @@ export class PosService {
     shift.salesTotal = totals.salesTotal;
     shift.cashTotal = totals.byMethod.cash ?? 0;
     shift.cardTotal = totals.byMethod.card ?? 0;
-    shift.expectedCash = sumMoney([shift.openingCash, shift.cashTotal]);
+    const refunds = await this.returns.shiftRefunds(shift.tenantId, shift.id);
+    shift.returnsCount = refunds.returnsCount;
+    shift.returnsTotal = refunds.returnsTotal;
+    shift.cashRefunds = refunds.byMethod.cash ?? 0;
+    shift.expectedCash = sumMoney([
+      shift.openingCash,
+      shift.cashTotal,
+      -shift.cashRefunds,
+    ]);
   }
 
   // ══════════════════════════ داخلي ══════════════════════════
@@ -471,6 +632,21 @@ export class PosService {
     const device = await this.findDevice(id, tenantId);
     if (!device.isActive) {
       throw new BadRequestException(`جهاز الكاشير "${device.name}" موقوف`);
+    }
+    return device;
+  }
+
+  /** الجهاز الفعّال، بشرط أن يكون الطالب هو المتصفح المربوط به */
+  private async boundDevice(
+    id: string,
+    installationId: string,
+    tenantId: string,
+  ): Promise<PosDevice> {
+    const device = await this.activeDevice(id, tenantId);
+    if (device.installationId !== installationId) {
+      throw new ConflictException(
+        `هذه الشاشة ليست المربوطة بالجهاز "${device.name}" — اربطها بجهاز كاشير خاص بها`,
+      );
     }
     return device;
   }

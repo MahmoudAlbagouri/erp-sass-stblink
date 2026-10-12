@@ -59,11 +59,11 @@ describe('POS API (e2e)', () => {
       warehouseId,
     });
 
-    return {
-      productId,
-      warehouseId,
-      deviceId: data<{ id: string }>(device).id,
-    };
+    const deviceId = data<{ id: string }>(device).id;
+    const installationId = randomUUID();
+    await post(`/pos/devices/${deviceId}/bind`, { installationId });
+
+    return { productId, warehouseId, deviceId, installationId };
   };
 
   const sale = (shiftId: string, productId: string, counter: number) => ({
@@ -118,10 +118,12 @@ describe('POS API (e2e)', () => {
   });
 
   it('bootstraps a device then syncs a shift sold offline', async () => {
-    const { productId, deviceId } = await setup();
+    const { productId, deviceId, installationId } = await setup();
     const shiftId = randomUUID();
 
-    const bootstrap = await get(`/pos/bootstrap?deviceId=${deviceId}`);
+    const bootstrap = await get(
+      `/pos/bootstrap?deviceId=${deviceId}&installationId=${installationId}`,
+    );
     expect(bootstrap.status).toBe(200);
     expect(
       data<{ products: { id: string; barcodes: unknown[] }[] }>(bootstrap)
@@ -132,6 +134,7 @@ describe('POS API (e2e)', () => {
 
     const synced = await post('/pos/sync', {
       deviceId,
+      installationId,
       operations: [
         {
           id: 'open',
@@ -191,15 +194,20 @@ describe('POS API (e2e)', () => {
   });
 
   it('rejects a malformed sync request with 400', async () => {
-    const { deviceId } = await setup();
+    const { deviceId, installationId } = await setup();
 
     expect(
       (await post('/pos/sync', { deviceId: 'x', operations: [] })).status,
     ).toBe(400);
+    // بدون معرّف الشاشة لا مزامنة
+    expect((await post('/pos/sync', { deviceId, operations: [] })).status).toBe(
+      400,
+    );
     expect(
       (
         await post('/pos/sync', {
           deviceId,
+          installationId,
           operations: [{ id: '1', type: 'refund', payload: {} }],
         })
       ).status,
@@ -236,7 +244,7 @@ describe('POS API (e2e)', () => {
   });
 
   it('checks permissions and keeps tenants isolated', async () => {
-    const { deviceId, warehouseId } = await setup();
+    const { deviceId, warehouseId, installationId } = await setup();
     const cashier = tenant.tokenWith(['view_pos', 'use_pos']);
     const other = await createTenantFixture(dataSource, { features: FEATURES });
 
@@ -258,12 +266,147 @@ describe('POS API (e2e)', () => {
       data<unknown[]>(await get('/pos/devices', other.adminToken)),
     ).toEqual([]);
     expect(
-      (await get(`/pos/bootstrap?deviceId=${deviceId}`, other.adminToken))
-        .status,
+      (
+        await get(
+          `/pos/bootstrap?deviceId=${deviceId}&installationId=${installationId}`,
+          other.adminToken,
+        )
+      ).status,
     ).toBe(404);
     expect(
-      (await post('/pos/sync', { deviceId, operations: [] }, other.adminToken))
-        .status,
+      (
+        await post(
+          '/pos/sync',
+          { deviceId, installationId, operations: [] },
+          other.adminToken,
+        )
+      ).status,
     ).toBe(404);
+  });
+
+  it('returns from the cashier screen only with the returns permission', async () => {
+    const { productId, deviceId, installationId } = await setup();
+    const shiftId = randomUUID();
+    const cashier = tenant.tokenWith(['view_pos', 'use_pos']);
+    const senior = tenant.tokenWith([
+      'view_pos',
+      'use_pos',
+      'process_pos_returns',
+    ]);
+    const push = (operations: unknown[], token: string) =>
+      post('/pos/sync', { deviceId, installationId, operations }, token);
+    const back = () => ({
+      id: 'return-1',
+      type: 'return',
+      payload: {
+        uuid: randomUUID(),
+        invoiceNumber: 'POS1-000001',
+        issuedAt: '2026-10-12T09:00:00.000Z',
+        shiftId,
+        lines: [{ lineIndex: 0, quantity: 1 }],
+        refundMethod: 'cash',
+        refundAmount: 2.3,
+      },
+    });
+
+    await push(
+      [
+        {
+          id: 'open',
+          type: 'shift.open',
+          payload: {
+            id: shiftId,
+            openedAt: '2026-10-12T06:00:00.000Z',
+            openingCash: 100,
+          },
+        },
+        sale(shiftId, productId, 1),
+      ],
+      cashier,
+    );
+
+    // كاشير بلا صلاحية المرتجع: لا يبحث عن الفاتورة ولا يُقبل مرتجعه
+    expect((await get('/pos/invoices/POS1-000001', cashier)).status).toBe(403);
+    const refused = await push([back()], cashier);
+    expect(
+      data<{ results: { status: string }[] }>(refused).results[0].status,
+    ).toBe('error');
+
+    const found = await get('/pos/invoices/POS1-000001', senior);
+    expect(found.status).toBe(200);
+    expect(
+      data<{ lines: { lineIndex: number; quantity: number }[] }>(found).lines,
+    ).toMatchObject([{ lineIndex: 0, quantity: 2 }]);
+    expect((await get('/pos/invoices/NOPE-1', senior)).status).toBe(404);
+
+    const accepted = await push([back()], senior);
+    expect(
+      data<{ results: { status: string }[] }>(accepted).results[0].status,
+    ).toBe('ok');
+    // عملية بصيغة خاطئة تُرفض وحدها برسالة
+    const malformed = await push(
+      [{ ...back(), payload: { ...back().payload, refundMethod: 'gold' } }],
+      senior,
+    );
+    expect(
+      data<{ results: { status: string }[] }>(malformed).results[0].status,
+    ).toBe('error');
+
+    const shifts = data<{
+      data: { cashRefunds: number; expectedCash: number }[];
+    }>(await get('/pos/shifts'));
+    expect(shifts.data[0]).toMatchObject({
+      cashRefunds: 2.3,
+      expectedCash: 102.3,
+    });
+  });
+
+  it('binds a device to one screen and lets only a manager free it', async () => {
+    const { deviceId, installationId } = await setup();
+    const cashier = tenant.tokenWith(['view_pos', 'use_pos']);
+    const phone = randomUUID();
+    const bind = (id: string, token?: string) =>
+      post(`/pos/devices/${deviceId}/bind`, { installationId: id }, token);
+
+    // شاشة ثانية على نفس الجهاز: مرفوضة في الربط والتنزيل والرفع
+    expect((await bind(phone, cashier)).status).toBe(409);
+    expect(
+      (
+        await get(
+          `/pos/bootstrap?deviceId=${deviceId}&installationId=${phone}`,
+          cashier,
+        )
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await post(
+          '/pos/sync',
+          { deviceId, installationId: phone, operations: [] },
+          cashier,
+        )
+      ).status,
+    ).toBe(409);
+    // الشاشة الأصلية تعيد الربط بلا مشكلة
+    expect((await bind(installationId, cashier)).status).toBe(200);
+    expect((await bind('not-a-uuid')).status).toBe(400);
+
+    // فك الربط قرار المدير، وبعده تُربط الشاشة الجديدة
+    expect(
+      (await post(`/pos/devices/${deviceId}/unbind`, {}, cashier)).status,
+    ).toBe(403);
+    expect((await post(`/pos/devices/${deviceId}/unbind`, {})).status).toBe(
+      200,
+    );
+    expect((await bind(phone, cashier)).status).toBe(200);
+    expect(
+      (
+        await post('/pos/sync', {
+          deviceId,
+          installationId,
+          operations: [],
+        })
+      ).status,
+    ).toBe(409);
   });
 });

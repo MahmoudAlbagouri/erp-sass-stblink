@@ -9,6 +9,7 @@ import {
   IsDateString,
   IsEnum,
   IsIn,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsObject,
@@ -22,6 +23,7 @@ import {
 } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination.dto';
 import { TenderDto } from '../../sales/dto/sales.dto';
+import { SalesPaymentMethod } from '../../sales/entities/customer-payment.entity';
 import { PosShiftStatus } from '../entities/pos.entity';
 
 /** أقصى عدد عمليات في طلب مزامنة واحد (الجهاز يقسّم ما زاد) */
@@ -86,6 +88,12 @@ export class CloseShiftOp {
   @IsString()
   @MaxLength(500)
   note?: string;
+
+  /** مرات فتح الدرج يدوياً بلا بيع خلال الوردية */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  drawerOpens?: number;
 }
 
 export class PosSaleLineOp {
@@ -164,9 +172,60 @@ export class PosSaleOp {
   payments!: TenderDto[];
 }
 
+export class PosReturnLineOp {
+  /** ترتيب السطر في الفاتورة (0 = الأول) */
+  @IsInt()
+  @Min(0)
+  lineIndex!: number;
+
+  @IsNumber({ maxDecimalPlaces: 4 })
+  @Min(0.0001)
+  quantity!: number;
+}
+
+export class PosReturnOp {
+  /** معرّف المرتجع على الجهاز — يمنع تكراره عند إعادة الرفع */
+  @IsUUID()
+  uuid!: string;
+
+  /** رقم الفاتورة المُرجَع منها كما طُبع على الإيصال */
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(30)
+  invoiceNumber!: string;
+
+  @IsDateString()
+  issuedAt!: string;
+
+  /** الوردية التي رُدّ المبلغ من درجها */
+  @IsUUID()
+  shiftId!: string;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => PosReturnLineOp)
+  lines!: PosReturnLineOp[];
+
+  @IsEnum(SalesPaymentMethod)
+  refundMethod!: SalesPaymentMethod;
+
+  /** ما سلّمه الكاشير للعميل */
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  refundAmount!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
+
 export const POS_OPERATION_TYPES = [
   'shift.open',
   'sale',
+  'return',
   'shift.close',
 ] as const;
 export type PosOperationType = (typeof POS_OPERATION_TYPES)[number];
@@ -186,9 +245,19 @@ export class PosOperationDto {
   payload!: Record<string, unknown>;
 }
 
+export class BindDeviceDto {
+  /** معرّف يولّده المتصفح مرة واحدة ويحتفظ به */
+  @IsUUID()
+  installationId!: string;
+}
+
 export class PosSyncDto {
   @IsUUID()
   deviceId!: string;
+
+  /** المتصفح المرسِل: يجب أن يكون هو المربوط بالجهاز */
+  @IsUUID()
+  installationId!: string;
 
   @IsArray()
   @ArrayMaxSize(MAX_SYNC_OPERATIONS)
@@ -200,6 +269,9 @@ export class PosSyncDto {
 export class PosBootstrapQueryDto {
   @IsUUID()
   deviceId!: string;
+
+  @IsUUID()
+  installationId!: string;
 
   /** آخر مزامنة ناجحة: يُرسل ما تغيّر بعدها فقط. بدونه يُرسل كل شيء */
   @IsOptional()

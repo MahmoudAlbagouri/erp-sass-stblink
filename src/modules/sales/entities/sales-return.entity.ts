@@ -42,7 +42,22 @@ const quantity = {
 @Index(['tenantId', 'number'], { unique: true, where: '"number" IS NOT NULL' })
 @Index(['tenantId', 'customerId'])
 @Index(['tenantId', 'invoiceId'])
+// uuid يولّده الكاشير: إعادة رفع نفس المرتجع لا تكرّره
+@Index(['tenantId', 'uuid'], { unique: true, where: '"uuid" IS NOT NULL' })
 export class SalesReturn extends TenantOwnedEntity {
+  /** معرّف المرتجع على جهاز الكاشير. null = من لوحة التحكم */
+  @Column({ type: 'uuid', nullable: true })
+  uuid?: string | null;
+
+  /** جهاز الكاشير الذي سجّله. null = من لوحة التحكم */
+  @Column({ type: 'uuid', nullable: true })
+  deviceId?: string | null;
+
+  /** الوردية التي رُدّ المبلغ من درجها (قد تكون غير وردية البيع) */
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  shiftId?: string | null;
+
   /** CN-000001 — يُعطى عند الإصدار */
   @Column({ type: 'varchar', length: 30, nullable: true })
   number?: string | null;

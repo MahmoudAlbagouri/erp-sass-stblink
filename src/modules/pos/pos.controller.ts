@@ -14,6 +14,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { FEATURES } from '../../common/constants/features';
+import type { CurrentUserData } from '../../common/types/auth.types';
 import { PERMS } from '../../common/constants/permissions';
 import { CheckQuota } from '../../common/decorators/check-quota.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
@@ -25,6 +26,7 @@ import { SubscriptionGuard } from '../../common/guards/subscription.guard';
 import { TenantScopeGuard } from '../../common/guards/tenant-scope.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import {
+  BindDeviceDto,
   CreatePosDeviceDto,
   PosBootstrapQueryDto,
   PosShiftQueryDto,
@@ -54,7 +56,12 @@ export class PosController {
     @Query() query: PosBootstrapQueryDto,
     @CurrentTenantId() tenantId: string,
   ) {
-    return this.pos.bootstrap(query.deviceId, tenantId, query.since);
+    return this.pos.bootstrap(
+      query.deviceId,
+      query.installationId,
+      tenantId,
+      query.since,
+    );
   }
 
   /** رفع طابور الجهاز: ورديات ومبيعات تمّت محلياً */
@@ -64,9 +71,47 @@ export class PosController {
   sync(
     @Body() dto: PosSyncDto,
     @CurrentTenantId() tenantId: string,
-    @CurrentUser('id') userId: string,
+    @CurrentUser() user: CurrentUserData,
   ) {
-    return this.pos.sync(dto, tenantId, { id: userId });
+    return this.pos.sync(dto, tenantId, {
+      id: user.id,
+      canReturn:
+        user.isSuperAdmin ||
+        (user.permissions ?? []).includes(PERMS.POS_RETURN.name),
+    });
+  }
+
+  /** فاتورة برقمها المطبوع: لاختيار ما يُرجَع منها على شاشة الكاشير */
+  @Get('invoices/:number')
+  @Permissions(PERMS.POS_USE, PERMS.POS_RETURN)
+  lookupInvoice(
+    @Param('number') number: string,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.pos.lookupInvoice(number, tenantId);
+  }
+
+  /** ربط هذا المتصفح بجهاز كاشير (مرة واحدة لكل شاشة بيع) */
+  @Post('devices/:id/bind')
+  @HttpCode(HttpStatus.OK)
+  @Permissions(PERMS.POS_USE)
+  bindDevice(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: BindDeviceDto,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.pos.bindDevice(id, dto.installationId, tenantId);
+  }
+
+  /** فكّ ربط الجهاز ليُربط بشاشة أخرى (قرار المدير) */
+  @Post('devices/:id/unbind')
+  @HttpCode(HttpStatus.OK)
+  @Permissions(PERMS.POS_DEVICE_MANAGE)
+  unbindDevice(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.pos.unbindDevice(id, tenantId);
   }
 
   // ─── الأجهزة والورديات (لوحة التحكم) ─────────────────────────

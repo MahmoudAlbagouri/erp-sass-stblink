@@ -30,6 +30,8 @@ import {
 } from '../src/modules/sales/entities/sales-invoice.entity';
 import { SalesSettings } from '../src/modules/sales/entities/sales-settings.entity';
 import { SalesInvoicesService } from '../src/modules/sales/sales-invoices.service';
+import { SalesReturnsService } from '../src/modules/sales/sales-returns.service';
+import { SalesReturn } from '../src/modules/sales/entities/sales-return.entity';
 import { SalesSettingsService } from '../src/modules/sales/sales-settings.service';
 import { Tenant } from '../src/modules/tenants/entities/tenant.entity';
 import { createTestDataSource, truncateAllTables } from './utils/test-database';
@@ -113,8 +115,44 @@ describe('pos module', () => {
     };
   };
 
-  const sync = (operations: PosOperationDto[], tenantId = tenantA) =>
-    pos.sync({ deviceId: device.id, operations }, tenantId, { id: undefined });
+  /** الشاشة المربوطة بالجهاز في هذه الاختبارات */
+  const screen = randomUUID();
+
+  const sync = (
+    operations: PosOperationDto[],
+    tenantId = tenantA,
+    installationId = screen,
+    canReturn = true,
+  ) =>
+    pos.sync({ deviceId: device.id, installationId, operations }, tenantId, {
+      id: undefined,
+      canReturn,
+    });
+
+  /** مرتجع من الفاتورة رقم `counter`: كمية من سطرها الأول */
+  const returnOp = (
+    shiftId: string,
+    counter: number,
+    quantity: number,
+    refundAmount: number,
+    overrides: Record<string, unknown> = {},
+  ): PosOperationDto => {
+    const uuid = randomUUID();
+    return {
+      id: `return-${uuid}`,
+      type: 'return',
+      payload: {
+        uuid,
+        invoiceNumber: `POS1-${String(counter).padStart(6, '0')}`,
+        issuedAt: '2026-10-12T09:00:00.000Z',
+        shiftId,
+        lines: [{ lineIndex: 0, quantity }],
+        refundMethod: 'cash',
+        refundAmount,
+        ...overrides,
+      },
+    };
+  };
 
   beforeAll(async () => {
     dataSource = await createTestDataSource();
@@ -168,6 +206,12 @@ describe('pos module', () => {
       customers,
       salesSettings,
       invoices,
+      new SalesReturnsService(
+        dataSource.getRepository(SalesReturn),
+        invoices,
+        stock,
+        dataSource,
+      ),
     );
   });
 
@@ -183,6 +227,7 @@ describe('pos module', () => {
       { name: 'كاشير 1', code: 'POS1', warehouseId: branch.id },
       tenantA,
     );
+    await pos.bindDevice(device.id, screen, tenantA);
 
     const units = await settings.findUnits(tenantA);
     piece = units.find((u) => u.name === 'قطعة')!;
@@ -249,8 +294,75 @@ describe('pos module', () => {
         'جهاز الكاشير غير موجود',
       );
       await expect(sync([], tenantB)).rejects.toThrow('جهاز الكاشير غير موجود');
-      await expect(pos.bootstrap(device.id, tenantB)).rejects.toThrow(
+      await expect(pos.bootstrap(device.id, screen, tenantB)).rejects.toThrow(
         'جهاز الكاشير غير موجود',
+      );
+    });
+  });
+
+  // ─── ربط الجهاز بشاشة واحدة ─────────────────────────────────
+  describe('binding', () => {
+    it('lets one screen only work on a device', async () => {
+      const phone = randomUUID();
+
+      // نفس الشاشة تعيد الربط بلا مشكلة، وشاشة أخرى تُرفض
+      await expect(
+        pos.bindDevice(device.id, screen, tenantA),
+      ).resolves.toMatchObject({ installationId: screen });
+      await expect(pos.bindDevice(device.id, phone, tenantA)).rejects.toThrow(
+        'مربوط بشاشة كاشير أخرى',
+      );
+
+      // ولا تنزّل بياناته ولا ترفع عليه
+      await expect(pos.bootstrap(device.id, phone, tenantA)).rejects.toThrow(
+        'ليست المربوطة بالجهاز',
+      );
+      const shiftId = randomUUID();
+      await expect(
+        sync([openOp(shiftId), saleOp(shiftId, 1)], tenantA, phone),
+      ).rejects.toThrow('ليست المربوطة بالجهاز');
+      expect((await pos.findDevice(device.id, tenantA)).lastCounter).toBe(0);
+    });
+
+    it('moves a device to another screen only after unbinding', async () => {
+      const phone = randomUUID();
+
+      const freed = await pos.unbindDevice(device.id, tenantA);
+      expect(freed.installationId).toBeNull();
+      // جهاز غير مربوط لا يقبل مزامنة من أحد
+      await expect(sync([])).rejects.toThrow('ليست المربوطة بالجهاز');
+
+      await pos.bindDevice(device.id, phone, tenantA);
+      await expect(sync([], tenantA, phone)).resolves.toBeDefined();
+      await expect(sync([])).rejects.toThrow('ليست المربوطة بالجهاز');
+    });
+
+    it('binds once when two screens race for a free device', async () => {
+      await pos.unbindDevice(device.id, tenantA);
+      const screens = [randomUUID(), randomUUID(), randomUUID()];
+
+      const results = await Promise.allSettled(
+        screens.map((id) => pos.bindDevice(device.id, id, tenantA)),
+      );
+
+      expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+      const winner = (await pos.findDevice(device.id, tenantA)).installationId;
+      expect(screens).toContain(winner);
+    });
+
+    it('frees the previous device when a screen moves to another', async () => {
+      const second = await pos.createDevice(
+        { name: 'كاشير 2', code: 'POS2', warehouseId: device.warehouseId },
+        tenantA,
+      );
+
+      await pos.bindDevice(second.id, screen, tenantA);
+
+      expect(
+        (await pos.findDevice(device.id, tenantA)).installationId,
+      ).toBeNull();
+      expect((await pos.findDevice(second.id, tenantA)).installationId).toBe(
+        screen,
       );
     });
   });
@@ -260,7 +372,7 @@ describe('pos module', () => {
     it('sends everything the device needs to sell offline', async () => {
       const customer = await customers.create({ name: 'مطعم الريف' }, tenantA);
 
-      const data = await pos.bootstrap(device.id, tenantA);
+      const data = await pos.bootstrap(device.id, screen, tenantA);
 
       expect(data.full).toBe(true);
       expect(data.device).toMatchObject({ code: 'POS1', lastCounter: 0 });
@@ -285,9 +397,10 @@ describe('pos module', () => {
     });
 
     it('sends only what changed since the last sync', async () => {
-      const first = await pos.bootstrap(device.id, tenantA);
+      const first = await pos.bootstrap(device.id, screen, tenantA);
       const unchanged = await pos.bootstrap(
         device.id,
+        screen,
         tenantA,
         first.serverTime,
       );
@@ -299,7 +412,12 @@ describe('pos module', () => {
       );
       await products.remove(water.id, tenantA);
 
-      const delta = await pos.bootstrap(device.id, tenantA, first.serverTime);
+      const delta = await pos.bootstrap(
+        device.id,
+        screen,
+        tenantA,
+        first.serverTime,
+      );
       const byId = new Map(delta.products.map((p) => [p.id, p]));
 
       expect(delta.products).toHaveLength(2);
@@ -523,9 +641,9 @@ describe('pos module', () => {
       // بعد التقفيل تُفتح وردية جديدة، والجهاز يستعيدها من السيرفر
       const next = randomUUID();
       await sync([openOp(next)]);
-      expect((await pos.bootstrap(device.id, tenantA)).openShift?.id).toBe(
-        next,
-      );
+      expect(
+        (await pos.bootstrap(device.id, screen, tenantA)).openShift?.id,
+      ).toBe(next);
     });
 
     it('shares one hash chain with back-office invoices', async () => {
@@ -562,6 +680,161 @@ describe('pos module', () => {
         counter: 2,
         previousInvoiceHash: posInvoice.invoiceHash,
       });
+    });
+
+    it('returns goods at the till and refunds from the drawer', async () => {
+      const shiftId = randomUUID();
+      await sync([openOp(shiftId), saleOp(shiftId, 1, 2)]); // 2 × 2.30 نقداً
+      expect(await quantityIn(branch)).toBe(-2);
+
+      const back = returnOp(shiftId, 1, 1, 2.3, { reason: 'عبوة تالفة' });
+      const first = await sync([back]);
+      expect(first.results).toEqual([{ id: back.id, status: 'ok' }]);
+      // إعادة الرفع لا تكرّر المرتجع ولا تعيد البضاعة مرتين
+      expect((await sync([back])).results[0].status).toBe('duplicate');
+
+      expect(await quantityIn(branch)).toBe(-1);
+      const [invoice] = (await invoices.findAll(tenantA, {})).data;
+      expect(invoice).toMatchObject({ returnedAmount: 2.3, paidAmount: 2.3 });
+      const [saved] = await dataSource.getRepository(SalesReturn).find();
+      expect(saved).toMatchObject({
+        status: 'issued',
+        shiftId,
+        deviceId: device.id,
+        total: 2.3,
+        refundedAmount: 2.3,
+        reason: 'عبوة تالفة',
+      });
+      expect(saved.number).toMatch(/^CN-/);
+
+      // الوردية المفتوحة تعرض أرقامها حتى اللحظة
+      const live = (await pos.findShifts(tenantA, {})).data[0];
+      expect(live).toMatchObject({ cashRefunds: 2.3, expectedCash: 102.3 });
+
+      // الدرج: العهدة 100 + مبيعات 4.60 − مردود 2.30
+      await sync([
+        {
+          id: 'close',
+          type: 'shift.close',
+          payload: {
+            id: shiftId,
+            closedAt: '2026-10-12T14:00:00.000Z',
+            closingCash: 102.3,
+            drawerOpens: 3,
+          },
+        },
+      ]);
+      const [shift] = (await pos.findShifts(tenantA, {})).data;
+      expect(shift).toMatchObject({
+        status: 'closed',
+        salesTotal: 4.6,
+        cashTotal: 4.6,
+        returnsCount: 1,
+        returnsTotal: 2.3,
+        cashRefunds: 2.3,
+        expectedCash: 102.3,
+        cashDifference: 0,
+        drawerOpens: 3,
+      });
+    });
+
+    it('refunds an older invoice from the drawer of the current shift', async () => {
+      const morning = randomUUID();
+      const evening = randomUUID();
+      await sync([
+        openOp(morning),
+        saleOp(morning, 1, 2),
+        closeOp(morning, 104.6),
+        openOp(evening),
+        returnOp(evening, 1, 2, 4.6, { refundMethod: 'card' }),
+        saleOp(evening, 2, 1),
+        returnOp(evening, 2, 1, 2.3),
+        closeOp(evening, 100),
+      ]);
+
+      const shifts = (await pos.findShifts(tenantA, {})).data;
+      const byId = new Map(shifts.map((shift) => [shift.id, shift]));
+      // وردية الصباح مقفّلة بأرقامها: المرتجع اللاحق لا يغيّرها
+      expect(byId.get(morning)).toMatchObject({
+        cashTotal: 4.6,
+        cashRefunds: 0,
+        cashDifference: 0,
+      });
+      // المساء: مرتجعان، واحد منهما فقط نقدي
+      expect(byId.get(evening)).toMatchObject({
+        returnsCount: 2,
+        returnsTotal: 6.9,
+        cashTotal: 2.3,
+        cashRefunds: 2.3,
+        expectedCash: 100,
+        cashDifference: 0,
+      });
+    });
+
+    it('rejects a return the invoice does not allow', async () => {
+      const shiftId = randomUUID();
+      await sync([openOp(shiftId), saleOp(shiftId, 1, 2)]);
+
+      const { results } = await sync([
+        returnOp(shiftId, 1, 3, 6.9), // أكثر من المباع
+        returnOp(shiftId, 1, 1, 1), // العميل العابر يُردّ له المبلغ كاملاً
+        returnOp(shiftId, 9, 1, 2.3), // فاتورة غير موجودة
+        returnOp(shiftId, 1, 1, 2.3, {
+          lines: [{ lineIndex: 5, quantity: 1 }],
+        }),
+        returnOp(shiftId, 1, 2, 4.6), // صحيح: كل الكمية
+        returnOp(shiftId, 1, 1, 2.3), // لم يبقَ شيء يُرجَع
+      ]);
+
+      expect(results.map((r) => r.status)).toEqual([
+        'error',
+        'error',
+        'error',
+        'error',
+        'ok',
+        'error',
+      ]);
+      expect(results[0].message).toContain('أكبر من المتاح للإرجاع');
+      expect(results[1].message).toContain('يجب ردّ');
+      expect(results[2].message).toContain('لا توجد فاتورة');
+      expect(results[3].message).toContain('سطر ليس ضمن هذه الفاتورة');
+      expect(await dataSource.getRepository(SalesReturn).count()).toBe(1);
+      expect(await quantityIn(branch)).toBe(0);
+    });
+
+    it('needs the returns permission, and keeps the rest of the queue', async () => {
+      const shiftId = randomUUID();
+      const { results } = await sync(
+        [openOp(shiftId), saleOp(shiftId, 1, 2), returnOp(shiftId, 1, 1, 2.3)],
+        tenantA,
+        screen,
+        false,
+      );
+
+      expect(results.map((r) => r.status)).toEqual(['ok', 'ok', 'error']);
+      expect(results[2].message).toContain('صلاحية');
+      expect(await quantityIn(branch)).toBe(-2);
+    });
+
+    it('looks an invoice up by its printed number', async () => {
+      const shiftId = randomUUID();
+      await sync([
+        openOp(shiftId),
+        saleOp(shiftId, 1, 2),
+        returnOp(shiftId, 1, 1, 2.3),
+      ]);
+
+      expect(await pos.lookupInvoice(' POS1-000001 ', tenantA)).toMatchObject({
+        number: 'POS1-000001',
+        customerName: null,
+        total: 4.6,
+        paidAmount: 2.3,
+        returnedAmount: 2.3,
+        lines: [{ lineIndex: 0, quantity: 2, returnedQuantity: 1, total: 4.6 }],
+      });
+      await expect(pos.lookupInvoice('POS1-000001', tenantB)).rejects.toThrow(
+        'لا توجد فاتورة',
+      );
     });
 
     it('refuses to sync an inactive device', async () => {

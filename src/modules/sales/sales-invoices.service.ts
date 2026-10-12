@@ -233,6 +233,21 @@ export class SalesInvoicesService {
     return invoice;
   }
 
+  /** فاتورة برقمها المطبوع (لمرتجع الكاشير: العميل يحمل الإيصال) */
+  async findByNumber(number: string, tenantId: string): Promise<SalesInvoice> {
+    const invoice = await this.invoices.findOne({
+      // الأرقام تُولَّد بحروف كبيرة؛ الكاشير قد يكتبها صغيرة
+      where: { number: number.trim().toUpperCase(), tenantId },
+      relations: ['customer', 'lines'],
+    });
+    if (!invoice) {
+      throw new NotFoundException(`لا توجد فاتورة برقم "${number}"`);
+    }
+
+    invoice.lines?.sort((a, b) => a.sortOrder - b.sortOrder);
+    return invoice;
+  }
+
   /**
    * يقفل الفاتورة حتى نهاية المعاملة — للإصدار هنا، وللقبض والمرتجع اللذين
    * يعدّلان مبالغها (فلا يُقبض أو يُرجَع أكثر من المتاح بطلبين متزامنين).
@@ -274,11 +289,11 @@ export class SalesInvoicesService {
     const methods = await this.invoices.query<
       { method: string; amount: string }[]
     >(
-      `SELECT p."method",
-              SUM(CASE WHEN p."direction" = 'in' THEN p."amount" ELSE -p."amount" END) AS "amount"
+      `SELECT p."method", SUM(p."amount") AS "amount"
          FROM customer_payments p
          JOIN sales_invoices i ON i."id" = p."invoiceId"
-        WHERE i."tenantId" = $1 AND i."shiftId" = $2 AND p."status" = 'posted'
+        WHERE i."tenantId" = $1 AND i."shiftId" = $2
+          AND p."status" = 'posted' AND p."direction" = 'in'
         GROUP BY p."method"`,
       [tenantId, shiftId],
     );

@@ -49,6 +49,20 @@ export class PosDevice extends TenantOwnedEntity {
   @Column({ type: 'int', default: 0 })
   lastCounter!: number;
 
+  /**
+   * المتصفح (التثبيت) المربوط بهذا الجهاز — واحد فقط.
+   *
+   * كل متصفح يحتفظ بنسخته المحلية: عدّاد فواتيره، ورديته، وما باعه. لو عمل
+   * متصفحان على نفس الجهاز لولّدا نفس أرقام الفواتير ورأى كلٌّ منهما مبيعاته
+   * فقط عند تقفيل الوردية. لذلك: جهاز كاشير لكل شاشة بيع.
+   * null = غير مربوط بعد (أو فُكّ ربطه).
+   */
+  @Column({ type: 'uuid', nullable: true })
+  installationId?: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  boundAt?: Date | null;
+
   /** آخر مرة تواصل فيها الجهاز مع السيرفر */
   @Column({ type: 'timestamptz', nullable: true })
   lastSeenAt?: Date | null;
@@ -119,7 +133,22 @@ export class PosShift {
   @Column(money)
   cardTotal!: number;
 
-  /** المفترض في الدرج = العهدة + المبيعات النقدية */
+  /** مرتجعات سُجّلت في الوردية (من فواتيرها أو من فواتير أقدم) */
+  @Column({ type: 'int', default: 0 })
+  returnsCount!: number;
+
+  @Column(money)
+  returnsTotal!: number;
+
+  /** ما رُدّ نقداً من الدرج */
+  @Column(money)
+  cashRefunds!: number;
+
+  /** مرات فتح الدرج يدوياً بلا بيع (للمراجعة) */
+  @Column({ type: 'int', default: 0 })
+  drawerOpens!: number;
+
+  /** المفترض في الدرج = العهدة + المبيعات النقدية − المردود نقداً */
   @Column(money)
   expectedCash!: number;
 
