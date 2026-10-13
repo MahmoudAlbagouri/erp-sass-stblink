@@ -21,7 +21,7 @@ export class Loan {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  @Column({ type: 'decimal', precision: 13, scale: 3 })
   totalAmount!: number;
 
   @Column()
@@ -30,7 +30,7 @@ export class Loan {
   @Column({ default: 0 }) // ✅ جديد: عدد الأقساط المسددة
   paidInstallments!: number;
 
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  @Column({ type: 'decimal', precision: 13, scale: 3 })
   monthlyInstallment!: number; // قيمة القسط الشهري
 
   @Column({ type: 'text', nullable: true })

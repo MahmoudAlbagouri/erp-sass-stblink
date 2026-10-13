@@ -43,11 +43,11 @@ export class EndOfService {
   serviceYears!: number;
 
   // ✅ مكافأة نهاية الخدمة فقط (بدون بدل إجازات)
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  @Column({ type: 'decimal', precision: 13, scale: 3 })
   eosAmount!: number;
 
   // الراتب الأساسي الأخير المستخدم في الحساب
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  @Column({ type: 'decimal', precision: 13, scale: 3 })
   lastBasicSalary!: number;
 
   // ✅ تاريخ صرف المكافأة فعلياً (لربطه بمسير الرواتب)

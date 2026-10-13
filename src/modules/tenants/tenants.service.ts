@@ -1,5 +1,9 @@
 // src/modules/tenants/tenants.service.ts
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository, InjectEntityManager } from '@nestjs/typeorm';
 import { Repository, EntityManager } from 'typeorm';
 
@@ -9,6 +13,12 @@ import { CreateTenantDto } from './dto/create-tenant.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { SubscriptionManagerService } from '../subscriptions/subscription-manager.service';
+import {
+  getCountry,
+  type CountryConfig,
+} from '../../common/constants/countries';
+import { normalizePhone } from '../../common/utils/phone.util';
+import type { TenantLocale } from '../../common/types/auth.types';
 
 @Injectable()
 export class TenantsService {
@@ -29,14 +39,16 @@ export class TenantsService {
       ? manager.getRepository(Tenant)
       : this.tenantRepository;
 
-    // ✅ تحويل البيانات لتطابق الـ Entity (snake_case) بدون أي حقول حالة قديمة
+    // العملة والمنطقة الزمنية تُشتقان من الدولة ولا تُقبلان من العميل
+    const country = getCountry(createTenantDto.country);
     const tenantData = {
       companyName: createTenantDto.companyName,
-      phone: createTenantDto.phone,
+      phone: this.normalizePhone(createTenantDto.phone, country),
       address: createTenantDto.address,
-      country: createTenantDto.country,
+      country: country.code,
+      currency: country.currency,
       language: createTenantDto.language ?? 'ar',
-      timezone: createTenantDto.timezone ?? 'UTC+3',
+      timezone: country.timezone,
     };
 
     const tenant = repo.create(tenantData);
@@ -66,8 +78,49 @@ export class TenantsService {
 
   async update(id: string, updateTenantDto: UpdateTenantDto): Promise<Tenant> {
     const tenant = await this.findOne(id);
-    Object.assign(tenant, updateTenantDto);
+    const { country: countryCode, phone, ...rest } = updateTenantDto;
+    Object.assign(tenant, rest);
+
+    // تغيير الدولة ينقل معها العملة والمنطقة الزمنية
+    if (countryCode && countryCode !== tenant.country) {
+      const next = getCountry(countryCode);
+      tenant.country = next.code;
+      tenant.currency = next.currency;
+      tenant.timezone = next.timezone;
+    }
+    if (phone !== undefined) {
+      tenant.phone = this.normalizePhone(phone, getCountry(tenant.country));
+    }
+
     return this.tenantRepository.save(tenant);
+  }
+
+  /** إعدادات دولة الشركة التي يحملها التوكن (عملة العرض، المنطقة الزمنية) */
+  async findLocale(tenantId: string): Promise<TenantLocale> {
+    const tenant = await this.tenantRepository.findOne({
+      where: { id: tenantId },
+      select: { id: true, country: true, currency: true, timezone: true },
+    });
+    const country = getCountry(tenant?.country);
+    return {
+      country: country.code,
+      currency: tenant?.currency ?? country.currency,
+      timezone: tenant?.timezone ?? country.timezone,
+    };
+  }
+
+  private normalizePhone(
+    phone: string | undefined,
+    country: CountryConfig,
+  ): string | undefined {
+    if (!phone?.trim()) return undefined;
+    const normalized = normalizePhone(phone, country);
+    if (!normalized) {
+      throw new BadRequestException(
+        `رقم الهاتف غير صالح لدولة ${country.nameAr} (+${country.dialCode})`,
+      );
+    }
+    return normalized;
   }
 
   async remove(id: string): Promise<void> {

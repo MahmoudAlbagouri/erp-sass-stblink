@@ -14,8 +14,8 @@ import { Warehouse } from '../../inventory/entities/warehouse.entity';
 
 const money = {
   type: 'numeric' as const,
-  precision: 14,
-  scale: 2,
+  precision: 15,
+  scale: 3,
   default: 0,
   transformer: decimalTransformer,
 };
@@ -63,6 +63,21 @@ export class PosDevice extends TenantOwnedEntity {
   @Column({ type: 'timestamptz', nullable: true })
   boundAt?: Date | null;
 
+  /**
+   * بصمة (SHA-256) مفتاح الجهاز: به ترفع الشاشة مبيعاتها وتسحب الأسعار دون
+   * جلسة مستخدم. يصدر عند الربط ويُعرض للشاشة مرة واحدة؛ فكّ الربط أو إيقاف
+   * الجهاز يُبطله. لا يُقرأ في الاستعلامات العادية ولا يخرج في أي رد.
+   */
+  @Column({ type: 'varchar', length: 64, nullable: true, select: false })
+  keyHash?: string | null;
+
+  /**
+   * هل كان آخر مستخدم سجّل دخوله على هذه الشاشة يملك صلاحية المرتجع؟ يُعتمد
+   * عليه لوردية بلا كاشير محدد حين ترفع الشاشة بمفتاحها دون جلسة.
+   */
+  @Column({ default: false })
+  returnsAllowed!: boolean;
+
   /** آخر مرة تواصل فيها الجهاز مع السيرفر */
   @Column({ type: 'timestamptz', nullable: true })
   lastSeenAt?: Date | null;
@@ -72,6 +87,43 @@ export class PosDevice extends TenantOwnedEntity {
 
   /** ليس عموداً: هل عليه وردية مفتوحة الآن */
   hasOpenShift?: boolean;
+}
+
+/**
+ * كاشير: شخص يفتح وردية على شاشة البيع برقمه السري — حتى بلا إنترنت.
+ *
+ * ليس حساب مستخدم: لا بريد ولا دخول للوحة التحكم. قائمة الكاشيرات تنزل لكل
+ * جهاز مع الأصناف، والتحقق من الرقم يتم على الجهاز نفسه؛ لذلك يُخزَّن الرقم
+ * مشتقاً (PBKDF2) لا نصاً، هنا وعلى الأجهزة.
+ */
+@Entity('pos_cashiers')
+export class PosCashier extends TenantOwnedEntity {
+  @Column({ type: 'varchar', length: 150 })
+  name!: string;
+
+  @Column({ type: 'varchar', length: 64, select: false })
+  pinSalt!: string;
+
+  @Column({ type: 'varchar', length: 128, select: false })
+  pinHash!: string;
+
+  @Column({ type: 'int', select: false })
+  pinIterations!: number;
+
+  /** يُسمح له بعمل مرتجع وردّ مبلغ من الدرج */
+  @Column({ default: false })
+  canReturn!: boolean;
+
+  /**
+   * متى سُحبت منه صلاحية المرتجع (أو أُوقف/حُذف وهو يملكها). مرتجع سجّله
+   * جهاز غير متصل قبل هذه اللحظة يُقبل: النقد خرج من الدرج فعلاً والجهاز لم
+   * يكن يعلم بالسحب.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  returnRevokedAt?: Date | null;
+
+  @Column({ default: true })
+  isActive!: boolean;
 }
 
 export enum PosShiftStatus {
@@ -102,6 +154,10 @@ export class PosShift {
 
   @Column({ type: 'uuid', nullable: true })
   userId?: string | null;
+
+  /** الكاشير الذي فتح الوردية برقمه السري (null = وردية بلا كاشير محدد) */
+  @Column({ type: 'uuid', nullable: true })
+  cashierId?: string | null;
 
   /** اسم الكاشير وقت الوردية (للتقارير، حتى لو تغيّر المستخدم لاحقاً) */
   @Column({ type: 'varchar', length: 150, nullable: true })

@@ -19,13 +19,18 @@ import { SubscriptionGuard } from '../../common/guards/subscription.guard'; // �
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { RequiresFeature } from '../../common/decorators/requires-feature.decorator'; // ✅ استيراد ديكوراتور الميزة
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
+import { CurrentCurrency } from '../../common/decorators/current-currency.decorator';
 import {
   DETAIL_COLUMNS,
   ReportService,
   type ReportRow,
 } from '../../common/reports/report.service';
 import { PERMS } from '../../common/constants/permissions';
-import { formatAmount, formatDate } from '../../common/utils/format.util';
+import {
+  formatAmount,
+  formatDate,
+  formatMoney,
+} from '../../common/utils/format.util';
 import { FEATURES } from '../../common/constants/features'; // ✅ استيراد الثوابت
 
 @Controller('salaries')
@@ -93,6 +98,7 @@ export class SalariesController {
     @Param('id') id: string,
     @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
+    @CurrentCurrency() currency: string,
     @Res() res: Response,
   ) {
     const salary = await this.salariesService.findOne(id, tenantId);
@@ -104,23 +110,23 @@ export class SalariesController {
       { label: 'القسم', value: salary.employee?.department?.name || '-' },
       {
         label: 'الأجر الأساسي',
-        value: `${formatAmount(salary.basicSalary)} ر.س`,
+        value: formatMoney(salary.basicSalary, currency),
       },
       {
         label: 'بدل السكن',
-        value: `${formatAmount(salary.housingAllowance)} ر.س`,
+        value: formatMoney(salary.housingAllowance, currency),
       },
       {
         label: 'بدل النقل',
-        value: `${formatAmount(salary.transportAllowance)} ر.س`,
+        value: formatMoney(salary.transportAllowance, currency),
       },
       {
         label: 'بدلات أخرى',
-        value: `${formatAmount(salary.otherAllowances)} ر.س`,
+        value: formatMoney(salary.otherAllowances, currency),
       },
       {
         label: 'إجمالي الراتب',
-        value: `${formatAmount(salary.totalSalary)} ر.س`,
+        value: formatMoney(salary.totalSalary, currency),
       },
       {
         label: 'تاريخ آخر تحديث',

@@ -68,6 +68,16 @@ export class TenantsController {
     @CurrentUser() user: CurrentUserData,
   ) {
     this.assertCanAccessTenant(id, user, true);
+    // الدولة تحدد عملة كل مبالغ الشركة: تغييرها بعد الإنشاء لمالك النظام فقط
+    if (
+      !user.isSystemAdmin &&
+      updateTenantDto.country &&
+      updateTenantDto.country !== user.country
+    ) {
+      throw new ForbiddenException(
+        'لا يمكن تغيير دولة الشركة بعد إنشائها. تواصل مع الدعم.',
+      );
+    }
     return this.tenantsService.update(id, updateTenantDto);
   }
 

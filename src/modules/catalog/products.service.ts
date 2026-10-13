@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { moneyDecimalsOf, roundMoney } from '../../common/utils/money.util';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import {
   paginated,
@@ -133,7 +134,11 @@ export class ProductsService {
 
     const factor = productUnit?.factor ?? 1;
     const unitPrice =
-      productUnit?.salePrice ?? roundMoney(product.salePrice * factor);
+      productUnit?.salePrice ??
+      roundMoney(
+        product.salePrice * factor,
+        await moneyDecimalsOf(this.dataSource.manager, tenantId),
+      );
 
     return {
       product,
@@ -503,8 +508,4 @@ export class ProductsService {
       ),
     );
   }
-}
-
-function roundMoney(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
 }

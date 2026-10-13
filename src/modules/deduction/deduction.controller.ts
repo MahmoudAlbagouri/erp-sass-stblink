@@ -20,6 +20,7 @@ import { SubscriptionGuard } from '../../common/guards/subscription.guard'; // �
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { RequiresFeature } from '../../common/decorators/requires-feature.decorator'; // ✅ استيراد ديكوراتور الميزة
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
+import { CurrentCurrency } from '../../common/decorators/current-currency.decorator';
 import {
   DETAIL_COLUMNS,
   ReportService,
@@ -28,7 +29,11 @@ import {
 import { PERMS } from '../../common/constants/permissions';
 import { FEATURES } from '../../common/constants/features'; // ✅ استيراد الثوابت
 import { DeductionStatus } from './entities/deduction.entity';
-import { formatAmount, formatDate } from '../../common/utils/format.util';
+import {
+  formatAmount,
+  formatDate,
+  formatMoney,
+} from '../../common/utils/format.util';
 
 @Controller('deductions')
 @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
@@ -99,6 +104,7 @@ export class DeductionsController {
     @Param('id') id: string,
     @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
+    @CurrentCurrency() currency: string,
     @Res() res: Response,
   ) {
     const deduction = await this.deductionsService.findOne(id, tenantId);
@@ -111,11 +117,11 @@ export class DeductionsController {
       { label: 'الحالة', value: this.getStatusLabel(deduction.status) },
       {
         label: 'إجمالي المبلغ',
-        value: `${formatAmount(deduction.totalAmount)} ر.س`,
+        value: formatMoney(deduction.totalAmount, currency),
       },
       {
         label: 'القسط الشهري',
-        value: `${formatAmount(deduction.monthlyAmount)} ر.س`,
+        value: formatMoney(deduction.monthlyAmount, currency),
       },
       { label: 'عدد الدفعات الكلي', value: deduction.installmentsCount },
       { label: 'الدفعات المسددة', value: deduction.paidInstallments },

@@ -30,7 +30,16 @@ export interface JwtPayload {
    * يغيب في التوكنات العادية.
    */
   supportBy?: string;
+  /** إعدادات دولة الشركة (تغيب عن مالك النظام) — انظر common/constants/countries */
+  country?: string;
+  currency?: string;
+  timezone?: string;
 }
+
+/** إعدادات دولة الشركة كما تُحمَل داخل التوكن */
+export type TenantLocale = Required<
+  Pick<JwtPayload, 'country' | 'currency' | 'timezone'>
+>;
 
 /**
  * المصدر الوحيد لشكل request.user في كامل النظام
@@ -50,6 +59,10 @@ export interface CurrentUserData {
   permissions?: string[];
   /** وضع الدعم: مالك النظام الذي يعمل داخل الشركة (انظر JwtPayload) */
   supportBy?: string;
+  country?: string;
+  /** عملة الشركة ISO 4217 */
+  currency?: string;
+  timezone?: string;
 }
 
 export type AuthenticatedRequest = Request & { user: CurrentUserData };

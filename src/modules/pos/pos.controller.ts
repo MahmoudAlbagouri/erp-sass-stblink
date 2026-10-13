@@ -27,19 +27,25 @@ import { TenantScopeGuard } from '../../common/guards/tenant-scope.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import {
   BindDeviceDto,
+  CreatePosCashierDto,
   CreatePosDeviceDto,
   PosBootstrapQueryDto,
   PosShiftQueryDto,
   PosSyncDto,
+  UpdatePosCashierDto,
   UpdatePosDeviceDto,
 } from './dto/pos.dto';
+import { PosCashiersService } from './pos-cashiers.service';
 import { PosService } from './pos.service';
 
 @Controller('pos')
 @UseGuards(JwtAuthGuard, TenantScopeGuard, SubscriptionGuard, PermissionsGuard)
 @RequiresFeature(FEATURES.POS_MODULE)
 export class PosController {
-  constructor(private readonly pos: PosService) {}
+  constructor(
+    private readonly pos: PosService,
+    private readonly cashiers: PosCashiersService,
+  ) {}
 
   // ─── شاشة الكاشير ───────────────────────────────────────────
   /** فحص الاتصال: الجهاز يسأل دورياً ليعرف هل يرفع ما في طابوره */
@@ -75,9 +81,7 @@ export class PosController {
   ) {
     return this.pos.sync(dto, tenantId, {
       id: user.id,
-      canReturn:
-        user.isSuperAdmin ||
-        (user.permissions ?? []).includes(PERMS.POS_RETURN.name),
+      canReturn: canReturn(user),
     });
   }
 
@@ -91,7 +95,10 @@ export class PosController {
     return this.pos.lookupInvoice(number, tenantId);
   }
 
-  /** ربط هذا المتصفح بجهاز كاشير (مرة واحدة لكل شاشة بيع) */
+  /**
+   * ربط هذا المتصفح بجهاز كاشير (مرة واحدة لكل شاشة بيع). الرد يحمل مفتاح
+   * الجهاز: به تعمل الشاشة بعد ذلك دون جلسة مستخدم (انظر PosDeviceController).
+   */
   @Post('devices/:id/bind')
   @HttpCode(HttpStatus.OK)
   @Permissions(PERMS.POS_USE)
@@ -99,8 +106,14 @@ export class PosController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: BindDeviceDto,
     @CurrentTenantId() tenantId: string,
+    @CurrentUser() user: CurrentUserData,
   ) {
-    return this.pos.bindDevice(id, dto.installationId, tenantId);
+    return this.pos.bindDevice(
+      id,
+      dto.installationId,
+      tenantId,
+      canReturn(user),
+    );
   }
 
   /** فكّ ربط الجهاز ليُربط بشاشة أخرى (قرار المدير) */
@@ -150,6 +163,41 @@ export class PosController {
     return this.pos.removeDevice(id, tenantId);
   }
 
+  // ─── الكاشيرات وأرقامهم السرية (لوحة التحكم) ─────────────────
+  @Get('cashiers')
+  @Permissions(PERMS.POS_VIEW)
+  findCashiers(@CurrentTenantId() tenantId: string) {
+    return this.cashiers.findAll(tenantId);
+  }
+
+  @Post('cashiers')
+  @Permissions(PERMS.POS_DEVICE_MANAGE)
+  createCashier(
+    @Body() dto: CreatePosCashierDto,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.cashiers.create(dto, tenantId);
+  }
+
+  @Patch('cashiers/:id')
+  @Permissions(PERMS.POS_DEVICE_MANAGE)
+  updateCashier(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdatePosCashierDto,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.cashiers.update(id, dto, tenantId);
+  }
+
+  @Delete('cashiers/:id')
+  @Permissions(PERMS.POS_DEVICE_MANAGE)
+  removeCashier(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.cashiers.remove(id, tenantId);
+  }
+
   @Get('shifts')
   @Permissions(PERMS.POS_VIEW)
   findShifts(
@@ -158,4 +206,12 @@ export class PosController {
   ) {
     return this.pos.findShifts(tenantId, query);
   }
+}
+
+/** مدير الشركة، أو موظف بصلاحية المرتجع من شاشة الكاشير */
+function canReturn(user: CurrentUserData): boolean {
+  return (
+    user.isSuperAdmin ||
+    (user.permissions ?? []).includes(PERMS.POS_RETURN.name)
+  );
 }

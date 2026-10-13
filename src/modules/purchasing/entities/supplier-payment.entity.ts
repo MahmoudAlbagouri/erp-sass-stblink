@@ -48,8 +48,8 @@ export class SupplierPayment extends TenantOwnedEntity {
 
   @Column({
     type: 'numeric',
-    precision: 14,
-    scale: 2,
+    precision: 15,
+    scale: 3,
     transformer: decimalTransformer,
   })
   amount!: number;

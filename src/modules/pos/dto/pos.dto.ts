@@ -54,6 +54,51 @@ export class CreatePosDeviceDto {
 /** الكود لا يُعدَّل: فواتير الجهاز السابقة تحمله */
 export class UpdatePosDeviceDto extends PartialType(CreatePosDeviceDto) {}
 
+// ══════════════════════════ الكاشيرات ══════════════════════════
+
+const PIN_RULE = /^\d{4,6}$/;
+const PIN_MESSAGE = 'الرقم السري: من 4 إلى 6 أرقام';
+
+export class CreatePosCashierDto {
+  @IsString()
+  @IsNotEmpty({ message: 'اسم الكاشير مطلوب' })
+  @MaxLength(150)
+  name!: string;
+
+  /** لا يُخزَّن نصاً ولا يُعاد في أي رد */
+  @Matches(PIN_RULE, { message: PIN_MESSAGE })
+  pin!: string;
+
+  @IsOptional()
+  @IsBoolean()
+  canReturn?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
+export class UpdatePosCashierDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty({ message: 'اسم الكاشير مطلوب' })
+  @MaxLength(150)
+  name?: string;
+
+  /** يُرسل فقط لتغيير الرقم */
+  @IsOptional()
+  @Matches(PIN_RULE, { message: PIN_MESSAGE })
+  pin?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  canReturn?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
 // ══════════════════════════ عمليات المزامنة ══════════════════════════
 
 export class OpenShiftOp {
@@ -63,7 +108,7 @@ export class OpenShiftOp {
   @IsDateString()
   openedAt!: string;
 
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
   openingCash!: number;
 
@@ -71,6 +116,11 @@ export class OpenShiftOp {
   @IsString()
   @MaxLength(150)
   cashierName?: string;
+
+  /** الكاشير الذي فتحها برقمه السري (غائب = وردية بلا كاشير محدد) */
+  @IsOptional()
+  @IsUUID()
+  cashierId?: string;
 }
 
 export class CloseShiftOp {
@@ -80,7 +130,7 @@ export class CloseShiftOp {
   @IsDateString()
   closedAt!: string;
 
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
   closingCash!: number;
 
@@ -112,7 +162,7 @@ export class PosSaleLineOp {
   @Min(0)
   unitPrice!: number;
 
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
   discount!: number;
 
@@ -120,15 +170,15 @@ export class PosSaleLineOp {
   @Min(0)
   taxRate!: number;
 
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
   subtotal!: number;
 
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
   taxAmount!: number;
 
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
   total!: number;
 }
@@ -212,7 +262,7 @@ export class PosReturnOp {
   refundMethod!: SalesPaymentMethod;
 
   /** ما سلّمه الكاشير للعميل */
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
   refundAmount!: number;
 
@@ -264,6 +314,22 @@ export class PosSyncDto {
   @ValidateNested({ each: true })
   @Type(() => PosOperationDto)
   operations!: PosOperationDto[];
+}
+
+/** رفع طابور الشاشة بهوية جهازها (الجهاز والشاشة في الترويسات) */
+export class PosDeviceSyncDto {
+  @IsArray()
+  @ArrayMaxSize(MAX_SYNC_OPERATIONS)
+  @ValidateNested({ each: true })
+  @Type(() => PosOperationDto)
+  operations!: PosOperationDto[];
+}
+
+export class PosDeviceBootstrapQueryDto {
+  /** آخر مزامنة ناجحة: يُرسل ما تغيّر بعدها فقط. بدونه يُرسل كل شيء */
+  @IsOptional()
+  @IsDateString()
+  since?: string;
 }
 
 export class PosBootstrapQueryDto {

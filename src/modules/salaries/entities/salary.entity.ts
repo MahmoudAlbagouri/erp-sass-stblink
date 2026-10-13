@@ -19,19 +19,19 @@ export class Salary {
   @Column({ name: 'employee_id' })
   employeeId!: string;
 
-  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 13, scale: 3, default: 0 })
   basicSalary!: number;
 
-  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 13, scale: 3, default: 0 })
   housingAllowance!: number;
 
-  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 13, scale: 3, default: 0 })
   transportAllowance!: number;
 
-  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 13, scale: 3, default: 0 })
   otherAllowances!: number;
 
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  @Column({ type: 'decimal', precision: 13, scale: 3 })
   totalSalary!: number;
 
   // ✅ طريقة الدفع (نقدي / بنكي)

@@ -5,7 +5,7 @@
   "EMAIL_INVALID": "Please enter a valid email",
   "EMAIL_REQUIRED": "Email is required",
   "PHONE_REQUIRED": "Phone number is required",
-  "PHONE_INVALID": "Phone number is invalid (Must be Egyptian number)",
+  "PHONE_INVALID": "Phone number is invalid for the selected country",
   "PASSWORD_REQUIRED": "Password is required",
   "PASSWORD_SHORT": "Password is too short (min 6 characters)",
   "ROLE_INVALID": "The selected role is invalid",

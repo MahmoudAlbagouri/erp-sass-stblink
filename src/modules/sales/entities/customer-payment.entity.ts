@@ -71,8 +71,8 @@ export class CustomerPayment extends TenantOwnedEntity {
   /** دائماً موجب — الاتجاه يحدد قبضاً أم ردّاً */
   @Column({
     type: 'numeric',
-    precision: 14,
-    scale: 2,
+    precision: 15,
+    scale: 3,
     transformer: decimalTransformer,
   })
   amount!: number;

@@ -1,8 +1,13 @@
 // src/modules/attendance/adms.controller.ts
+// نقاط بروتوكول ADMS / Push التي تتصل بها أجهزة ZKTeco. الردود نص عادي بصيغة
+// يفهمها الجهاز، لا JSON؛ والجهاز يُعرَّف برقمه التسلسلي (SN) المسجّل مسبقاً.
 import { Controller, Get, Post, Query, Req, Res, Logger } from '@nestjs/common';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AdmsService } from './adms.service';
+
+/** رد يجعل الجهاز يحتفظ ببياناته ويعيد المحاولة لاحقاً */
+const REJECTED = 'ERROR: Device not registered or disabled';
 
 @Controller('iclock')
 export class AdmsController {
@@ -10,42 +15,31 @@ export class AdmsController {
 
   constructor(private readonly admsService: AdmsService) {}
 
+  /** التعريف: الجهاز يطلب إعدادات المزامنة */
   @Get('cdata')
   async handleInitialRequest(
     @Query('SN') sn: string,
-    @Query('options') options: string,
     @Query('pushver') pushver: string,
     @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
-    this.logger.log(`📡 Device connected: SN=${sn}, pushver=${pushver}`);
-
-    if (!sn) {
-      res.status(400).send('ERROR: Missing SN');
-      return;
-    }
+    if (!sn) return send(res, 400, 'ERROR: Missing SN');
 
     try {
-      const payload: {
-        options?: string;
-        pushver?: string;
-        ip?: string;
-      } = {
-        options,
-        pushver,
-        ip: req.ip ?? (req.socket && req.socket.remoteAddress) ?? 'unknown',
-      };
+      const options = await this.admsService.handleDeviceInit(sn, {
+        ip: req.ip ?? req.socket?.remoteAddress,
+      });
+      if (options === null) return send(res, 403, REJECTED);
 
-      const responseBody = await this.admsService.handleDeviceInit(sn, payload);
-
-      res.setHeader('Content-Type', 'text/plain');
-      res.status(200).send(responseBody);
+      this.logger.log(`Device connected: SN=${sn}, pushver=${pushver ?? '-'}`);
+      send(res, 200, options);
     } catch (err) {
       this.logger.error(`Failed to handle device init for SN=${sn}`, err);
-      res.status(500).send('ERROR: Internal server error');
+      send(res, 500, 'ERROR: Internal server error');
     }
   }
 
+  /** رفع البيانات: البصمات (ATTLOG)، وغيرها يُقبل بلا معالجة */
   @Post('cdata')
   async handleAttendanceData(
     @Query('SN') sn: string,
@@ -54,90 +48,84 @@ export class AdmsController {
     @Req() req: RawBodyRequest<Request>,
     @Res() res: Response,
   ): Promise<void> {
-    if (!sn) {
-      res.status(400).send('ERROR: Missing SN');
-      return;
-    }
+    if (!sn) return send(res, 400, 'ERROR: Missing SN');
 
-    const rawBody = req.body as string | Buffer;
-    const bodyText =
-      typeof rawBody === 'string'
-        ? rawBody
-        : Buffer.isBuffer(rawBody)
-          ? rawBody.toString('utf-8')
-          : '';
+    // ما لا نعالجه (سجل العمليات، الصور…) نقرّ باستلامه حتى لا يعيد الجهاز رفعه
+    if (table !== 'ATTLOG') return send(res, 200, 'OK: 0');
 
-    this.logger.debug(
-      `📥 Data from SN=${sn}, table=${table}, rows=${bodyText.split('\n').filter(Boolean).length}`,
-    );
+    try {
+      const count = await this.admsService.processAttendanceLogs(
+        sn,
+        bodyText(req),
+        stamp,
+      );
+      if (count === null) return send(res, 403, REJECTED);
 
-    if (table === 'ATTLOG') {
-      try {
-        const count = await this.admsService.processAttendanceLogs(
-          sn,
-          bodyText,
-          stamp,
-        );
-        this.logger.log(`✅ Saved ${count} attendance records from SN=${sn}`);
-        res.setHeader('Content-Type', 'text/plain');
-        res.status(200).send(`OK: ${count}`);
-      } catch (err) {
-        this.logger.error(`Failed to process ATTLOG from SN=${sn}`, err);
-        res.status(500).send('ERROR: Failed to process logs');
+      if (count > 0) {
+        this.logger.log(`Saved ${count} attendance record(s) from SN=${sn}`);
       }
-    } else if (table === 'OPERLOG') {
-      this.logger.debug(`OPERLOG from SN=${sn} - ignored for now`);
-      res.setHeader('Content-Type', 'text/plain');
-      res.status(200).send('OK: 0');
-    } else {
-      this.logger.warn(`Unknown table: ${table} from SN=${sn}`);
-      res.setHeader('Content-Type', 'text/plain');
-      res.status(200).send('OK: 0');
+      send(res, 200, `OK: ${count}`);
+    } catch (err) {
+      // غير 200: الجهاز يحتفظ بالدفعة ويعيد رفعها
+      this.logger.error(`Failed to process ATTLOG from SN=${sn}`, err);
+      send(res, 500, 'ERROR: Failed to process logs');
     }
   }
 
+  /** سؤال الجهاز الدوري عن أوامره (وهو أيضاً نبض الاتصال) */
   @Get('getrequest')
   async handleGetRequest(
     @Query('SN') sn: string,
     @Res() res: Response,
   ): Promise<void> {
-    if (!sn) {
-      res.status(400).send('ERROR: Missing SN');
-      return;
-    }
+    if (!sn) return send(res, 400, 'ERROR: Missing SN');
 
     try {
       const command = await this.admsService.getPendingCommand(sn);
-      res.setHeader('Content-Type', 'text/plain');
-      res.status(200).send(command ?? 'OK');
+      send(res, 200, command ?? 'OK');
     } catch (err) {
       this.logger.error(`Failed to get command for SN=${sn}`, err);
-      res.status(200).send('OK');
+      send(res, 200, 'OK');
     }
   }
 
+  /** نتيجة تنفيذ الأوامر */
   @Post('devicecmd')
   async handleDeviceCommandResult(
     @Query('SN') sn: string,
     @Req() req: RawBodyRequest<Request>,
     @Res() res: Response,
   ): Promise<void> {
-    const rawBody = req.body as string | Buffer;
-    const bodyText =
-      typeof rawBody === 'string'
-        ? rawBody
-        : Buffer.isBuffer(rawBody)
-          ? rawBody.toString('utf-8')
-          : '';
+    if (!sn) return send(res, 400, 'ERROR: Missing SN');
 
-    const parts = bodyText.split(':');
-    if (parts.length >= 2) {
-      const commandId = parts[1];
-      await this.admsService.confirmCommandExecution(commandId);
-      this.logger.log(`✅ Command ${commandId} executed by SN=${sn}`);
+    try {
+      const confirmed = await this.admsService.confirmCommands(
+        sn,
+        bodyText(req),
+      );
+      if (confirmed > 0) {
+        this.logger.log(`SN=${sn} confirmed ${confirmed} command(s)`);
+      }
+    } catch (err) {
+      this.logger.error(`Failed to confirm commands for SN=${sn}`, err);
     }
-
-    res.setHeader('Content-Type', 'text/plain');
-    res.status(200).send('OK');
+    send(res, 200, 'OK');
   }
+
+  /** بعض الإصدارات تفحص الاتصال بهذا المسار */
+  @Get('ping')
+  ping(@Res() res: Response): void {
+    send(res, 200, 'OK');
+  }
+}
+
+function send(res: Response, status: number, body: string): void {
+  res.setHeader('Content-Type', 'text/plain');
+  res.status(status).send(body);
+}
+
+function bodyText(req: RawBodyRequest<Request>): string {
+  const body = req.body as unknown;
+  if (typeof body === 'string') return body;
+  return Buffer.isBuffer(body) ? body.toString('utf-8') : '';
 }

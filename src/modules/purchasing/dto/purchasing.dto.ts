@@ -79,7 +79,7 @@ export class CreateSupplierDto {
   paymentTermsDays?: number;
 
   @IsOptional()
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 3 })
   openingBalance?: number;
 
   @IsOptional()
@@ -140,7 +140,7 @@ export class PurchaseLineDto {
   unitPrice!: number;
 
   @IsOptional()
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
   discount?: number;
 
@@ -279,7 +279,7 @@ export class CreateSupplierPaymentDto {
   @Matches(DATE_ONLY, { message: DATE_MESSAGE })
   paymentDate!: string;
 
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0.01, { message: 'المبلغ يجب أن يكون أكبر من صفر' })
   amount!: number;
 

@@ -46,7 +46,7 @@ export class ProductUnitDto {
   factor!: number;
 
   @IsOptional()
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
   salePrice?: number | null;
 }
@@ -86,7 +86,7 @@ export class CreateProductDto {
   @IsUUID()
   taxRateId?: string;
 
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0, { message: 'سعر البيع لا يقل عن صفر' })
   salePrice!: number;
 
@@ -95,7 +95,7 @@ export class CreateProductDto {
   priceIncludesTax?: boolean;
 
   @IsOptional()
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
   minSalePrice?: number | null;
 

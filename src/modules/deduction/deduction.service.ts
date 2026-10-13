@@ -9,6 +9,7 @@ import { Deduction, DeductionStatus } from './entities/deduction.entity';
 import { CreateDeductionDto } from './dto/create-deduction.dto';
 import { UpdateDeductionDto } from './dto/update-deduction.dto';
 import { Employee } from '../employees/entities/employee.entity';
+import { moneyDecimalsOf, roundMoney } from '../../common/utils/money.util';
 
 @Injectable()
 export class DeductionsService {
@@ -26,8 +27,9 @@ export class DeductionsService {
       throw new NotFoundException('الموظف غير موجود أو لا ينتمي لشركتك');
 
     // ✅ حساب المبلغ الشهري تلقائياً
-    const monthlyAmount = Number(
-      (dto.totalAmount / dto.installmentsCount).toFixed(2),
+    const monthlyAmount = roundMoney(
+      dto.totalAmount / dto.installmentsCount,
+      await moneyDecimalsOf(this.deductionRepo.manager, tenantId),
     );
 
     const deduction = this.deductionRepo.create({
@@ -81,7 +83,10 @@ export class DeductionsService {
     if (dto.totalAmount || dto.installmentsCount) {
       const total = dto.totalAmount ?? deduction.totalAmount;
       const count = dto.installmentsCount ?? deduction.installmentsCount;
-      deduction.monthlyAmount = Number((total / count).toFixed(2));
+      deduction.monthlyAmount = roundMoney(
+        total / count,
+        await moneyDecimalsOf(this.deductionRepo.manager, tenantId),
+      );
     }
 
     return this.deductionRepo.save(deduction);

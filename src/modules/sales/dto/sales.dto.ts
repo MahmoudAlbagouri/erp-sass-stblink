@@ -111,12 +111,12 @@ export class CreateCustomerDto {
 
   /** null = بلا حد ائتماني */
   @IsOptional()
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
   creditLimit?: number | null;
 
   @IsOptional()
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 3 })
   openingBalance?: number;
 
   @IsOptional()
@@ -177,7 +177,7 @@ export class SalesLineDto {
   unitPrice!: number;
 
   @IsOptional()
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
   discount?: number;
 }
@@ -230,7 +230,7 @@ export class TenderDto {
   @IsEnum(SalesPaymentMethod)
   method!: SalesPaymentMethod;
 
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0.01, { message: 'المبلغ يجب أن يكون أكبر من صفر' })
   amount!: number;
 
@@ -352,7 +352,7 @@ export class CreateCustomerPaymentDto {
   @Matches(DATE_ONLY, { message: DATE_MESSAGE })
   paymentDate!: string;
 
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0.01, { message: 'المبلغ يجب أن يكون أكبر من صفر' })
   amount!: number;
 

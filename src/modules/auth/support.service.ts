@@ -52,6 +52,7 @@ export class SupportService {
       isDisclaimerAccepted: true,
       role: null,
       supportBy: ownerId,
+      ...(await this.tenants.findLocale(tenant.id)),
     };
     const accessToken = await this.jwt.signAsync(payload, {
       secret: getJwtAccessSecret(),

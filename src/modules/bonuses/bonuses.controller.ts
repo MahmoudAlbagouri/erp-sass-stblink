@@ -20,6 +20,7 @@ import { SubscriptionGuard } from '../../common/guards/subscription.guard'; // �
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { RequiresFeature } from '../../common/decorators/requires-feature.decorator'; // ✅ استيراد ديكوراتور الميزة
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
+import { CurrentCurrency } from '../../common/decorators/current-currency.decorator';
 import {
   DETAIL_COLUMNS,
   ReportService,
@@ -32,7 +33,11 @@ import {
   CurrentUser,
   type CurrentUserData,
 } from '../../common/decorators/current-user.decorator';
-import { formatAmount, formatDate } from '../../common/utils/format.util';
+import {
+  formatAmount,
+  formatDate,
+  formatMoney,
+} from '../../common/utils/format.util';
 
 @Controller('bonuses')
 @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
@@ -110,6 +115,7 @@ export class BonusesController {
     @Param('id') id: string,
     @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
+    @CurrentCurrency() currency: string,
     @Res() res: Response,
   ) {
     const bonus = await this.bonusesService.findOne(id, tenantId);
@@ -120,7 +126,7 @@ export class BonusesController {
       { label: 'المسمى الوظيفي', value: bonus.employee?.jobTitle || '-' },
       {
         label: 'المبلغ',
-        value: `${formatAmount(bonus.amount)} ر.س`,
+        value: formatMoney(bonus.amount, currency),
       },
       {
         label: 'تاريخ الصرف',

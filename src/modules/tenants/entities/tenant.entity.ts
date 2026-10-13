@@ -30,13 +30,19 @@ export class Tenant {
   @Column({ nullable: true })
   address?: string;
 
+  /** ISO 3166-1 alpha-2 — انظر common/constants/countries */
   @Column({ nullable: true })
   country?: string;
+
+  /** ISO 4217 — تُشتق من الدولة عند إنشاء الشركة */
+  @Column({ length: 3, default: 'SAR' })
+  currency!: string;
 
   @Column({ default: 'ar' })
   language?: string;
 
-  @Column({ default: 'UTC+3' })
+  /** IANA */
+  @Column({ default: 'Asia/Riyadh' })
   timezone?: string;
 
   @Column({ default: false })

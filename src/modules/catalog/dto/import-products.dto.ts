@@ -37,7 +37,7 @@ export class ImportProductItemDto {
   @MaxLength(60)
   unit?: string;
 
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0, { message: 'سعر البيع لا يقل عن صفر' })
   salePrice!: number;
 
@@ -55,7 +55,7 @@ export class ImportProductItemDto {
   barcode?: string;
 
   @IsOptional()
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
   minSalePrice?: number;
 }

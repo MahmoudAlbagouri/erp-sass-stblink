@@ -16,6 +16,7 @@ import {
   resolvePagination,
 } from '../../common/dto/pagination.dto';
 import { sumMoney } from '../../common/utils/document-totals.util';
+import { roundMoney } from '../../common/utils/money.util';
 import { CatalogSettingsService } from '../catalog/catalog-settings.service';
 import { ProductCategory } from '../catalog/entities/product-category.entity';
 import { Product, ProductType } from '../catalog/entities/product.entity';
@@ -39,6 +40,17 @@ import {
   UpdatePosDeviceDto,
 } from './dto/pos.dto';
 import { PosDevice, PosShift, PosShiftStatus } from './entities/pos.entity';
+import {
+  cashierCouldReturn,
+  PosCashierForDevice,
+  PosCashiersService,
+} from './pos-cashiers.service';
+import { POS_OFFLINE_POLICY } from './pos.constants';
+import { generateDeviceKey, hashDeviceKey } from './utils/pos-crypto.util';
+import {
+  getCountry,
+  getCurrencyDecimals,
+} from '../../common/constants/countries';
 
 /** صنف كما يخزّنه جهاز الكاشير محلياً (ما يحتاجه للبيع فقط) */
 export interface PosProduct {
@@ -82,7 +94,26 @@ export interface PosBootstrap {
   customers: PosCustomer[];
   /** وردية مفتوحة على الجهاز في السيرفر (لاستعادتها بعد إعادة تهيئة الجهاز) */
   openShift: PosShift | null;
+  /** الشركة: عملتها وتوقيتها تحفظهما الشاشة لتعمل بهما بلا إنترنت ولا جلسة */
+  tenant: PosTenantProfile;
+  /** الكاشيرات الفعّالون (القائمة كاملة دائماً). فارغة = الورديات بلا رقم سري */
+  cashiers: PosCashierForDevice[];
+  /** صلاحية المرتجع لوردية بلا كاشير محدد (آخر ما عُرف عن مستخدم الشاشة) */
+  returnsAllowed: boolean;
+  /** حد العمل بلا اتصال (انظر pos.constants) */
+  offlinePolicy: { warnAfterHours: number; blockAfterHours: number };
 }
+
+export interface PosTenantProfile {
+  companyName: string;
+  country: string;
+  currency: string;
+  currencyDecimals: number;
+  timezone: string;
+}
+
+/** ما يعود للشاشة عند ربطها: الجهاز + مفتاحه (يُعرض هذه المرة فقط) */
+export type BoundPosDevice = PosDevice & { deviceKey: string };
 
 export type PosOperationStatus = 'ok' | 'duplicate' | 'error';
 
@@ -133,6 +164,7 @@ export class PosService {
     private readonly salesSettings: SalesSettingsService,
     private readonly invoices: SalesInvoicesService,
     private readonly returns: SalesReturnsService,
+    private readonly cashiers: PosCashiersService,
   ) {}
 
   // ══════════════════════════ الأجهزة ══════════════════════════
@@ -228,7 +260,9 @@ export class PosService {
     id: string,
     installationId: string,
     tenantId: string,
-  ): Promise<PosDevice> {
+    /** هل يملك المستخدم الرابط صلاحية المرتجع؟ (لورديات بلا كاشير محدد) */
+    returnsAllowed = false,
+  ): Promise<BoundPosDevice> {
     const device = await this.activeDevice(id, tenantId);
 
     if (device.installationId && device.installationId !== installationId) {
@@ -244,25 +278,36 @@ export class PosService {
         .set({ installationId, boundAt: new Date() })
         .where('id = :id AND "installationId" IS NULL', { id })
         .execute();
-      if (!bound.affected) return this.bindDevice(id, installationId, tenantId);
+      if (!bound.affected) {
+        return this.bindDevice(id, installationId, tenantId, returnsAllowed);
+      }
     }
     // الشاشة انتقلت لهذا الجهاز: جهازها السابق يصير حراً لشاشة أخرى
     await this.devices.update(
       { tenantId, installationId, id: Not(id) },
-      { installationId: null, boundAt: null },
+      { installationId: null, boundAt: null, keyHash: null },
     );
-    return this.findDevice(id, tenantId);
+
+    // مفتاح جديد مع كل ربط: الشاشة تحفظه وترفع به دون جلسة مستخدم. المفتاح
+    // السابق (إن وُجد) يبطل، ولا يُحفظ هنا إلا بصمته
+    const deviceKey = generateDeviceKey();
+    await this.devices.update(
+      { id, tenantId },
+      { keyHash: hashDeviceKey(deviceKey), returnsAllowed },
+    );
+    return { ...(await this.findDevice(id, tenantId)), deviceKey };
   }
 
   /**
    * يفكّ ربط الجهاز (استُبدل الحاسب أو مُسحت بيانات المتصفح) ليُربط بغيره.
-   * ما لم يرفعه المتصفح القديم من مبيعات لن يُقبل منه بعد ذلك.
+   * ما لم يرفعه المتصفح القديم من مبيعات لن يُقبل منه بعد ذلك: مفتاحه يبطل
+   * فوراً — وهذا ما يُفعل لجهاز سُرق أو فُقد.
    */
   async unbindDevice(id: string, tenantId: string): Promise<PosDevice> {
     await this.findDevice(id, tenantId);
     await this.devices.update(
       { id, tenantId },
-      { installationId: null, boundAt: null },
+      { installationId: null, boundAt: null, keyHash: null },
     );
     return this.findDevice(id, tenantId);
   }
@@ -279,12 +324,22 @@ export class PosService {
     tenantId: string,
     since?: string,
   ): Promise<PosBootstrap> {
+    const device = await this.boundDevice(deviceId, installationId, tenantId);
+    return this.bootstrapDevice(device, since);
+  }
+
+  /** نفس التنزيل لجهاز سبق التحقق منه (بجلسة مستخدم أو بمفتاحه) */
+  async bootstrapDevice(
+    device: PosDevice,
+    since?: string,
+  ): Promise<PosBootstrap> {
     // قبل القراءة: ما يتغيّر أثناءها يدخل في المزامنة التالية
     const serverTime = new Date();
-    const device = await this.boundDevice(deviceId, installationId, tenantId);
+    const { tenantId } = device;
+    const deviceId = device.id;
     const sinceDate = since ? new Date(since) : undefined;
 
-    const [settings, categories, products, customers, openShift] =
+    const [settings, categories, products, customers, openShift, cashiers] =
       await Promise.all([
         this.salesSettings.get(tenantId),
         this.catalogSettings.findCategories(tenantId),
@@ -293,9 +348,12 @@ export class PosService {
         this.shifts.findOne({
           where: { tenantId, deviceId, status: PosShiftStatus.OPEN },
         }),
+        this.cashiers.findForDevice(tenantId),
       ]);
 
     await this.devices.update({ id: deviceId }, { lastSeenAt: serverTime });
+    const tenant = await this.tenantProfile(tenantId);
+    const decimals = tenant.currencyDecimals;
 
     return {
       serverTime: serverTime.toISOString(),
@@ -310,9 +368,36 @@ export class PosService {
           parentId: c.parentId,
           color: c.color,
         })),
-      products: products.map(toPosProduct),
+      products: products.map((product) => toPosProduct(product, decimals)),
       customers: customers.map(toPosCustomer),
       openShift,
+      tenant,
+      cashiers,
+      returnsAllowed: device.returnsAllowed,
+      offlinePolicy: { ...POS_OFFLINE_POLICY },
+    };
+  }
+
+  private async tenantProfile(tenantId: string): Promise<PosTenantProfile> {
+    const rows: {
+      companyName: string;
+      country: string | null;
+      currency: string | null;
+      timezone: string | null;
+    }[] = await this.devices.manager.query(
+      `SELECT "companyName", "country", "currency", "timezone"
+         FROM tenants WHERE "id" = $1`,
+      [tenantId],
+    );
+    const row = rows[0];
+    const country = getCountry(row?.country);
+    const currency = row?.currency ?? country.currency;
+    return {
+      companyName: row?.companyName ?? '',
+      country: country.code,
+      currency,
+      currencyDecimals: getCurrencyDecimals(currency),
+      timezone: row?.timezone ?? country.timezone,
     };
   }
 
@@ -333,9 +418,18 @@ export class PosService {
       dto.installationId,
       tenantId,
     );
+    return this.syncDevice(device, dto.operations, actor);
+  }
 
+  /** نفس الرفع لجهاز سبق التحقق منه (بجلسة مستخدم أو بمفتاحه) */
+  async syncDevice(
+    device: PosDevice,
+    operations: PosOperationDto[],
+    actor: Actor,
+  ): Promise<{ results: PosOperationResult[]; lastCounter: number }> {
+    const { tenantId } = device;
     const results: PosOperationResult[] = [];
-    for (const operation of dto.operations) {
+    for (const operation of operations) {
       results.push(await this.runOperation(operation, device, actor));
     }
 
@@ -415,13 +509,19 @@ export class PosService {
       );
     }
 
+    // كاشير حُذف بعد أن فتح ورديته بلا إنترنت: الوردية تُقبل باسمه
+    const cashier = op.cashierId
+      ? await this.cashiers.findForOperation(op.cashierId, device.tenantId)
+      : null;
+
     await this.shifts.save(
       this.shifts.create({
         id: op.id,
         tenantId: device.tenantId,
         deviceId: device.id,
         userId: actor.id ?? null,
-        cashierName: op.cashierName ?? null,
+        cashierId: cashier?.id ?? null,
+        cashierName: op.cashierName ?? cashier?.name ?? null,
         openedAt: new Date(op.openedAt),
         openingCash: op.openingCash,
         expectedCash: op.openingCash,
@@ -481,14 +581,15 @@ export class PosService {
     device: PosDevice,
     actor: Actor,
   ): Promise<boolean> {
-    if (!actor.canReturn) {
+    const shift = await this.shifts.findOne({ where: { id: op.shiftId } });
+    if (!shift) throw new NotFoundException('وردية المرتجع غير مسجّلة');
+    assertShiftOfDevice(shift, device);
+
+    if (!(await this.mayReturn(shift, new Date(op.issuedAt), actor))) {
       throw new ForbiddenException(
         'ليست لديك صلاحية عمل مرتجع من شاشة الكاشير',
       );
     }
-    const shift = await this.shifts.findOne({ where: { id: op.shiftId } });
-    if (!shift) throw new NotFoundException('وردية المرتجع غير مسجّلة');
-    assertShiftOfDevice(shift, device);
 
     const { duplicate } = await this.returns.recordPosReturn(
       {
@@ -506,6 +607,24 @@ export class PosService {
       actor.id,
     );
     return duplicate;
+  }
+
+  /**
+   * صلاحية المرتجع تتبع صاحب الوردية: كاشيرها إن فُتحت برقم سري، وإلا مستخدم
+   * الشاشة (أو آخر ما عُرف عنه حين ترفع الشاشة بمفتاحها).
+   */
+  private async mayReturn(
+    shift: PosShift,
+    issuedAt: Date,
+    actor: Actor,
+  ): Promise<boolean> {
+    if (!shift.cashierId) return !!actor.canReturn;
+
+    const cashier = await this.cashiers.findForOperation(
+      shift.cashierId,
+      shift.tenantId,
+    );
+    return !!cashier && cashierCouldReturn(cashier, issuedAt);
   }
 
   /** فاتورة برقمها لاختيار ما يُرجَع منها (أي فاتورة صادرة للشركة) */
@@ -706,7 +825,7 @@ function assertShiftOfDevice(shift: PosShift, device: PosDevice): void {
   }
 }
 
-function toPosProduct(product: Product): PosProduct {
+function toPosProduct(product: Product, decimals: number): PosProduct {
   return {
     id: product.id,
     name: product.name,
@@ -731,7 +850,8 @@ function toPosProduct(product: Product): PosProduct {
       unitId: u.unitId,
       name: u.unit?.name ?? '',
       factor: u.factor,
-      salePrice: u.salePrice ?? sumMoney([product.salePrice * u.factor]),
+      salePrice:
+        u.salePrice ?? roundMoney(product.salePrice * u.factor, decimals),
     })),
   };
 }

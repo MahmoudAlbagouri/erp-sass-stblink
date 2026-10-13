@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import Decimal from 'decimal.js';
+import { moneyDecimalsOf, roundMoney } from '../../common/utils/money.util';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import {
   paginated,
@@ -296,7 +297,13 @@ export class StockService {
       .take(limit)
       .getManyAndCount();
 
-    return paginated(rows.map(toStockRow), total, page, limit);
+    const decimals = await moneyDecimalsOf(this.dataSource.manager, tenantId);
+    return paginated(
+      rows.map((row) => toStockRow(row, decimals)),
+      total,
+      page,
+      limit,
+    );
   }
 
   async summary(tenantId: string, warehouseId?: string): Promise<StockSummary> {
@@ -327,12 +334,13 @@ export class StockService {
       [tenantId],
     );
 
+    const decimals = await moneyDecimalsOf(this.dataSource.manager, tenantId);
     return {
       items: row.items,
-      value: roundMoney(row.value),
+      value: roundMoney(row.value, decimals),
       low: row.low,
       negative: row.negative,
-      inTransitValue: roundMoney(transit.value),
+      inTransitValue: roundMoney(transit.value, decimals),
     };
   }
 
@@ -609,7 +617,7 @@ export function assertNoDuplicateProducts(productIds: string[]): void {
   }
 }
 
-function toStockRow(level: StockLevel): StockRow {
+function toStockRow(level: StockLevel, decimals: number): StockRow {
   const avgCost = level.item?.avgCost ?? 0;
   const { quantity } = level;
   const minQuantity = level.minQuantity ?? null;
@@ -628,11 +636,10 @@ function toStockRow(level: StockLevel): StockRow {
     quantity,
     minQuantity,
     avgCost,
-    value: roundMoney(new Decimal(Math.max(quantity, 0)).mul(avgCost)),
+    value: roundMoney(
+      new Decimal(Math.max(quantity, 0)).mul(avgCost),
+      decimals,
+    ),
     status,
   };
-}
-
-function roundMoney(value: Decimal.Value): number {
-  return new Decimal(value).toDecimalPlaces(2).toNumber();
 }

@@ -31,6 +31,7 @@ import {
 } from './entities/purchase-invoice.entity';
 import { SuppliersService } from './suppliers.service';
 import { computeLine, sumMoney } from '../../common/utils/document-totals.util';
+import { moneyDecimalsOf } from '../../common/utils/money.util';
 
 export const PURCHASE_INVOICE_REFERENCE = 'purchase_invoice';
 const NUMBER_PREFIX = 'PI-';
@@ -388,6 +389,7 @@ export class PurchaseInvoicesService {
     pricesIncludeTax: boolean,
     tenantId: string,
   ): Promise<ComputedLine[]> {
+    const decimals = await moneyDecimalsOf(this.dataSource.manager, tenantId);
     const productIds = [...new Set(inputs.map((l) => l.productId))];
     const found = await this.products.findByIds(
       productIds,
@@ -461,6 +463,7 @@ export class PurchaseInvoicesService {
           taxRate,
           pricesIncludeTax,
           factor,
+          decimals,
         }),
       };
     });

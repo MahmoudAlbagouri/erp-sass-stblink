@@ -31,7 +31,7 @@ export class Bonus {
   @Column({ name: 'employee_id' })
   employeeId!: string;
 
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  @Column({ type: 'decimal', precision: 13, scale: 3 })
   amount!: number;
 
   // ✅ هذا التاريخ هو الذي يحدد انتماء المكافأة لمسير رواتب معين

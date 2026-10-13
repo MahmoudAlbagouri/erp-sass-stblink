@@ -20,6 +20,8 @@ import { ProductCategory } from './entities/product-category.entity';
 import { Product } from './entities/product.entity';
 import { TaxCategory, TaxRate } from './entities/tax-rate.entity';
 import { Unit } from './entities/unit.entity';
+import { Tenant } from '../tenants/entities/tenant.entity';
+import { getCountry } from '../../common/constants/countries';
 
 /** القيم التي تبدأ بها أي شركة جديدة (تُنشأ عند أول استخدام) */
 const DEFAULT_UNITS: Pick<Unit, 'name' | 'symbol' | 'allowsFractions'>[] = [
@@ -31,29 +33,39 @@ const DEFAULT_UNITS: Pick<Unit, 'name' | 'symbol' | 'allowsFractions'>[] = [
   { name: 'متر', symbol: 'م', allowsFractions: true },
 ];
 
-const DEFAULT_TAX_RATES: Pick<
-  TaxRate,
-  'name' | 'rate' | 'category' | 'isDefault'
->[] = [
-  {
-    name: 'ضريبة القيمة المضافة 15%',
-    rate: 15,
-    category: TaxCategory.STANDARD,
-    isDefault: true,
-  },
-  {
-    name: 'نسبة صفرية 0%',
-    rate: 0,
-    category: TaxCategory.ZERO_RATED,
-    isDefault: false,
-  },
-  {
-    name: 'معفى من الضريبة',
-    rate: 0,
-    category: TaxCategory.EXEMPT,
-    isDefault: false,
-  },
-];
+/**
+ * ضرائب البداية حسب نسبة القيمة المضافة في دولة الشركة. الدول التي لا تفرض
+ * ضريبة قيمة مضافة (النسبة 0) تبدأ بالنسبة الصفرية كافتراضية.
+ */
+function defaultTaxRates(
+  vatRate: number,
+): Pick<TaxRate, 'name' | 'rate' | 'category' | 'isDefault'>[] {
+  const hasVat = vatRate > 0;
+  return [
+    ...(hasVat
+      ? [
+          {
+            name: `ضريبة القيمة المضافة ${vatRate}%`,
+            rate: vatRate,
+            category: TaxCategory.STANDARD,
+            isDefault: true,
+          },
+        ]
+      : []),
+    {
+      name: 'نسبة صفرية 0%',
+      rate: 0,
+      category: TaxCategory.ZERO_RATED,
+      isDefault: !hasVat,
+    },
+    {
+      name: 'معفى من الضريبة',
+      rate: 0,
+      category: TaxCategory.EXEMPT,
+      isDefault: false,
+    },
+  ];
+}
 
 @Injectable()
 export class CatalogSettingsService {
@@ -363,10 +375,16 @@ export class CatalogSettingsService {
         .execute();
     }
     if (taxCount === 0) {
+      const tenant = await this.taxRates.manager.findOne(Tenant, {
+        where: { id: tenantId },
+        select: { id: true, country: true },
+      });
+      const { vatRate } = getCountry(tenant?.country);
+
       await this.taxRates
         .createQueryBuilder()
         .insert()
-        .values(DEFAULT_TAX_RATES.map((tax) => ({ ...tax, tenantId })))
+        .values(defaultTaxRates(vatRate).map((tax) => ({ ...tax, tenantId })))
         .orIgnore()
         .execute();
     }

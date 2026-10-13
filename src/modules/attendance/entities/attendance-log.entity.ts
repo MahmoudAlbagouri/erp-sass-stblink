@@ -34,6 +34,7 @@ export enum VerifyMode {
 @Entity('attendance_logs')
 @Index(['tenantId', 'punchTime'])
 @Index(['employeeId', 'punchTime'])
+@Index('IDX_attendance_logs_device_raw', ['deviceSn', 'rawLogId'])
 export class AttendanceLog {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

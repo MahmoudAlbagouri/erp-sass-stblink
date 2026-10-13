@@ -24,13 +24,18 @@ import {
   type CurrentUserData,
 } from '../../common/decorators/current-user.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
+import { CurrentCurrency } from '../../common/decorators/current-currency.decorator';
 import {
   DETAIL_COLUMNS,
   ReportService,
   type ReportRow,
 } from '../../common/reports/report.service';
 import { PERMS } from '../../common/constants/permissions';
-import { formatAmount, formatDate } from '../../common/utils/format.util';
+import {
+  formatAmount,
+  formatDate,
+  formatMoney,
+} from '../../common/utils/format.util';
 import { FEATURES } from '../../common/constants/features'; // ✅ استيراد الثوابت
 
 @Controller('loans')
@@ -130,6 +135,7 @@ export class LoansController {
     @Param('id') id: string,
     @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
+    @CurrentCurrency() currency: string,
     @Res() res: Response,
   ) {
     const loan = await this.loansService.findOne(id, tenantId);
@@ -143,11 +149,11 @@ export class LoansController {
       { label: 'المسمى الوظيفي', value: loan.employee?.jobTitle || '-' },
       {
         label: 'إجمالي القرض',
-        value: `${formatAmount(loan.totalAmount)} ر.س`,
+        value: formatMoney(loan.totalAmount, currency),
       },
       {
         label: 'القسط الشهري',
-        value: `${formatAmount(loan.monthlyInstallment)} ر.س`,
+        value: formatMoney(loan.monthlyInstallment, currency),
       },
       { label: 'عدد الأقساط الكلي', value: loan.installmentsCount },
       { label: 'الأقساط المسددة', value: paid },

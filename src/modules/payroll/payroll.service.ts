@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import {
   Repository,
   DataSource,
+  EntityManager,
   Between,
   In,
   LessThanOrEqual,
@@ -31,10 +32,18 @@ import {
 } from '../deduction/entities/deduction.entity';
 import { Settlement } from '../settlements/entities/settlement.entity';
 import { EndOfService } from '../eos/entities/eos.entity';
+import {
+  moneyDecimalsOf,
+  roundMoney as roundMoneyTo,
+} from '../../common/utils/money.util';
 
-/** تقريب مالي لمنزلتين عشريتين لتفادي كسور الفاصلة العائمة في جافاسكريبت */
-function roundMoney(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
+/** دالة تقريب مالي لخانات عملة الشركة (2 أو 3) — انظر money.util */
+async function moneyRounder(
+  manager: EntityManager,
+  tenantId: string,
+): Promise<(value: number) => number> {
+  const decimals = await moneyDecimalsOf(manager, tenantId);
+  return (value) => roundMoneyTo(value, decimals);
 }
 
 /**
@@ -82,6 +91,7 @@ export class PayrollService {
    * آخر. كل التعديلات المالية تحدث حصرياً داخل disbursePayroll.
    */
   async generateMonthlyPayroll(month: number, year: number, tenantId: string) {
+    const roundMoney = await moneyRounder(this.dataSource.manager, tenantId);
     const now = new Date();
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1;
@@ -402,6 +412,7 @@ export class PayrollService {
     tenantId: string,
     userId: string,
   ): Promise<Payroll> {
+    const roundMoney = await moneyRounder(this.dataSource.manager, tenantId);
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();

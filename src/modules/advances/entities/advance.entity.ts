@@ -21,7 +21,7 @@ export class Advance {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  @Column({ type: 'decimal', precision: 13, scale: 3 })
   amount!: number;
 
   @Column({ type: 'text', nullable: true })

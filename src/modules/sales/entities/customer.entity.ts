@@ -43,8 +43,8 @@ export class Customer extends TenantOwnedEntity {
   /** أقصى مديونية مسموحة. null = بلا حد */
   @Column({
     type: 'numeric',
-    precision: 14,
-    scale: 2,
+    precision: 15,
+    scale: 3,
     nullable: true,
     transformer: decimalTransformer,
   })
@@ -53,8 +53,8 @@ export class Customer extends TenantOwnedEntity {
   /** ما كان على العميل قبل بدء استخدام النظام */
   @Column({
     type: 'numeric',
-    precision: 14,
-    scale: 2,
+    precision: 15,
+    scale: 3,
     default: 0,
     transformer: decimalTransformer,
   })

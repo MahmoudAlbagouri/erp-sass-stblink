@@ -9,6 +9,10 @@ import {
   OneToMany,
   PrimaryGeneratedColumn,
 } from 'typeorm';
+import {
+  MAX_MONEY_DECIMALS,
+  roundMoney,
+} from '../../../common/utils/money.util';
 import { TenantOwnedEntity } from '../../../common/entities/tenant-owned.entity';
 import { decimalTransformer } from '../../../common/utils/decimal.transformer';
 import { Product } from '../../catalog/entities/product.entity';
@@ -28,8 +32,8 @@ export type PaymentStatus = 'unpaid' | 'partial' | 'paid';
 
 const money = {
   type: 'numeric' as const,
-  precision: 14,
-  scale: 2,
+  precision: 15,
+  scale: 3,
   default: 0,
   transformer: decimalTransformer,
 };
@@ -129,8 +133,8 @@ export class PurchaseInvoice extends TenantOwnedEntity {
 
   @AfterLoad()
   protected computeDerived(): void {
-    const net = round2(this.total - this.returnedAmount);
-    this.remaining = Math.max(round2(net - this.paidAmount), 0);
+    const net = roundAmount(this.total - this.returnedAmount);
+    this.remaining = Math.max(roundAmount(net - this.paidAmount), 0);
     if (this.remaining === 0) this.paymentStatus = 'paid';
     else if (this.paidAmount > 0) this.paymentStatus = 'partial';
     else this.paymentStatus = 'unpaid';
@@ -231,6 +235,7 @@ export class PurchaseInvoiceLine {
   returnedQuantity!: number;
 }
 
-function round2(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
+/** فرق مبالغ مخزّنة: التقريب لأقصى دقة مدعومة يزيل ضجيج الفاصلة العائمة فقط */
+function roundAmount(value: number): number {
+  return roundMoney(value, MAX_MONEY_DECIMALS);
 }

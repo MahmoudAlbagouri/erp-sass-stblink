@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
@@ -10,8 +11,13 @@ import {
   FindOptionsWhere,
   DataSource,
   EntityManager,
+  LessThanOrEqual,
+  MoreThanOrEqual,
 } from 'typeorm';
-import { BiometricDevice } from './entities/biometric-device.entity';
+import {
+  BiometricDevice,
+  DeviceStatus,
+} from './entities/biometric-device.entity';
 import {
   AttendanceLog,
   PunchType,
@@ -19,10 +25,7 @@ import {
 } from './entities/attendance-log.entity';
 import { DeviceCommand } from './entities/device-command.entity';
 import { Shift } from '../shifts/entities/shift.entity';
-import {
-  getShiftWindow,
-  diffMinutesOvernightAware,
-} from '../shifts/utils/shift-time.util'; // ✅ منطق حساب نافذة الشيفت (يدعم الشيفت الليلي)
+import { getShiftWindow } from '../shifts/utils/shift-time.util';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { AttendanceQueryDto } from './dto/attendance-query.dto';
@@ -39,9 +42,31 @@ import {
   type ReportRow,
 } from '../../common/reports/report.service';
 import { formatDate, formatDateTime } from '../../common/utils/format.util';
+import {
+  dayKeyInZone,
+  dayOffsetInZone,
+  startOfDayInZone,
+  tenantTimezoneOf,
+} from '../../common/utils/timezone.util';
 
 const EDIT_WINDOW_HOURS = 24;
 const MANUAL_ENTRY_WINDOW_HOURS = 24;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MINUTES = 24 * 60;
+
+/**
+ * الجهاز يسأل السيرفر كل ~10 ثوانٍ: غيابه أطول من هذا يعني أنه غير متصل.
+ * الحالة تُحسب عند القراءة — لا أحد يُبلغنا حين ينقطع الجهاز.
+ */
+const ONLINE_WINDOW_MS = 2 * 60 * 1000;
+
+/**
+ * "يوم الوردية" يبدأ قبل موعد بدايتها بهذه المدة ويستمر 24 ساعة: فكل بصمة
+ * تنتمي ليوم واحد بالضبط — من جاء مبكراً أو انصرف متأخراً يُحسب ليومه.
+ */
+const SHIFT_DAY_LEAD_MINUTES = 4 * 60;
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 type AttendanceStatus =
   | 'present'
@@ -57,6 +82,31 @@ interface AttendanceEvaluation {
   lateMinutes: number;
   earlyLeaveMinutes: number;
   status: AttendanceStatus;
+}
+
+/** حضور موظف في يوم واحد */
+interface DayAttendance extends AttendanceEvaluation {
+  checkIn: AttendanceLog | null;
+  checkOut: AttendanceLog | null;
+  minutes: number;
+  leaveReason?: string;
+  logs: AttendanceLog[];
+}
+
+export interface DailySummaryRow {
+  employeeId: string | undefined;
+  employeeCode: string;
+  employeeName: string | undefined;
+  shiftName: string | undefined;
+  /** null للغائب */
+  firstPunch: Date | null;
+  lastPunch: Date | null;
+  totalMinutes: number;
+  lateMinutes: number;
+  earlyLeaveMinutes: number;
+  status: AttendanceStatus;
+  leaveReason?: string;
+  logs: AttendanceLog[];
 }
 
 const PUNCH_TYPE_LABELS_AR: Record<PunchType, string> = {
@@ -81,60 +131,55 @@ export class AttendanceService {
     private readonly reportService: ReportService,
   ) {}
 
+  /** منطقة الشركة الزمنية: بها تُحدَّد الأيام والورديات وتُعرض الأوقات */
+  private zoneOf(tenantId: string): Promise<string> {
+    return tenantTimezoneOf(this.dataSource.manager, tenantId);
+  }
+
   // ==========================================================
   // ✅ منطق ضبط الحضور/الانصراف حسب الشيفت (مع دعم الشيفت الليلي)
   // ==========================================================
 
+  /**
+   * حدود "اليوم" لموظف: من قبل بداية ورديته بمهلة حتى نفس اللحظة من اليوم
+   * التالي (النهاية غير مشمولة). بلا وردية: اليوم التقويمي بتوقيت الشركة.
+   */
   private getShiftDayRange(
-    day: Date,
-    shift?: Shift,
+    day: string,
+    zone: string,
+    shift?: Shift | null,
   ): { start: Date; end: Date } {
-    if (!shift) {
-      const start = new Date(day);
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(day);
-      end.setHours(23, 59, 59, 999);
-      return { start, end };
-    }
-
-    const { startMinutes, endMinutes, isOvernight, graceMinutes } =
-      getShiftWindow(shift);
-
-    const start = new Date(day);
-    start.setHours(0, 0, 0, 0);
-    start.setMinutes(start.getMinutes() + startMinutes - graceMinutes);
-
-    const end = new Date(day);
-    end.setHours(0, 0, 0, 0);
-    if (isOvernight) end.setDate(end.getDate() + 1);
-    end.setMinutes(end.getMinutes() + endMinutes + graceMinutes);
-
-    return { start, end };
+    const lead = shift
+      ? getShiftWindow(shift).startMinutes - SHIFT_DAY_LEAD_MINUTES
+      : 0;
+    return {
+      start: dayOffsetInZone(day, lead, zone),
+      end: dayOffsetInZone(day, lead + DAY_MINUTES, zone),
+    };
   }
 
+  /** التأخير والانصراف المبكر مقارنةً بموعدَي الوردية في ذلك اليوم */
   private evaluateAttendanceStatus(
     checkIn: Date,
     checkOut: Date,
     shift: Shift,
+    day: string,
+    zone: string,
   ): AttendanceEvaluation {
     const { startMinutes, endMinutes, isOvernight, graceMinutes } =
       getShiftWindow(shift);
 
-    const checkInMinutes = checkIn.getHours() * 60 + checkIn.getMinutes();
-    const checkOutMinutes = checkOut.getHours() * 60 + checkOut.getMinutes();
-
-    const lateRaw = diffMinutesOvernightAware(
-      checkInMinutes,
-      startMinutes,
-      isOvernight,
+    const shiftStart = dayOffsetInZone(day, startMinutes, zone);
+    const shiftEnd = dayOffsetInZone(
+      day,
+      endMinutes + (isOvernight ? DAY_MINUTES : 0),
+      zone,
     );
+
+    const lateRaw = minutesBetween(shiftStart, checkIn);
     const lateMinutes = lateRaw > graceMinutes ? lateRaw : 0;
 
-    const earlyRaw = diffMinutesOvernightAware(
-      endMinutes,
-      checkOutMinutes,
-      isOvernight,
-    );
+    const earlyRaw = minutesBetween(checkOut, shiftEnd);
     const earlyLeaveMinutes = earlyRaw > graceMinutes ? earlyRaw : 0;
 
     let status: AttendanceStatus = 'present';
@@ -144,6 +189,64 @@ export class AttendanceService {
     else if (earlyLeaveMinutes > 0) status = 'early_leave';
 
     return { lateMinutes, earlyLeaveMinutes, status };
+  }
+
+  /** يلخّص بصمات موظف في يوم واحد (مرتبة زمنياً وضمن حدود يومه) */
+  private summarizeDay(
+    dayLogs: AttendanceLog[],
+    shift: Shift | null | undefined,
+    day: string,
+    zone: string,
+  ): DayAttendance {
+    const none = { lateMinutes: 0, earlyLeaveMinutes: 0 };
+
+    if (dayLogs.length === 0) {
+      return {
+        ...none,
+        status: 'absent',
+        checkIn: null,
+        checkOut: null,
+        minutes: 0,
+        logs: dayLogs,
+      };
+    }
+
+    const leaveLog = dayLogs.find((l) => l.punchType === PunchType.LEAVE);
+    if (leaveLog) {
+      return {
+        ...none,
+        status: 'on_leave',
+        checkIn: null,
+        checkOut: null,
+        minutes: 0,
+        leaveReason: leaveLog.leaveReason,
+        logs: dayLogs,
+      };
+    }
+
+    const checkIn = dayLogs[0];
+    const checkOut = dayLogs[dayLogs.length - 1];
+
+    let evaluation: AttendanceEvaluation = { ...none, status: 'unclassified' };
+    if (dayLogs.length < 2) {
+      evaluation = { ...none, status: 'incomplete' };
+    } else if (shift) {
+      evaluation = this.evaluateAttendanceStatus(
+        checkIn.punchTime,
+        checkOut.punchTime,
+        shift,
+        day,
+        zone,
+      );
+    }
+
+    return {
+      ...evaluation,
+      checkIn,
+      checkOut,
+      minutes: minutesBetween(checkIn.punchTime, checkOut.punchTime),
+      logs: dayLogs,
+    };
   }
 
   // ==========================================================
@@ -171,7 +274,7 @@ export class AttendanceService {
       : this.dataSource.getRepository(Employee);
 
     const windowStart = new Date(
-      checkOutLog.punchTime.getTime() - 24 * 60 * 60 * 1000,
+      checkOutLog.punchTime.getTime() - 24 * HOUR_MS,
     );
 
     const checkIn = await logRepo.findOne({
@@ -195,10 +298,10 @@ export class AttendanceService {
     }
 
     const rawHours =
-      (checkOutLog.punchTime.getTime() - checkIn.punchTime.getTime()) / 3600000;
+      (checkOutLog.punchTime.getTime() - checkIn.punchTime.getTime()) / HOUR_MS;
     const workHours = Math.round(rawHours * 100) / 100;
 
-    let overtimeHours: number | undefined;
+    let overtimeHours: number | null = null;
     const employee = await employeeRepo.findOne({
       where: { id: checkOutLog.employeeId },
       relations: ['shift'],
@@ -214,6 +317,45 @@ export class AttendanceService {
     }
 
     await logRepo.update(checkOutLog.id, { workHours, overtimeHours });
+  }
+
+  /**
+   * يعيد حساب ساعات العمل المتأثرة ببصمة أُضيفت أو عُدّلت: الانصراف نفسه، أو
+   * أول انصراف يلي بصمة حضور (حضور يُسجَّل أو يُعدَّل بعد الانصراف يغيّر ساعاته).
+   */
+  async recalculateAround(
+    log: AttendanceLog,
+    manager?: EntityManager,
+  ): Promise<void> {
+    if (!log.employeeId) return;
+    const logRepo = manager
+      ? manager.getRepository(AttendanceLog)
+      : this.logRepo;
+
+    if (log.punchType === PunchType.CHECK_OUT) {
+      await this.recalculateWorkHours(log, manager);
+      return;
+    }
+
+    // بصمة لم تعد انصرافاً (عُدّل نوعها): لا تحمل ساعات عمل
+    if (log.workHours != null || log.overtimeHours != null) {
+      await logRepo.update(log.id, { workHours: null, overtimeHours: null });
+    }
+    if (log.punchType !== PunchType.CHECK_IN) return;
+
+    const nextCheckOut = await logRepo.findOne({
+      where: {
+        employeeId: log.employeeId,
+        tenantId: log.tenantId,
+        punchType: PunchType.CHECK_OUT,
+        punchTime: Between(
+          log.punchTime,
+          new Date(log.punchTime.getTime() + 24 * HOUR_MS),
+        ),
+      },
+      order: { punchTime: 'ASC' },
+    });
+    if (nextCheckOut) await this.recalculateWorkHours(nextCheckOut, manager);
   }
 
   // ==========================================================
@@ -264,8 +406,7 @@ export class AttendanceService {
     }
 
     const referenceTime = log.originalPunchTime ?? log.punchTime;
-    const hoursSinceRecorded =
-      (Date.now() - referenceTime.getTime()) / (1000 * 60 * 60);
+    const hoursSinceRecorded = (Date.now() - referenceTime.getTime()) / HOUR_MS;
 
     if (hoursSinceRecorded > EDIT_WINDOW_HOURS) {
       throw new BadRequestException(
@@ -273,7 +414,13 @@ export class AttendanceService {
       );
     }
 
-    if (dto.punchType === PunchType.LEAVE && !dto.leaveReason?.trim()) {
+    const punchTime = new Date(dto.punchTime);
+    if (punchTime.getTime() > Date.now()) {
+      throw new BadRequestException('لا يمكن تسجيل بصمة بتاريخ في المستقبل');
+    }
+
+    const punchType = dto.punchType ?? log.punchType;
+    if (punchType === PunchType.LEAVE && !dto.leaveReason?.trim()) {
       throw new BadRequestException('سبب الإجازة مطلوب');
     }
 
@@ -281,31 +428,36 @@ export class AttendanceService {
       .getRepository(User)
       .findOne({ where: { id: user.id } });
 
-    log.punchTime = new Date(dto.punchTime);
-    if (dto.punchType) log.punchType = dto.punchType;
+    // بصمة الانصراف التي كانت تُحسب على هذه البصمة قبل تحريكها
+    const previous = { ...log };
+
+    log.punchTime = punchTime;
+    log.punchType = punchType;
     if (dto.leaveReason !== undefined) log.leaveReason = dto.leaveReason;
     log.isEdited = true;
     log.editedByUserId = user.id;
-    // ⚠️ نفترض هنا أن الـ User entity فيها حقل username — تأكد من ذلك في مشروعك
     log.editedByName = editorUser?.username ?? editorUser?.email ?? undefined;
     log.editedAt = new Date();
 
     const saved = await this.logRepo.save(log);
 
-    if (saved.punchType === PunchType.CHECK_OUT) {
-      await this.recalculateWorkHours(saved);
+    await this.recalculateAround(saved);
+    if (previous.punchType === PunchType.CHECK_IN) {
+      // الحضور تحرّك أو تغيّر نوعه: الانصراف الذي كان يليه يُعاد حسابه
+      await this.recalculateAround(previous);
     }
 
     if (saved.employeeId) {
+      const zone = await this.zoneOf(user.tenantId);
       await this.notifyEmployeeAboutLog(
         saved.employeeId,
         user.tenantId,
         'تم تعديل بصمة حضور',
-        `تم تعديل بصمة "${PUNCH_TYPE_LABELS_AR[saved.punchType]}" الخاصة بك إلى ${formatDateTime(saved.punchTime)} بواسطة ${log.editedByName ?? 'الإدارة'}`,
+        `تم تعديل بصمة "${PUNCH_TYPE_LABELS_AR[saved.punchType]}" الخاصة بك إلى ${formatDateTime(saved.punchTime, zone)} بواسطة ${log.editedByName ?? 'الإدارة'}`,
       );
     }
 
-    return saved;
+    return this.logRepo.findOneOrFail({ where: { id: saved.id } });
   }
 
   // ==========================================================
@@ -328,8 +480,7 @@ export class AttendanceService {
       throw new BadRequestException('لا يمكن تسجيل بصمة بتاريخ في المستقبل');
     }
 
-    const hoursSinceNow =
-      (now.getTime() - punchTime.getTime()) / (1000 * 60 * 60);
+    const hoursSinceNow = (now.getTime() - punchTime.getTime()) / HOUR_MS;
     if (hoursSinceNow > MANUAL_ENTRY_WINDOW_HOURS) {
       throw new BadRequestException(
         `لا يمكن إضافة بصمة يدوية لتاريخ يتجاوز ${MANUAL_ENTRY_WINDOW_HOURS} ساعة من الوقت الحالي`,
@@ -360,11 +511,9 @@ export class AttendanceService {
     });
 
     const saved = await this.logRepo.save(log);
+    await this.recalculateAround(saved);
 
-    if (saved.punchType === PunchType.CHECK_OUT) {
-      await this.recalculateWorkHours(saved);
-    }
-
+    const zone = await this.zoneOf(user.tenantId);
     await this.notifyEmployeeAboutLog(
       employee.id,
       user.tenantId,
@@ -372,8 +521,8 @@ export class AttendanceService {
         ? 'تم تسجيل إجازة'
         : 'تم تسجيل بصمة يدوية',
       saved.punchType === PunchType.LEAVE
-        ? `تم تسجيل إجازة لك بتاريخ ${formatDate(saved.punchTime)}${dto.leaveReason ? ` — السبب: ${dto.leaveReason}` : ''}`
-        : `تم تسجيل بصمة "${PUNCH_TYPE_LABELS_AR[saved.punchType]}" يدويًا لك بتاريخ ${formatDateTime(saved.punchTime)}`,
+        ? `تم تسجيل إجازة لك بتاريخ ${formatDate(saved.punchTime, zone)}${dto.leaveReason ? ` — السبب: ${dto.leaveReason}` : ''}`
+        : `تم تسجيل بصمة "${PUNCH_TYPE_LABELS_AR[saved.punchType]}" يدويًا لك بتاريخ ${formatDateTime(saved.punchTime, zone)}`,
     );
 
     return this.logRepo.findOneOrFail({
@@ -383,29 +532,39 @@ export class AttendanceService {
   }
 
   // ==========================================================
-  // Devices Management (بدون تغيير)
+  // إدارة الأجهزة
   // ==========================================================
 
+  /** يضع أمر تسجيل الموظف في طابور الجهاز: ينفّذه عند سؤاله التالي عن أوامره */
   async pushUserToDevice(
     deviceId: string,
     employeeId: string,
     user: CurrentUserData,
   ) {
-    const device = await this.deviceRepo.findOne({
-      where: { id: deviceId, tenantId: user.tenantId },
-    });
-    if (!device) throw new NotFoundException('الجهاز غير موجود');
+    const device = await this.findOneDevice(deviceId, user);
+    if (device.status === DeviceStatus.DISABLED) {
+      throw new BadRequestException('الجهاز موقوف: فعّله أولاً لإرسال الأوامر');
+    }
 
     const employee = await this.dataSource.getRepository(Employee).findOne({
       where: { id: employeeId, tenantId: user.tenantId },
     });
     if (!employee) throw new NotFoundException('الموظف غير موجود');
 
-    const commandContent = `DATA USER PIN=${employee.employeeCode}\tName=${employee.fullName}\tPri=0\tPass=0`;
+    // حقول الأمر يفصلها tab وينتهي بسطر جديد: محرف منها داخل الاسم يكسر الأمر
+    const name = employee.fullName.replace(/[\t\r\n]+/g, ' ').trim();
+    const command = `DATA USER PIN=${employee.employeeCode}\tName=${name}\tPri=0\tPass=0`;
 
-    return await this.dataSource.getRepository(DeviceCommand).save({
+    const commands = this.dataSource.getRepository(DeviceCommand);
+    const pending = await commands.findOne({
+      where: { deviceId: device.id, command, isExecuted: false },
+    });
+    // نفس الأمر ما زال بانتظار الجهاز: لا يُكرَّر
+    if (pending) return pending;
+
+    return commands.save({
       deviceId: device.id,
-      command: commandContent,
+      command,
       isExecuted: false,
       tenantId: user.tenantId,
     });
@@ -415,15 +574,23 @@ export class AttendanceService {
     dto: CreateDeviceDto,
     user: CurrentUserData,
   ): Promise<BiometricDevice> {
-    const device = this.deviceRepo.create({ ...dto, tenantId: user.tenantId });
-    return this.deviceRepo.save(device);
+    const serialNumber = dto.serialNumber.trim();
+    await this.assertSerialFree(serialNumber);
+
+    const device = this.deviceRepo.create({
+      ...dto,
+      serialNumber,
+      tenantId: user.tenantId,
+    });
+    return withLiveStatus(await this.deviceRepo.save(device));
   }
 
   async findAllDevices(user: CurrentUserData): Promise<BiometricDevice[]> {
-    return this.deviceRepo.find({
+    const devices = await this.deviceRepo.find({
       where: { tenantId: user.tenantId },
       order: { createdAt: 'DESC' },
     });
+    return devices.map(withLiveStatus);
   }
 
   async findOneDevice(
@@ -434,7 +601,7 @@ export class AttendanceService {
       where: { id, tenantId: user.tenantId },
     });
     if (!device) throw new NotFoundException('الجهاز غير موجود');
-    return device;
+    return withLiveStatus(device);
   }
 
   async updateDevice(
@@ -442,33 +609,105 @@ export class AttendanceService {
     dto: UpdateDeviceDto,
     user: CurrentUserData,
   ): Promise<BiometricDevice> {
-    const device = await this.findOneDevice(id, user);
-    Object.assign(device, dto);
-    return this.deviceRepo.save(device);
+    const device = await this.deviceRepo.findOne({
+      where: { id, tenantId: user.tenantId },
+    });
+    if (!device) throw new NotFoundException('الجهاز غير موجود');
+
+    const serialNumber = dto.serialNumber?.trim();
+    if (serialNumber && serialNumber !== device.serialNumber) {
+      await this.assertSerialFree(serialNumber);
+    }
+
+    // الإيقاف والتفعيل: الحقلان يتحركان معاً (isActive يُحتسب في حد الباقة)
+    const disabled =
+      dto.status === DeviceStatus.DISABLED || dto.isActive === false;
+    const enabled =
+      dto.isActive === true ||
+      (dto.status !== undefined && dto.status !== DeviceStatus.DISABLED);
+
+    Object.assign(device, dto, serialNumber ? { serialNumber } : {});
+    if (disabled) {
+      device.isActive = false;
+      device.status = DeviceStatus.DISABLED;
+    } else if (enabled) {
+      device.isActive = true;
+      // الحالة الفعلية تُحسب من آخر اتصال
+      device.status = DeviceStatus.OFFLINE;
+    }
+
+    return withLiveStatus(await this.deviceRepo.save(device));
   }
 
   async removeDevice(id: string, user: CurrentUserData): Promise<void> {
-    const device = await this.findOneDevice(id, user);
-    await this.deviceRepo.remove(device);
+    const device = await this.deviceRepo.findOne({
+      where: { id, tenantId: user.tenantId },
+    });
+    if (!device) throw new NotFoundException('الجهاز غير موجود');
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.delete(DeviceCommand, { deviceId: device.id });
+      // البصمات المسجّلة تبقى (تفقد ارتباطها بالجهاز فقط)
+      await manager.remove(device);
+    });
+  }
+
+  /** الرقم التسلسلي يعرّف الجهاز عند اتصاله: فريد على مستوى النظام كله */
+  private async assertSerialFree(serialNumber: string): Promise<void> {
+    const taken = await this.deviceRepo.findOne({ where: { serialNumber } });
+    if (taken) {
+      throw new ConflictException(
+        'جهاز بهذا الرقم التسلسلي مسجّل بالفعل. تحقق من الرقم، أو تواصل مع الدعم إن كان الجهاز انتقل إليكم من شركة أخرى.',
+      );
+    }
   }
 
   // ==========================================================
   // ✅ 7) عرض السجلات مع الفلترة (نوع البصمة / الموظف / التاريخ)
   // ==========================================================
 
-  private buildLogsQuery(query: AttendanceQueryDto, user: CurrentUserData) {
+  /**
+   * حدّا فترة البحث كلحظات. تاريخ بلا وقت (2026-06-30) يعني اليوم كاملاً
+   * بتوقيت الشركة — فـ "إلى 30/6" تشمل بصمات مساء ذلك اليوم.
+   */
+  private resolveRange(
+    query: Pick<AttendanceQueryDto, 'from' | 'to'>,
+    zone: string,
+  ): { from?: Date; to?: Date } {
+    const from = query.from
+      ? DATE_ONLY.test(query.from)
+        ? (startOfDayInZone(query.from, zone) ?? undefined)
+        : new Date(query.from)
+      : undefined;
+    const to = query.to
+      ? DATE_ONLY.test(query.to)
+        ? new Date(dayOffsetInZone(query.to, DAY_MINUTES, zone).getTime() - 1)
+        : new Date(query.to)
+      : undefined;
+
+    if (from && to && from > to) {
+      throw new BadRequestException('تاريخ البداية بعد تاريخ النهاية');
+    }
+    return { from, to };
+  }
+
+  private async buildLogsQuery(
+    query: AttendanceQueryDto,
+    user: CurrentUserData,
+  ) {
     const qb = this.logRepo
       .createQueryBuilder('log')
       .leftJoinAndSelect('log.employee', 'employee')
       .leftJoinAndSelect('log.device', 'device')
       .where('log.tenantId = :tenantId', { tenantId: user.tenantId });
 
-    if (query.from && query.to) {
-      qb.andWhere('log.punchTime BETWEEN :from AND :to', {
-        from: new Date(query.from),
-        to: new Date(query.to),
-      });
-    }
+    const { from, to } = this.resolveRange(
+      query,
+      await this.zoneOf(user.tenantId),
+    );
+    if (from) qb.andWhere('log.punchTime >= :from', { from });
+    if (to) qb.andWhere('log.punchTime <= :to', { to });
+
     if (query.punchType) {
       qb.andWhere('log.punchType = :punchType', {
         punchType: query.punchType,
@@ -492,13 +731,13 @@ export class AttendanceService {
     const { page = 1 } = query;
     const limit = Math.min(query.limit ?? 50, 200);
 
-    const qb = this.buildLogsQuery(query, user)
+    const qb = (await this.buildLogsQuery(query, user))
       .orderBy('log.punchTime', 'DESC')
       .take(limit)
       .skip((page - 1) * limit);
 
     const [data, total] = await qb.getManyAndCount();
-    return { data, total };
+    return { data, total, page, limit };
   }
 
   async findEmployeeLogs(
@@ -506,12 +745,18 @@ export class AttendanceService {
     query: AttendanceQueryDto,
     user: CurrentUserData,
   ) {
-    const { from, to } = query;
     const where: FindOptionsWhere<AttendanceLog> = {
       tenantId: user.tenantId,
       employeeId,
     };
-    if (from && to) where.punchTime = Between(new Date(from), new Date(to));
+    const { from, to } = this.resolveRange(
+      query,
+      await this.zoneOf(user.tenantId),
+    );
+    if (from && to) where.punchTime = Between(from, to);
+    else if (from) where.punchTime = MoreThanOrEqual(from);
+    else if (to) where.punchTime = LessThanOrEqual(to);
+
     return this.logRepo.find({
       where,
       relations: ['device'],
@@ -525,7 +770,8 @@ export class AttendanceService {
     type: string,
     user: CurrentUserData,
   ): Promise<Buffer> {
-    const logs = await this.buildLogsQuery(query, user)
+    const zone = await this.zoneOf(user.tenantId);
+    const logs = await (await this.buildLogsQuery(query, user))
       .orderBy('log.punchTime', 'DESC')
       .getMany();
 
@@ -544,7 +790,8 @@ export class AttendanceService {
       employeeName: l.employee?.fullName ?? '—',
       employeeCode: l.deviceUserId,
       punchTypeLabel: PUNCH_TYPE_LABELS_AR[l.punchType] ?? l.punchType,
-      punchTime: formatDateTime(l.punchTime),
+      // بتوقيت الشركة، لا بتوقيت السيرفر
+      punchTime: formatDateTime(l.punchTime, zone),
       workHours: l.workHours != null ? String(l.workHours) : '—',
       overtimeHours: l.overtimeHours != null ? String(l.overtimeHours) : '—',
       leaveReason: l.leaveReason ?? '—',
@@ -559,233 +806,201 @@ export class AttendanceService {
   }
 
   // ==========================================================
-  // ملخصات الحضور اليومية والشهرية (مع دعم الإجازة الآن)
+  // ملخصات الحضور اليومية والشهرية
   // ==========================================================
 
-  async getDailySummary(dateStr: string, user: CurrentUserData) {
-    const targetDate = new Date(dateStr);
-    targetDate.setHours(0, 0, 0, 0);
+  /**
+   * حضور كل الموظفين النشطين في يوم (YYYY-MM-DD بتوقيت الشركة)، ومعهم من بصم
+   * برقم غير مربوط بموظف. من لم يبصم يظهر غائباً — إلا في يوم لم يبدأ بعد.
+   */
+  async getDailySummary(
+    dateStr: string,
+    user: CurrentUserData,
+  ): Promise<DailySummaryRow[]> {
+    const zone = await this.zoneOf(user.tenantId);
+    const dayStart = dateStr ? startOfDayInZone(dateStr, zone) : null;
+    if (!dayStart) {
+      throw new BadRequestException('التاريخ مطلوب بصيغة YYYY-MM-DD');
+    }
+    const day = dayKeyInZone(dayStart, zone);
 
-    const queryStart = new Date(targetDate);
-    queryStart.setHours(queryStart.getHours() - 6);
-    const queryEnd = new Date(targetDate);
-    queryEnd.setDate(queryEnd.getDate() + 1);
-    queryEnd.setHours(queryEnd.getHours() + 6);
-
-    const logs = await this.logRepo.find({
-      where: {
-        tenantId: user.tenantId,
-        punchTime: Between(queryStart, queryEnd),
-      },
-      relations: ['employee', 'employee.shift'],
-      order: { punchTime: 'ASC' },
-    });
+    const [employees, logs] = await Promise.all([
+      this.dataSource.getRepository(Employee).find({
+        where: { tenantId: user.tenantId, status: 'active' },
+        relations: ['shift'],
+        order: { fullName: 'ASC' },
+      }),
+      // يوم وردية أي موظف يقع ضمن يوم قبل ويومين بعد بداية اليوم التقويمي
+      this.logRepo.find({
+        where: {
+          tenantId: user.tenantId,
+          punchTime: Between(
+            new Date(dayStart.getTime() - 24 * HOUR_MS),
+            new Date(dayStart.getTime() + 48 * HOUR_MS),
+          ),
+        },
+        relations: ['employee', 'employee.shift'],
+        order: { punchTime: 'ASC' },
+      }),
+    ]);
 
     const grouped = new Map<string, AttendanceLog[]>();
     for (const log of logs) {
-      const key = log.employeeId ?? log.deviceUserId;
+      const key = log.employeeId ?? `pin:${log.deviceUserId}`;
       if (!grouped.has(key)) grouped.set(key, []);
       grouped.get(key)!.push(log);
     }
 
-    const results: Array<{
-      employeeId: string | undefined;
-      employeeCode: string;
-      employeeName: string | undefined;
-      shiftName: string | undefined;
-      firstPunch: Date;
-      lastPunch: Date;
-      totalMinutes: number;
-      lateMinutes: number;
-      earlyLeaveMinutes: number;
-      status: AttendanceStatus;
-      leaveReason?: string;
-      logs: AttendanceLog[];
-    }> = [];
+    const dayHasStarted = dayStart.getTime() <= Date.now();
+    const results: DailySummaryRow[] = [];
 
-    for (const employeeLogs of grouped.values()) {
-      const shift = employeeLogs[0].employee?.shift;
-      const { start, end } = this.getShiftDayRange(targetDate, shift);
-
-      const dayLogs = employeeLogs
-        .filter((l) => l.punchTime >= start && l.punchTime <= end)
-        .sort((a, b) => a.punchTime.getTime() - b.punchTime.getTime());
-
-      if (dayLogs.length === 0) continue;
-
-      const leaveLog = dayLogs.find((l) => l.punchType === PunchType.LEAVE);
-      if (leaveLog) {
-        results.push({
-          employeeId: leaveLog.employeeId,
-          employeeCode: leaveLog.deviceUserId,
-          employeeName: leaveLog.employee?.fullName,
-          shiftName: shift?.name,
-          firstPunch: leaveLog.punchTime,
-          lastPunch: leaveLog.punchTime,
-          totalMinutes: 0,
-          lateMinutes: 0,
-          earlyLeaveMinutes: 0,
-          status: 'on_leave',
-          leaveReason: leaveLog.leaveReason,
-          logs: dayLogs,
-        });
-        continue;
-      }
-
-      const first = dayLogs[0];
-      const last = dayLogs[dayLogs.length - 1];
-      const totalMinutes = Math.round(
-        (last.punchTime.getTime() - first.punchTime.getTime()) / 60000,
+    const addRow = (
+      identity: Pick<
+        DailySummaryRow,
+        'employeeId' | 'employeeCode' | 'employeeName'
+      >,
+      shift: Shift | null | undefined,
+      personLogs: AttendanceLog[],
+    ) => {
+      const { start, end } = this.getShiftDayRange(day, zone, shift);
+      const dayLogs = personLogs.filter(
+        (l) => l.punchTime >= start && l.punchTime < end,
       );
-
-      let evaluation: AttendanceEvaluation = {
-        lateMinutes: 0,
-        earlyLeaveMinutes: 0,
-        status: 'unclassified',
-      };
-      if (shift) {
-        evaluation =
-          dayLogs.length < 2
-            ? { lateMinutes: 0, earlyLeaveMinutes: 0, status: 'incomplete' }
-            : this.evaluateAttendanceStatus(
-                first.punchTime,
-                last.punchTime,
-                shift,
-              );
+      if (dayLogs.length === 0 && (!identity.employeeId || !dayHasStarted)) {
+        return;
       }
 
+      const summary = this.summarizeDay(dayLogs, shift, day, zone);
       results.push({
-        employeeId: first.employeeId,
-        employeeCode: first.deviceUserId,
-        employeeName: first.employee?.fullName,
+        ...identity,
         shiftName: shift?.name,
-        firstPunch: first.punchTime,
-        lastPunch: last.punchTime,
-        totalMinutes,
-        lateMinutes: evaluation.lateMinutes,
-        earlyLeaveMinutes: evaluation.earlyLeaveMinutes,
-        status: evaluation.status,
+        firstPunch: summary.checkIn?.punchTime ?? null,
+        lastPunch: summary.checkOut?.punchTime ?? null,
+        totalMinutes: summary.minutes,
+        lateMinutes: summary.lateMinutes,
+        earlyLeaveMinutes: summary.earlyLeaveMinutes,
+        status: summary.status,
+        leaveReason: summary.leaveReason,
         logs: dayLogs,
       });
+    };
+
+    for (const employee of employees) {
+      addRow(
+        {
+          employeeId: employee.id,
+          employeeCode: employee.employeeCode,
+          employeeName: employee.fullName,
+        },
+        employee.shift,
+        grouped.get(employee.id) ?? [],
+      );
+      grouped.delete(employee.id);
+    }
+
+    // بصمات لموظف غير نشط، أو لرقم جهاز غير مربوط بموظف
+    for (const personLogs of grouped.values()) {
+      const [first] = personLogs;
+      addRow(
+        {
+          employeeId: first.employeeId,
+          employeeCode: first.deviceUserId,
+          employeeName: first.employee?.fullName,
+        },
+        first.employee?.shift,
+        personLogs,
+      );
     }
 
     return results;
   }
 
+  /**
+   * تقرير موظف لشهر: يوم بيوم حتى اليوم الحالي (أيام لم تأتِ بعد لا تُحسب
+   * غياباً). الأيام بتوقيت الشركة.
+   */
   async getMonthlyReport(
     employeeId: string,
     month: number,
     year: number,
     user: CurrentUserData,
   ) {
-    const monthStart = new Date(year, month - 1, 1, 0, 0, 0);
-    monthStart.setHours(monthStart.getHours() - 12);
-    const monthEnd = new Date(year, month, 0, 23, 59, 59);
-    monthEnd.setHours(monthEnd.getHours() + 12);
+    if (
+      !Number.isInteger(month) ||
+      month < 1 ||
+      month > 12 ||
+      !Number.isInteger(year) ||
+      year < 2000 ||
+      year > 2100
+    ) {
+      throw new BadRequestException('الشهر أو السنة غير صالحين');
+    }
 
-    const logs = await this.logRepo.find({
-      where: {
-        tenantId: user.tenantId,
-        employeeId,
-        punchTime: Between(monthStart, monthEnd),
-      },
-      relations: ['employee', 'employee.shift'],
-      order: { punchTime: 'ASC' },
+    const employee = await this.dataSource.getRepository(Employee).findOne({
+      where: { id: employeeId, tenantId: user.tenantId },
+      relations: ['shift'],
     });
+    if (!employee) throw new NotFoundException('الموظف غير موجود');
 
-    const shift = logs[0]?.employee?.shift;
-    const daysInMonth = new Date(year, month, 0).getDate();
+    const zone = await this.zoneOf(user.tenantId);
+    const shift = employee.shift;
+    const dayKey = (d: number) =>
+      `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 
-    const dailyBreakdown: Array<{
-      date: string;
-      checkIn: Date | null;
-      checkOut: Date | null;
-      minutes: number;
-      lateMinutes: number;
-      earlyLeaveMinutes: number;
-      status: AttendanceStatus;
-      leaveReason?: string;
-      workHours?: number;
-      overtimeHours?: number;
-    }> = [];
+    const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const today = dayKeyInZone(new Date(), zone);
+    // مقارنة نصية: صيغة YYYY-MM-DD تُرتَّب أبجدياً كما تُرتَّب زمنياً
+    const elapsedDays = Array.from(
+      { length: daysInMonth },
+      (_, i) => i + 1,
+    ).filter((d) => dayKey(d) <= today).length;
 
-    for (let d = 1; d <= daysInMonth; d++) {
-      const day = new Date(year, month - 1, d, 0, 0, 0);
-      const { start, end } = this.getShiftDayRange(day, shift);
-      const dateKey = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const logs =
+      elapsedDays === 0
+        ? []
+        : await this.logRepo.find({
+            where: {
+              tenantId: user.tenantId,
+              employeeId,
+              punchTime: Between(
+                this.getShiftDayRange(dayKey(1), zone, shift).start,
+                this.getShiftDayRange(dayKey(elapsedDays), zone, shift).end,
+              ),
+            },
+            order: { punchTime: 'ASC' },
+          });
 
-      const dayLogs = logs
-        .filter((l) => l.punchTime >= start && l.punchTime <= end)
-        .sort((a, b) => a.punchTime.getTime() - b.punchTime.getTime());
-
-      if (dayLogs.length === 0) {
-        dailyBreakdown.push({
-          date: dateKey,
-          checkIn: null,
-          checkOut: null,
-          minutes: 0,
-          lateMinutes: 0,
-          earlyLeaveMinutes: 0,
-          status: 'absent',
-        });
-        continue;
-      }
-
-      const leaveLog = dayLogs.find((l) => l.punchType === PunchType.LEAVE);
-      if (leaveLog) {
-        dailyBreakdown.push({
-          date: dateKey,
-          checkIn: null,
-          checkOut: null,
-          minutes: 0,
-          lateMinutes: 0,
-          earlyLeaveMinutes: 0,
-          status: 'on_leave',
-          leaveReason: leaveLog.leaveReason,
-        });
-        continue;
-      }
-
-      const checkInLog = dayLogs[0];
-      const checkOutLog = dayLogs[dayLogs.length - 1];
-      const minutes = Math.round(
-        (checkOutLog.punchTime.getTime() - checkInLog.punchTime.getTime()) /
-          60000,
+    const dailyBreakdown = Array.from({ length: elapsedDays }, (_, i) => {
+      const day = dayKey(i + 1);
+      const { start, end } = this.getShiftDayRange(day, zone, shift);
+      const summary = this.summarizeDay(
+        logs.filter((l) => l.punchTime >= start && l.punchTime < end),
+        shift,
+        day,
+        zone,
       );
 
-      let evaluation: AttendanceEvaluation = {
-        lateMinutes: 0,
-        earlyLeaveMinutes: 0,
-        status: 'unclassified',
+      return {
+        date: day,
+        checkIn: summary.checkIn?.punchTime ?? null,
+        checkOut: summary.checkOut?.punchTime ?? null,
+        minutes: summary.minutes,
+        lateMinutes: summary.lateMinutes,
+        earlyLeaveMinutes: summary.earlyLeaveMinutes,
+        status: summary.status,
+        leaveReason: summary.leaveReason,
+        // ساعات العمل مخزّنة على بصمات الانصراف: يوم بأكثر من فترة يُجمع
+        workHours: sumHours(summary.logs.map((l) => l.workHours)),
+        overtimeHours: sumHours(summary.logs.map((l) => l.overtimeHours)),
       };
-      if (shift) {
-        evaluation =
-          dayLogs.length < 2
-            ? { lateMinutes: 0, earlyLeaveMinutes: 0, status: 'incomplete' }
-            : this.evaluateAttendanceStatus(
-                checkInLog.punchTime,
-                checkOutLog.punchTime,
-                shift,
-              );
-      }
-
-      dailyBreakdown.push({
-        date: dateKey,
-        checkIn: checkInLog.punchTime,
-        checkOut: checkOutLog.punchTime,
-        minutes,
-        lateMinutes: evaluation.lateMinutes,
-        earlyLeaveMinutes: evaluation.earlyLeaveMinutes,
-        status: evaluation.status,
-        workHours: checkOutLog.workHours ?? undefined,
-        overtimeHours: checkOutLog.overtimeHours ?? undefined,
-      });
-    }
+    });
 
     const presentDays = dailyBreakdown.filter((d) => d.checkIn !== null).length;
     const leaveDays = dailyBreakdown.filter(
       (d) => d.status === 'on_leave',
     ).length;
+    const total = (pick: (d: (typeof dailyBreakdown)[number]) => number) =>
+      Math.round(dailyBreakdown.reduce((s, d) => s + pick(d), 0) * 100) / 100;
 
     return {
       employeeId,
@@ -793,24 +1008,46 @@ export class AttendanceService {
       year,
       shiftName: shift?.name,
       totalDays: daysInMonth,
+      /** الأيام التي مرّت من الشهر (يساوي totalDays لشهر انتهى) */
+      elapsedDays,
       presentDays,
       leaveDays,
-      absentDays: daysInMonth - presentDays - leaveDays,
-      totalMinutes: dailyBreakdown.reduce((s, d) => s + d.minutes, 0),
-      totalLateMinutes: dailyBreakdown.reduce((s, d) => s + d.lateMinutes, 0),
-      totalEarlyLeaveMinutes: dailyBreakdown.reduce(
-        (s, d) => s + d.earlyLeaveMinutes,
-        0,
-      ),
-      totalWorkHours: dailyBreakdown.reduce(
-        (s, d) => s + (d.workHours ?? 0),
-        0,
-      ),
-      totalOvertimeHours: dailyBreakdown.reduce(
-        (s, d) => s + (d.overtimeHours ?? 0),
-        0,
-      ),
+      absentDays: elapsedDays - presentDays - leaveDays,
+      totalMinutes: total((d) => d.minutes),
+      totalLateMinutes: total((d) => d.lateMinutes),
+      totalEarlyLeaveMinutes: total((d) => d.earlyLeaveMinutes),
+      totalWorkHours: total((d) => d.workHours ?? 0),
+      totalOvertimeHours: total((d) => d.overtimeHours ?? 0),
       dailyBreakdown,
     };
   }
+}
+
+/** دقائق من `from` إلى `to` (سالبة إن كان `to` قبله) */
+function minutesBetween(from: Date, to: Date): number {
+  return Math.round((to.getTime() - from.getTime()) / 60000);
+}
+
+/** مجموع ساعات مخزّنة؛ undefined إن لم تُسجَّل أي قيمة */
+function sumHours(values: (number | null | undefined)[]): number | undefined {
+  const present = values.filter((v) => v != null).map(Number);
+  if (present.length === 0) return undefined;
+  return Math.round(present.reduce((s, v) => s + v, 0) * 100) / 100;
+}
+
+/**
+ * الحالة الفعلية للجهاز: المخزّنة تسجّل آخر اتصال ولا تتغير حين ينقطع، فتُشتق
+ * من وقت آخر ظهور.
+ */
+function withLiveStatus(device: BiometricDevice): BiometricDevice {
+  if (!device.isActive || device.status === DeviceStatus.DISABLED) {
+    device.status = DeviceStatus.DISABLED;
+  } else {
+    const lastSeen = device.lastSeenAt?.getTime() ?? 0;
+    device.status =
+      Date.now() - lastSeen <= ONLINE_WINDOW_MS
+        ? DeviceStatus.ONLINE
+        : DeviceStatus.OFFLINE;
+  }
+  return device;
 }

@@ -16,10 +16,12 @@ import { StockService } from '../src/modules/inventory/stock.service';
 import { WarehousesService } from '../src/modules/inventory/warehouses.service';
 import { PosOperationDto } from '../src/modules/pos/dto/pos.dto';
 import {
+  PosCashier,
   PosDevice,
   PosShift,
   PosShiftStatus,
 } from '../src/modules/pos/entities/pos.entity';
+import { PosCashiersService } from '../src/modules/pos/pos-cashiers.service';
 import { PosService } from '../src/modules/pos/pos.service';
 import { CustomersService } from '../src/modules/sales/customers.service';
 import { CustomerPayment } from '../src/modules/sales/entities/customer-payment.entity';
@@ -45,6 +47,7 @@ describe('pos module', () => {
   let customers: CustomersService;
   let invoices: SalesInvoicesService;
   let pos: PosService;
+  let cashiers: PosCashiersService;
 
   let tenantA: string;
   let tenantB: string;
@@ -197,6 +200,7 @@ describe('pos module', () => {
       salesSettings,
       dataSource,
     );
+    cashiers = new PosCashiersService(dataSource.getRepository(PosCashier));
     pos = new PosService(
       dataSource.getRepository(PosDevice),
       dataSource.getRepository(PosShift),
@@ -212,6 +216,7 @@ describe('pos module', () => {
         stock,
         dataSource,
       ),
+      cashiers,
     );
   });
 

@@ -34,6 +34,7 @@ import {
   computeReturnShare,
   sumMoney,
 } from '../../common/utils/document-totals.util';
+import { moneyDecimalsOf } from '../../common/utils/money.util';
 
 const REFERENCE_TYPE = 'purchase_return';
 const NUMBER_PREFIX = 'PR-';
@@ -122,6 +123,7 @@ export class PurchaseReturnsService {
       throw new BadRequestException('لا يمكن تكرار نفس السطر في المرتجع');
     }
 
+    const decimals = await moneyDecimalsOf(this.dataSource.manager, tenantId);
     const invoiceLines = new Map((invoice.lines ?? []).map((l) => [l.id, l]));
     const lines = dto.lines.map((input) => {
       const source = invoiceLines.get(input.invoiceLineId);
@@ -139,7 +141,7 @@ export class PurchaseReturnsService {
           .mul(source.factor)
           .toDecimalPlaces(4)
           .toNumber(),
-        ...computeReturnShare(source, input.quantity),
+        ...computeReturnShare(source, input.quantity, decimals),
       };
     });
 

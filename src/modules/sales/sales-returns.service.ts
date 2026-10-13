@@ -17,6 +17,7 @@ import {
   computeReturnShare,
   sumMoney,
 } from '../../common/utils/document-totals.util';
+import { moneyDecimalsOf } from '../../common/utils/money.util';
 import { StockMovementType } from '../inventory/entities/stock-movement.entity';
 import { StockService } from '../inventory/stock.service';
 import {
@@ -150,7 +151,11 @@ export class SalesReturnsService {
     userId?: string,
   ): Promise<SalesReturn> {
     const invoice = await this.invoices.findOne(dto.invoiceId, tenantId);
-    const lines = buildLines(invoice, dto.lines);
+    const lines = buildLines(
+      invoice,
+      dto.lines,
+      await moneyDecimalsOf(this.dataSource.manager, tenantId),
+    );
 
     const id = await this.dataSource.transaction((manager) =>
       this.persist(manager, invoice, lines, {
@@ -233,6 +238,7 @@ export class SalesReturnsService {
         if (!source) throw new BadRequestException('سطر ليس ضمن هذه الفاتورة');
         return { invoiceLineId: source.id, quantity: line.quantity };
       }),
+      await moneyDecimalsOf(this.dataSource.manager, tenantId),
     );
 
     const id = await this.dataSource.transaction(async (manager) => {
@@ -482,6 +488,7 @@ export class SalesReturnsService {
 function buildLines(
   invoice: SalesInvoice,
   inputs: { invoiceLineId: string; quantity: number }[],
+  decimals: number,
 ): ReturnLineDraft[] {
   assertReturnable(invoice);
 
@@ -508,7 +515,7 @@ function buildLines(
         .mul(source.factor)
         .toDecimalPlaces(4)
         .toNumber(),
-      ...computeReturnShare(source, input.quantity),
+      ...computeReturnShare(source, input.quantity, decimals),
     };
   });
 }

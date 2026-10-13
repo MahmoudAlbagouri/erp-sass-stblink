@@ -18,6 +18,11 @@ import {
   nextDocumentNumber,
 } from '../../common/utils/document-number.util';
 import { computeLine, sumMoney } from '../../common/utils/document-totals.util';
+import {
+  MAX_MONEY_DECIMALS,
+  moneyDecimalsOf,
+  roundMoney,
+} from '../../common/utils/money.util';
 import { Product, ProductType } from '../catalog/entities/product.entity';
 import { TaxCategory } from '../catalog/entities/tax-rate.entity';
 import { ProductsService } from '../catalog/products.service';
@@ -48,10 +53,11 @@ import { buildZatcaQr, computeInvoiceHash } from './utils/zatca.util';
 
 export const SALES_INVOICE_REFERENCE = 'sales_invoice';
 const NUMBER_PREFIX = 'INV-';
-/** أقصى فرق تقريب مقبول بين حساب الجهاز وحساب السيرفر (هللتان) */
-const AMOUNT_TOLERANCE = 0.02;
-/** سماحية مقارنة الأسعار (نصف هللة) لتفادي رفض بسبب التقريب */
-const PRICE_TOLERANCE = 0.005;
+/**
+ * أقصى فرق تقريب مقبول بين حساب الجهاز وحساب السيرفر: جزءان من أصغر وحدة
+ * في العملة (هللتان للريال، فلسان للدينار)
+ */
+const amountTolerance = (decimals: number): number => 2 / 10 ** decimals;
 
 /** سطر محسوب جاهز للحفظ */
 type ComputedLine = Pick<
@@ -570,11 +576,12 @@ export class SalesInvoicesService {
     const customer = sale.customerId
       ? await this.customers.findOne(sale.customerId, tenantId)
       : null;
-    const lines = await this.posLines(sale, tenantId);
+    const decimals = await moneyDecimalsOf(this.dataSource.manager, tenantId);
+    const lines = await this.posLines(sale, tenantId, decimals);
     const totals = totalsOf(lines);
 
     const tendered = sumMoney(sale.payments.map((t) => t.amount));
-    if (Math.abs(tendered - totals.total) > AMOUNT_TOLERANCE) {
+    if (Math.abs(tendered - totals.total) > amountTolerance(decimals)) {
       throw new BadRequestException(
         `المقبوض (${tendered}) لا يساوي إجمالي الفاتورة (${totals.total})`,
       );
@@ -625,7 +632,9 @@ export class SalesInvoicesService {
   private async posLines(
     sale: PosSaleInput,
     tenantId: string,
+    decimals: number,
   ): Promise<ComputedLine[]> {
+    const tolerance = amountTolerance(decimals);
     const productIds = [...new Set(sale.lines.map((l) => l.productId))];
     const found = await this.products.findSoldByIds(productIds, tenantId);
     if (found.length !== productIds.length) {
@@ -658,11 +667,11 @@ export class SalesInvoicesService {
         taxRate: input.taxRate,
         pricesIncludeTax: sale.pricesIncludeTax,
         factor,
+        decimals,
       });
       if (
-        Math.abs(expected.total - input.total) > AMOUNT_TOLERANCE ||
-        Math.abs(input.subtotal + input.taxAmount - input.total) >
-          AMOUNT_TOLERANCE
+        Math.abs(expected.total - input.total) > tolerance ||
+        Math.abs(input.subtotal + input.taxAmount - input.total) > tolerance
       ) {
         throw new BadRequestException(
           `مبالغ الصنف "${product.name}" لا تطابق الحساب (${input.total} ≠ ${expected.total})`,
@@ -762,7 +771,10 @@ export class SalesInvoicesService {
         status: SalesInvoiceStatus.ISSUED,
         issuedAt,
         issuedById: userId ?? null,
-        costTotal: costTotal.toDecimalPlaces(2).toNumber(),
+        costTotal: roundMoney(
+          costTotal,
+          await moneyDecimalsOf(manager, tenantId),
+        ),
         paidAmount: sumMoney(tenders.map((t) => t.amount)),
         deviceId: options.deviceId ?? null,
         shiftId: options.shiftId ?? null,
@@ -810,6 +822,7 @@ export class SalesInvoicesService {
     pricesIncludeTax: boolean,
     tenantId: string,
   ): Promise<ComputedLine[]> {
+    const decimals = await moneyDecimalsOf(this.dataSource.manager, tenantId);
     const productIds = [...new Set(inputs.map((l) => l.productId))];
     const found = await this.products.findByIds(
       productIds,
@@ -851,6 +864,7 @@ export class SalesInvoicesService {
         factor,
         taxRate,
         pricesIncludeTax,
+        decimals,
       );
 
       const amounts = computeLine({
@@ -860,6 +874,7 @@ export class SalesInvoicesService {
         taxRate,
         pricesIncludeTax,
         factor,
+        decimals,
       });
 
       return {
@@ -907,6 +922,7 @@ function assertPricing(
   factor: number,
   taxRate: number,
   pricesIncludeTax: boolean,
+  decimals: number,
 ): void {
   const gross = new Decimal(input.quantity).mul(input.unitPrice);
   if (gross.lt(discount)) {
@@ -930,9 +946,10 @@ function assertPricing(
     effective = effective.mul(rate);
   }
 
-  if (effective.plus(PRICE_TOLERANCE).lt(minPrice)) {
+  // نصف أصغر جزء من العملة: فرق التقريب لا يُعدّ بيعاً تحت الحد
+  if (effective.plus(new Decimal(0.5).div(10 ** decimals)).lt(minPrice)) {
     throw new BadRequestException(
-      `سعر "${product.name}" بعد الخصم (${effective.toDecimalPlaces(2).toNumber()}) أقل من أقل سعر مسموح (${minPrice})`,
+      `سعر "${product.name}" بعد الخصم (${effective.toDecimalPlaces(MAX_MONEY_DECIMALS).toNumber()}) أقل من أقل سعر مسموح (${minPrice})`,
     );
   }
 }

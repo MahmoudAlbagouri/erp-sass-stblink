@@ -39,6 +39,13 @@ export class BiometricDevice {
   @Column({ nullable: true })
   model?: string; // MB10
 
+  /**
+   * منطقة ساعة الجهاز (IANA). فارغة = منطقة الشركة — تُحدَّد فقط لجهاز في
+   * فرع بدولة أخرى. بها تُقرأ أوقات البصمات وتُضبط ساعة الجهاز.
+   */
+  @Column({ type: 'varchar', nullable: true })
+  timezone?: string | null;
+
   @Column({
     type: 'enum',
     enum: DeviceStatus,

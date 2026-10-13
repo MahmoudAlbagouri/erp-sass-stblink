@@ -40,8 +40,8 @@ export class Supplier extends TenantOwnedEntity {
   /** ما كان مستحقاً للمورد قبل بدء استخدام النظام */
   @Column({
     type: 'numeric',
-    precision: 14,
-    scale: 2,
+    precision: 15,
+    scale: 3,
     default: 0,
     transformer: decimalTransformer,
   })

@@ -22,7 +22,7 @@ export class Payroll {
   @Column({ type: 'int' })
   year!: number;
 
-  @Column({ type: 'decimal', precision: 14, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 15, scale: 3, default: 0 })
   totalNetSalary!: number;
 
   @Column({ type: 'date' })

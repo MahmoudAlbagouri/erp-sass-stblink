@@ -28,8 +28,8 @@ export enum PurchaseReturnStatus {
 
 const money = {
   type: 'numeric' as const,
-  precision: 14,
-  scale: 2,
+  precision: 15,
+  scale: 3,
   default: 0,
   transformer: decimalTransformer,
 };

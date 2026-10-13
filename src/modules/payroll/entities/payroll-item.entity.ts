@@ -29,14 +29,14 @@ export class PayrollItem {
   employee!: Employee;
 
   // ===================== المستحقات (Earnings) =====================
-  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 13, scale: 3, default: 0 })
   basicSalary!: number;
 
   @Column({
     name: 'housing_allowance',
     type: 'decimal',
-    precision: 12,
-    scale: 2,
+    precision: 13,
+    scale: 3,
     default: 0,
   })
   housingAllowance!: number;
@@ -44,8 +44,8 @@ export class PayrollItem {
   @Column({
     name: 'transport_allowance',
     type: 'decimal',
-    precision: 12,
-    scale: 2,
+    precision: 13,
+    scale: 3,
     default: 0,
   })
   transportAllowance!: number;
@@ -53,21 +53,21 @@ export class PayrollItem {
   @Column({
     name: 'other_allowances',
     type: 'decimal',
-    precision: 12,
-    scale: 2,
+    precision: 13,
+    scale: 3,
     default: 0,
   })
   otherAllowances!: number;
 
-  @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+  @Column({ type: 'decimal', precision: 13, scale: 3, default: 0 })
   overtimeAmount!: number;
 
   // ✅ إجمالي المكافآت المستحقة هذا الشهر (مصروفة سلفاً + غير مصروفة)
   @Column({
     name: 'bonuses_amount',
     type: 'decimal',
-    precision: 12,
-    scale: 2,
+    precision: 13,
+    scale: 3,
     default: 0,
   })
   bonusesAmount!: number;
@@ -76,8 +76,8 @@ export class PayrollItem {
   @Column({
     name: 'settlements_amount',
     type: 'decimal',
-    precision: 12,
-    scale: 2,
+    precision: 13,
+    scale: 3,
     default: 0,
   })
   settlementsAmount!: number;
@@ -86,8 +86,8 @@ export class PayrollItem {
   @Column({
     name: 'eos_amount',
     type: 'decimal',
-    precision: 12,
-    scale: 2,
+    precision: 13,
+    scale: 3,
     default: 0,
   })
   eosAmount!: number;
@@ -96,8 +96,8 @@ export class PayrollItem {
   @Column({
     name: 'prepaid_bonuses',
     type: 'decimal',
-    precision: 12,
-    scale: 2,
+    precision: 13,
+    scale: 3,
     default: 0,
   })
   prepaidBonuses!: number;
@@ -105,8 +105,8 @@ export class PayrollItem {
   @Column({
     name: 'prepaid_settlements',
     type: 'decimal',
-    precision: 12,
-    scale: 2,
+    precision: 13,
+    scale: 3,
     default: 0,
   })
   prepaidSettlements!: number;
@@ -115,8 +115,8 @@ export class PayrollItem {
   @Column({
     name: 'prepaid_allowances',
     type: 'decimal',
-    precision: 12,
-    scale: 2,
+    precision: 13,
+    scale: 3,
     default: 0,
   })
   prepaidAllowances!: number;
@@ -125,8 +125,8 @@ export class PayrollItem {
   @Column({
     name: 'loan_deduction',
     type: 'decimal',
-    precision: 12,
-    scale: 2,
+    precision: 13,
+    scale: 3,
     default: 0,
   })
   loanDeduction!: number;
@@ -134,8 +134,8 @@ export class PayrollItem {
   @Column({
     name: 'advance_deduction',
     type: 'decimal',
-    precision: 12,
-    scale: 2,
+    precision: 13,
+    scale: 3,
     default: 0,
   })
   advanceDeduction!: number;
@@ -143,8 +143,8 @@ export class PayrollItem {
   @Column({
     name: 'unpaid_leave_deduction',
     type: 'decimal',
-    precision: 12,
-    scale: 2,
+    precision: 13,
+    scale: 3,
     default: 0,
   })
   unpaidLeaveDeduction!: number;
@@ -152,14 +152,14 @@ export class PayrollItem {
   @Column({
     name: 'other_deductions',
     type: 'decimal',
-    precision: 12,
-    scale: 2,
+    precision: 13,
+    scale: 3,
     default: 0,
   })
   otherDeductions!: number;
 
   // ===================== الصافي =====================
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  @Column({ type: 'decimal', precision: 13, scale: 3 })
   netSalary!: number;
 
   @Column({ type: 'text', nullable: true })

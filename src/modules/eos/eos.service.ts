@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
 import Decimal from 'decimal.js';
+import { moneyDecimalsOf, roundMoney } from '../../common/utils/money.util';
 import { EndOfService, EOSReason } from './entities/eos.entity';
 import { CreateEOSDto } from './dto/create-eos.dto';
 import { UpdateEOSDto } from './dto/update-eos.dto';
@@ -153,7 +154,10 @@ export class EOSService {
       terminationDate,
       payoutDate,
       serviceYears: parseFloat(serviceYears.toFixed(3)),
-      eosAmount: parseFloat(eosAmount.toFixed(2)),
+      eosAmount: roundMoney(
+        eosAmount,
+        await moneyDecimalsOf(this.eosRepo.manager, tenantId),
+      ),
       // ⚠️ ملاحظة: هذا الحقل اسمه lastBasicSalary تاريخياً في الـ schema،
       // لكنه الآن يخزّن الراتب الكلي (الأساسي + البدلات) المستخدم فعلياً
       // في الحساب. راجع اقتراح الـ migration لإضافة lastTotalSalary

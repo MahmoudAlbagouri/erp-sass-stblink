@@ -26,11 +26,11 @@ export class Settlement {
   unusedLeaveDays!: number;
 
   /** أجر اليوم الواحد = totalSalary / 30 */
-  @Column({ name: 'daily_rate', type: 'decimal', precision: 12, scale: 2 })
+  @Column({ name: 'daily_rate', type: 'decimal', precision: 13, scale: 3 })
   dailyRate!: number;
 
   /** إجمالي المبلغ = unusedLeaveDays * dailyRate */
-  @Column({ name: 'total_amount', type: 'decimal', precision: 12, scale: 2 })
+  @Column({ name: 'total_amount', type: 'decimal', precision: 13, scale: 3 })
   totalAmount!: number;
 
   /** تاريخ إتمام التسوية */

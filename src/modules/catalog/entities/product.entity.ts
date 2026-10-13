@@ -66,8 +66,8 @@ export class Product extends TenantOwnedEntity {
   /** سعر بيع وحدة الأساس */
   @Column({
     type: 'numeric',
-    precision: 12,
-    scale: 2,
+    precision: 13,
+    scale: 3,
     default: 0,
     transformer: decimalTransformer,
   })
@@ -80,8 +80,8 @@ export class Product extends TenantOwnedEntity {
   /** أقل سعر يُسمح للكاشير بالبيع به بعد الخصم (اختياري) */
   @Column({
     type: 'numeric',
-    precision: 12,
-    scale: 2,
+    precision: 13,
+    scale: 3,
     nullable: true,
     transformer: decimalTransformer,
   })

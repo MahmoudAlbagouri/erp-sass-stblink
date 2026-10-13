@@ -4,7 +4,9 @@ import {
   IsEmail,
   MinLength,
   IsOptional,
+  IsIn,
 } from 'class-validator';
+import { COUNTRY_CODES } from '../../../common/constants/countries';
 
 export class RegisterDto {
   // --- بيانات الشركة ---
@@ -12,6 +14,11 @@ export class RegisterDto {
   @IsNotEmpty({ message: 'اسم الشركة مطلوب' })
   companyName!: string;
 
+  /** رمز الدولة ISO: منه تُحدَّد عملة الشركة ومفتاح الهاتف والمنطقة الزمنية */
+  @IsIn(COUNTRY_CODES, { message: 'يرجى اختيار دولة مدعومة' })
+  country!: string;
+
+  /** محلي أو دولي: يُوحَّد إلى E.164 حسب الدولة */
   @IsOptional()
   @IsString()
   phone?: string;

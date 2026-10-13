@@ -6,6 +6,7 @@ import {
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import Decimal from 'decimal.js';
+import { moneyDecimalsOf, roundMoney } from '../../common/utils/money.util';
 import { Settlement } from './entities/settlement.entity';
 import {
   ConfirmSettlementDto,
@@ -102,6 +103,7 @@ export class SettlementsService {
 
     const dailyRate = new Decimal(salary.totalSalary).dividedBy(30);
     const availableDays = Decimal.max(accrual.availableDays, 0);
+    const decimals = await moneyDecimalsOf(this.dataSource.manager, tenantId);
 
     return {
       employeeId,
@@ -112,9 +114,10 @@ export class SettlementsService {
         false,
       ),
       availableDays: parseFloat(availableDays.toFixed(3)),
-      dailyRate: parseFloat(dailyRate.toFixed(2)),
-      totalAmountIfFull: parseFloat(
-        dailyRate.times(Math.ceil(availableDays.toNumber())).toFixed(2),
+      dailyRate: roundMoney(dailyRate, decimals),
+      totalAmountIfFull: roundMoney(
+        dailyRate.times(Math.ceil(availableDays.toNumber())),
+        decimals,
       ),
     };
   }
@@ -196,7 +199,8 @@ export class SettlementsService {
       }
 
       const roundedDays = Math.ceil(daysToDeduct.toNumber());
-      const totalAmount = dailyRate.times(roundedDays);
+      const decimals = await moneyDecimalsOf(queryRunner.manager, tenantId);
+      const totalAmount = roundMoney(dailyRate.times(roundedDays), decimals);
 
       balance.consumedDays += roundedDays;
 
@@ -212,8 +216,8 @@ export class SettlementsService {
         tenantId,
         settlementDate,
         unusedLeaveDays: roundedDays,
-        dailyRate: parseFloat(dailyRate.toFixed(2)),
-        totalAmount: parseFloat(totalAmount.toFixed(2)),
+        dailyRate: roundMoney(dailyRate, decimals),
+        totalAmount,
         notes:
           dto.notes ??
           (dto.settlementType === SettlementType.FULL
@@ -236,7 +240,7 @@ export class SettlementsService {
         cycleYear: settlementYear,
         notes: `تسوية ${
           dto.settlementType === SettlementType.FULL ? 'كاملة' : 'جزئية'
-        } بتاريخ ${dto.settlementDate} — ${roundedDays} يوم بقيمة ${totalAmount.toFixed(2)}`,
+        } بتاريخ ${dto.settlementDate} — ${roundedDays} يوم بقيمة ${totalAmount}`,
       });
 
       await queryRunner.commitTransaction();

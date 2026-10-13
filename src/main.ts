@@ -37,6 +37,10 @@ async function bootstrap() {
       'Accept',
       'lang',
       'Accept-Language',
+      // هوية شاشة الكاشير (PosDeviceGuard): بدونها يرفض المتصفح طلباتها
+      'X-Pos-Device',
+      'X-Pos-Key',
+      'X-Pos-Installation',
     ],
     credentials: true,
   });

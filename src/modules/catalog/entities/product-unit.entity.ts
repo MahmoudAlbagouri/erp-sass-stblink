@@ -53,8 +53,8 @@ export class ProductUnit {
   /** سعر خاص لهذه الوحدة. null = سعر الأساس × المعامل */
   @Column({
     type: 'numeric',
-    precision: 12,
-    scale: 2,
+    precision: 13,
+    scale: 3,
     nullable: true,
     transformer: decimalTransformer,
   })

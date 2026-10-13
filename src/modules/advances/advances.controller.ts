@@ -24,13 +24,18 @@ import {
   type CurrentUserData,
 } from '../../common/decorators/current-user.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
+import { CurrentCurrency } from '../../common/decorators/current-currency.decorator';
 import {
   DETAIL_COLUMNS,
   ReportService,
   type ReportRow,
 } from '../../common/reports/report.service';
 import { PERMS } from '../../common/constants/permissions';
-import { formatAmount, formatDate } from '../../common/utils/format.util';
+import {
+  formatAmount,
+  formatDate,
+  formatMoney,
+} from '../../common/utils/format.util';
 import { FEATURES } from '../../common/constants/features'; // ✅ استيراد الثوابت
 
 @Controller('advances')
@@ -135,6 +140,7 @@ export class AdvancesController {
     @Param('id') id: string,
     @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
+    @CurrentCurrency() currency: string,
     @Res() res: Response,
   ) {
     const advance = await this.advancesService.findOne(id, tenantId);
@@ -145,7 +151,7 @@ export class AdvancesController {
       { label: 'المسمى الوظيفي', value: advance.employee?.jobTitle || '-' },
       {
         label: 'المبلغ',
-        value: `${formatAmount(advance.amount)} ر.س`,
+        value: formatMoney(advance.amount, currency),
       },
       { label: 'السبب', value: advance.reason || '-' },
       {

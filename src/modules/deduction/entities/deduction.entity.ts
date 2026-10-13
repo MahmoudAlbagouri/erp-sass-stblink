@@ -35,7 +35,7 @@ export class Deduction {
   name!: string;
 
   // إجمالي مبلغ الخصم
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  @Column({ type: 'decimal', precision: 13, scale: 3 })
   totalAmount!: number;
 
   // ✅ تاريخ بدء تطبيق الخصم في المسير
@@ -47,7 +47,7 @@ export class Deduction {
   installmentsCount!: number;
 
   // المبلغ المستقطع شهرياً (محسوب تلقائياً عند الإنشاء)
-  @Column({ type: 'decimal', precision: 12, scale: 2 })
+  @Column({ type: 'decimal', precision: 13, scale: 3 })
   monthlyAmount!: number;
 
   // عدد الدفعات التي تم صرفها فعلياً حتى الآن

@@ -7,7 +7,6 @@ import {
   IsDateString,
   IsUUID,
   ValidateIf,
-  Length,
   Matches,
   ValidateNested,
   IsArray,
@@ -43,8 +42,10 @@ export class CreateEmployeeDto {
 
   @IsString()
   @IsOptional()
-  @Length(10, 10, { message: 'رقم الهوية يجب أن يتكون من 10 أرقام' })
-  @Matches(/^[0-9]{10}$/, { message: 'رقم الهوية يجب أن يحتوي على أرقام فقط' })
+  // طول رقم الهوية يختلف من دولة لأخرى (السعودية 10، مصر 14…)
+  @Matches(/^[0-9]{6,20}$/, {
+    message: 'رقم الهوية يجب أن يتكون من 6 إلى 20 رقماً',
+  })
   nationalId?: string;
 
   @IsString()
@@ -53,8 +54,8 @@ export class CreateEmployeeDto {
 
   @IsString()
   @IsOptional()
-  @Length(10, 10, { message: 'رقم الهاتف يجب أن يتكون من 10 أرقام' })
-  @Matches(/^[0-9]{10}$/, { message: 'رقم الهاتف يجب أن يحتوي على أرقام فقط' })
+  // دولي E.164 (+9665XXXXXXXX) أو محلي بالأرقام فقط: الطول يختلف من دولة لأخرى
+  @Matches(/^\+?[0-9]{7,15}$/, { message: 'رقم الهاتف غير صالح' })
   phone?: string;
 
   @IsUUID()

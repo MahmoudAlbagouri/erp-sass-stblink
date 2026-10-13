@@ -29,6 +29,7 @@ import { Permissions } from '../../common/decorators/permissions.decorator';
 import { RequiresFeature } from '../../common/decorators/requires-feature.decorator';
 import { CheckQuota } from '../../common/decorators/check-quota.decorator';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
+import { CurrentCurrency } from '../../common/decorators/current-currency.decorator';
 import {
   CurrentUser,
   type CurrentUserData,
@@ -41,7 +42,7 @@ import {
 } from '../../common/reports/report.service';
 import { PERMS } from '../../common/constants/permissions';
 import { FEATURES } from '../../common/constants/features';
-import { formatAmount, formatDate } from '../../common/utils/format.util';
+import { formatDate, formatMoney } from '../../common/utils/format.util';
 
 const EMPLOYEE_STATUS_LABELS: Record<Employee['status'], string> = {
   active: 'نشط',
@@ -189,6 +190,7 @@ export class EmployeesController {
     @Param('id') id: string,
     @Param('type') type: string,
     @CurrentTenantId() tenantId: string,
+    @CurrentCurrency() currency: string,
     @Res() res: Response,
   ) {
     const employee = await this.employeesService.findOne(id, tenantId);
@@ -232,15 +234,18 @@ export class EmployeesController {
         ? [
             {
               label: 'الراتب الأساسي',
-              value: `${formatAmount(employee.salaries[0].basicSalary)} ر.س`,
+              value: formatMoney(employee.salaries[0].basicSalary, currency),
             },
             {
               label: 'بدل السكن',
-              value: `${formatAmount(employee.salaries[0].housingAllowance)} ر.س`,
+              value: formatMoney(
+                employee.salaries[0].housingAllowance,
+                currency,
+              ),
             },
             {
               label: 'إجمالي الراتب',
-              value: `${formatAmount(employee.salaries[0].totalSalary)} ر.س`,
+              value: formatMoney(employee.salaries[0].totalSalary, currency),
             },
           ]
         : []),
@@ -261,7 +266,7 @@ export class EmployeesController {
       employee.advances.forEach((adv) => {
         reportData.push({
           label: `سلفة (${formatDate(adv.createdAt)})`,
-          value: `${formatAmount(adv.amount)} ر.س (${adv.status})`,
+          value: `${formatMoney(adv.amount, currency)} (${adv.status})`,
         });
       });
     }
@@ -271,7 +276,7 @@ export class EmployeesController {
       employee.loans.forEach((loan) => {
         reportData.push({
           label: `قرض (${formatDate(loan.startDate)})`,
-          value: `${formatAmount(loan.totalAmount)} ر.س / ${loan.installmentsCount} قسط`,
+          value: `${formatMoney(loan.totalAmount, currency)} / ${loan.installmentsCount} قسط`,
         });
       });
     }

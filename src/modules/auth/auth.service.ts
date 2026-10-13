@@ -54,8 +54,8 @@ export class AuthService {
           companyName: String(dto.companyName),
           phone: dto.phone,
           address: dto.address,
+          country: dto.country,
           language: 'ar',
-          timezone: 'UTC+3',
         },
         manager,
       );
@@ -257,7 +257,12 @@ export class AuthService {
 
   private async getTokens(userId: string) {
     const user = await this.usersService.findOne(userId);
+    // مالك النظام بلا شركة: لا دولة ولا عملة في توكنه
+    const locale = user.tenantId
+      ? await this.tenantsService.findLocale(user.tenantId)
+      : {};
     const jwtPayload: JwtPayload = {
+      ...locale,
       sub: user.id,
       tenantId: user.tenantId,
       isSuperAdmin: user.isSuperAdmin,

@@ -733,4 +733,69 @@ describe('purchasing module', () => {
       expect(later.closingBalance).toBe(230);
     });
   });
+
+  // ─── عملات الثلاث خانات (الدينار، الريال العُماني) ───────────────
+  describe('three-decimal currencies', () => {
+    /** 3 × 1.125 بضريبة 15%: الفلس الثالث يضيع إن قُرِّب لخانتين */
+    const filsLine = (): PurchaseLineDto[] => [
+      { productId: water.id, quantity: 3, unitPrice: 1.125 },
+    ];
+
+    const useDinar = () =>
+      dataSource
+        .getRepository(Tenant)
+        .update({ id: tenantA }, { country: 'KW', currency: 'KWD' });
+
+    it('rounds a riyal invoice to two decimals', async () => {
+      const invoice = await newInvoice(filsLine());
+
+      expect(invoice).toMatchObject({
+        subtotal: 3.38,
+        taxTotal: 0.51,
+        total: 3.89,
+      });
+    });
+
+    it('keeps fils through invoice, payment and return for a dinar company', async () => {
+      await useDinar();
+
+      const draft = await newInvoice(filsLine());
+      expect(draft).toMatchObject({
+        subtotal: 3.375,
+        taxTotal: 0.506,
+        total: 3.881,
+      });
+
+      const posted = await invoices.post(draft.id, tenantA);
+      expect(await balanceOf()).toBe(3.881);
+
+      await payments.create(
+        {
+          supplierId: supplier.id,
+          invoiceId: posted.id,
+          paymentDate: TODAY,
+          amount: 1.881,
+        },
+        tenantA,
+      );
+      expect(await invoices.findOne(posted.id, tenantA)).toMatchObject({
+        paidAmount: 1.881,
+        remaining: 2,
+      });
+
+      const ret = await returns.create(
+        {
+          invoiceId: posted.id,
+          returnDate: TODAY,
+          lines: [{ invoiceLineId: posted.lines![0].id, quantity: 1 }],
+        },
+        tenantA,
+      );
+      expect(ret).toMatchObject({
+        subtotal: 1.125,
+        taxTotal: 0.169,
+        total: 1.294,
+      });
+    });
+  });
 });
