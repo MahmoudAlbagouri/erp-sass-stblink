@@ -12,6 +12,11 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { seedSystemOwner } from './database/seeds/system-owner.seed';
 import { DataSource } from 'typeorm';
 import * as bodyParser from 'body-parser';
+import {
+  isSwaggerEnabled,
+  setupSwagger,
+  SWAGGER_PATH,
+} from './config/swagger.config';
 
 async function bootstrap() {
   // ✅ rawBody: true مطلوب لـ ADMS قبل أي middleware
@@ -66,6 +71,10 @@ async function bootstrap() {
     prefix: '/uploads/',
   });
 
+  // ✅ توثيق الـ API (Swagger): مغلق في الإنتاج إلا بـ SWAGGER_ENABLED=true
+  const swagger = isSwaggerEnabled();
+  if (swagger) setupSwagger(app);
+
   // ✅ تشغيل سكريبت إنشاء المالك قبل بدء الاستماع للمنفذ
   try {
     const dataSource = app.get(DataSource);
@@ -78,6 +87,9 @@ async function bootstrap() {
   const port = process.env.PORT || 3002;
   await app.listen(port, '0.0.0.0');
   logger.log(`Application is running on: http://localhost:${port}`);
+  if (swagger) {
+    logger.log(`API docs: http://localhost:${port}/${SWAGGER_PATH}`);
+  }
 }
 
 bootstrap().catch((err) => {

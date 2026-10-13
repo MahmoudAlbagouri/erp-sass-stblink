@@ -9,6 +9,8 @@ import {
   UseGuards,
   Res,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import type { Response } from 'express';
 import { SalariesService } from './salaries.service';
 import { CreateSalaryDto } from './dto/create-salary.dto';
@@ -33,6 +35,7 @@ import {
 } from '../../common/utils/format.util';
 import { FEATURES } from '../../common/constants/features'; // ✅ استيراد الثوابت
 
+@ApiTags(apiTag('SALARIES'))
 @Controller('salaries')
 @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
 export class SalariesController {
@@ -41,6 +44,7 @@ export class SalariesController {
     private readonly reportService: ReportService,
   ) {}
 
+  /** تحديد راتب موظف وبدلاته */
   @Post()
   @Permissions(PERMS.SALARY_MANAGE)
   @RequiresFeature(FEATURES.EMPLOYEES_MODULE) // ✅ الراتب جزء من موديول الموظفين الأساسي
@@ -50,6 +54,7 @@ export class SalariesController {
   }
 
   // ✅ مسار التصدير الجماعي
+  /** تصدير الرواتب (excel أو pdf) */
   @Get('export/:type')
   @Permissions(PERMS.SALARY_VIEW)
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
@@ -90,6 +95,7 @@ export class SalariesController {
   }
 
   // ✅ مسار التصدير الفردي (يجب أن يكون قبل findOne)
+  /** تصدير راتب موظف واحد (excel أو pdf) */
   @Get(':id/export/:type')
   @Permissions(PERMS.SALARY_VIEW)
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
@@ -144,6 +150,7 @@ export class SalariesController {
     });
   }
 
+  /** قائمة رواتب الموظفين */
   @Get()
   @Permissions(PERMS.SALARY_VIEW)
   @RequiresFeature(FEATURES.EMPLOYEES_MODULE) // ✅ حماية عرض القائمة كجزء من الموظفين
@@ -152,6 +159,7 @@ export class SalariesController {
     return this.salariesService.findAll(tenantId);
   }
 
+  /** تعديل راتب موظف */
   @Patch(':id')
   @Permissions(PERMS.SALARY_MANAGE)
   @RequiresFeature(FEATURES.EMPLOYEES_MODULE) // ✅ حماية التعديل كجزء من الموظفين

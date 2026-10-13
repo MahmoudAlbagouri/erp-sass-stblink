@@ -11,6 +11,8 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { FEATURES } from '../../common/constants/features';
 import { PERMS } from '../../common/constants/permissions';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
@@ -27,12 +29,14 @@ import {
   CustomerPaymentQueryDto,
 } from './dto/sales.dto';
 
+@ApiTags(apiTag('CUSTOMER_PAYMENTS'))
 @Controller('sales/payments')
 @UseGuards(JwtAuthGuard, TenantScopeGuard, SubscriptionGuard, PermissionsGuard)
 @RequiresFeature(FEATURES.SALES_MODULE)
 export class CustomerPaymentsController {
   constructor(private readonly payments: CustomerPaymentsService) {}
 
+  /** قائمة سندات القبض والردّ */
   @Get()
   @Permissions(PERMS.SALES_VIEW)
   findAll(
@@ -42,6 +46,7 @@ export class CustomerPaymentsController {
     return this.payments.findAll(tenantId, query);
   }
 
+  /** تسجيل قبض من عميل (على فاتورة أو على الحساب) */
   @Post()
   @Permissions(PERMS.CUSTOMER_PAYMENT_MANAGE)
   create(
@@ -52,6 +57,7 @@ export class CustomerPaymentsController {
     return this.payments.create(dto, tenantId, userId);
   }
 
+  /** إلغاء سند قبض: يعود المبلغ على العميل */
   @Post(':id/cancel')
   @HttpCode(HttpStatus.OK)
   @Permissions(PERMS.CUSTOMER_PAYMENT_MANAGE)

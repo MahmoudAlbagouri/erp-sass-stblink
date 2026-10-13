@@ -10,6 +10,8 @@ import {
   ForbiddenException,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { TenantsService } from './tenants.service';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
@@ -25,6 +27,7 @@ import {
  * ✅ إدارة الشركات (إنشاء / عرض الكل / حذف) محجوزة لمالك النظام.
  * مدير الشركة يستطيع عرض وتعديل بيانات شركته فقط.
  */
+@ApiTags(apiTag('TENANTS'))
 @Controller('tenants')
 @UseGuards(JwtAuthGuard, SystemAdminGuard)
 export class TenantsController {
@@ -43,24 +46,28 @@ export class TenantsController {
     }
   }
 
+  /** إضافة شركة (لمالك النظام) */
   @Post()
   @SystemAdmin()
   create(@Body() createTenantDto: CreateTenantDto) {
     return this.tenantsService.create(createTenantDto);
   }
 
+  /** قائمة الشركات (لمالك النظام) */
   @Get()
   @SystemAdmin()
   findAll() {
     return this.tenantsService.findAll();
   }
 
+  /** شركة واحدة */
   @Get(':id')
   findOne(@Param('id') id: string, @CurrentUser() user: CurrentUserData) {
     this.assertCanAccessTenant(id, user);
     return this.tenantsService.findOne(id);
   }
 
+  /** تعديل بيانات شركة (الدولة تحدد عملتها ومنطقتها الزمنية) */
   @Patch(':id')
   update(
     @Param('id') id: string,
@@ -81,6 +88,7 @@ export class TenantsController {
     return this.tenantsService.update(id, updateTenantDto);
   }
 
+  /** حذف شركة (لمالك النظام) */
   @Delete(':id')
   @SystemAdmin()
   async remove(@Param('id') id: string) {

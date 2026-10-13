@@ -7,6 +7,8 @@ import {
   UseGuards,
   BadRequestException,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { SubscriptionsService } from './subscriptions.service';
 import { SubscriptionManagerService } from './subscription-manager.service';
 import { ChangePlanDto } from './dto/change-plan.dto';
@@ -22,6 +24,7 @@ import {
 } from '../../common/decorators/current-user.decorator';
 import { UpdateSubscriptionStatusDto } from './dto/update-subscription-status.dto';
 
+@ApiTags(apiTag('SUBSCRIPTIONS'))
 @Controller('subscriptions')
 @UseGuards(JwtAuthGuard)
 export class SubscriptionsController {
@@ -53,6 +56,7 @@ export class SubscriptionsController {
     };
   }
 
+  /** اشتراك شركتي الحالي وباقته */
   @Get('me')
   @Permissions(PERMS.SUBSCRIPTION_VIEW_OWN)
   @UseGuards(PermissionsGuard)
@@ -79,6 +83,7 @@ export class SubscriptionsController {
     return this.subscriptionManager.getUsageSummary(tenantId);
   }
 
+  /** اشتراك شركة (لمالك النظام) */
   @Get('tenant/:tenantId')
   @Permissions(PERMS.SUBSCRIPTION_VIEW_ANY)
   @UseGuards(PermissionsGuard)
@@ -86,6 +91,7 @@ export class SubscriptionsController {
     return this.subscriptionManager.getUsageSummary(tenantId);
   }
 
+  /** تغيير باقة شركة */
   @Post('tenant/:tenantId/change-plan')
   @Permissions(PERMS.SUBSCRIPTION_MANAGE)
   @UseGuards(PermissionsGuard)
@@ -95,6 +101,7 @@ export class SubscriptionsController {
       autoRenew: dto.autoRenew,
     });
   }
+  /** تغيير حالة اشتراك شركة (تفعيل، إيقاف…) */
   @Post('tenant/:tenantId/status')
   @Permissions(PERMS.SUBSCRIPTION_MANAGE)
   @UseGuards(PermissionsGuard)
@@ -105,6 +112,7 @@ export class SubscriptionsController {
     return this.subscriptionsService.updateSubscriptionStatus(tenantId, dto);
   }
 
+  /** تجديد اشتراك شركة */
   @Post('tenant/:tenantId/renew')
   @Permissions(PERMS.SUBSCRIPTION_MANAGE)
   @UseGuards(PermissionsGuard)
@@ -115,6 +123,7 @@ export class SubscriptionsController {
     return this.subscriptionsService.renew(tenantId, dto.extraDays);
   }
 
+  /** إلغاء اشتراك شركة */
   @Post('tenant/:tenantId/cancel')
   @Permissions(PERMS.SUBSCRIPTION_MANAGE)
   @UseGuards(PermissionsGuard)

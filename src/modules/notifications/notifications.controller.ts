@@ -8,6 +8,8 @@ import {
   UseGuards,
   Delete,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
@@ -27,6 +29,7 @@ import { CreateNotificationDto } from './dto/create-notification.dto';
 const adminScope = (user: CurrentUserData): string | null =>
   user.isSystemAdmin ? null : user.tenantId;
 
+@ApiTags(apiTag('NOTIFICATIONS'))
 @Controller('notifications')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class NotificationsController {
@@ -36,6 +39,7 @@ export class NotificationsController {
   // 🔵 Endpoints للموظفين (إشعاراتهم فقط)
   // ═══════════════════════════════════════════
 
+  /** إشعارات المستخدم الحالي */
   @Get()
   @Permissions(PERMS.NOTIFICATION_VIEW)
   async findAll(
@@ -53,6 +57,7 @@ export class NotificationsController {
     });
   }
 
+  /** عدد الإشعارات غير المقروءة */
   @Get('unread-count')
   @Permissions(PERMS.NOTIFICATION_VIEW)
   async getUnreadCount(@CurrentUser() user: CurrentUserData) {
@@ -60,6 +65,7 @@ export class NotificationsController {
     return { count };
   }
 
+  /** تعليم إشعار كمقروء */
   @Post(':id/read')
   @Permissions(PERMS.NOTIFICATION_UPDATE)
   async markAsRead(
@@ -70,6 +76,7 @@ export class NotificationsController {
     return { success: true };
   }
 
+  /** تعليم كل الإشعارات كمقروءة */
   @Post('read-all')
   @Permissions(PERMS.NOTIFICATION_UPDATE)
   async markAllAsRead(@CurrentUser() user: CurrentUserData) {
@@ -77,6 +84,7 @@ export class NotificationsController {
     return { success: true };
   }
 
+  /** حذف إشعار */
   @Delete(':id')
   @Permissions(PERMS.NOTIFICATION_DELETE)
   async delete(@Param('id') id: string, @CurrentUser() user: CurrentUserData) {
@@ -84,6 +92,7 @@ export class NotificationsController {
     return { success: true };
   }
 
+  /** إرسال إشعار لمستخدمين */
   @Post()
   @Permissions(PERMS.NOTIFICATION_CREATE)
   async createNotification(
@@ -108,6 +117,7 @@ export class NotificationsController {
   // 🔴 Endpoints للمديرين (جميع إشعارات النظام)
   // ═══════════════════════════════════════════
 
+  /** كل إشعارات الشركة (للمديرين) */
   @Get('admin/all')
   @Permissions(PERMS.NOTIFICATION_VIEW_ALL)
   async findAllForAdmin(
@@ -129,12 +139,14 @@ export class NotificationsController {
     });
   }
 
+  /** إحصائيات الإشعارات (للمديرين) */
   @Get('admin/stats')
   @Permissions(PERMS.NOTIFICATION_VIEW_ALL)
   async getAdminStats(@CurrentUser() user: CurrentUserData) {
     return this.notificationsService.getAdminStats(adminScope(user));
   }
 
+  /** تعليم إشعار أي مستخدم كمقروء (للمديرين) */
   @Post('admin/:id/read')
   @Permissions(PERMS.NOTIFICATION_VIEW_ALL)
   async markAsReadByAdmin(
@@ -145,6 +157,7 @@ export class NotificationsController {
     return { success: true };
   }
 
+  /** حذف إشعار أي مستخدم (للمديرين) */
   @Delete('admin/:id')
   @Permissions(PERMS.NOTIFICATION_VIEW_ALL)
   async deleteByAdmin(

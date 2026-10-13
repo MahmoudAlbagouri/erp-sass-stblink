@@ -37,6 +37,9 @@ import {
   CloseShiftOp,
   CreatePosDeviceDto,
   OpenShiftOp,
+  PosAuditOp,
+  PosCashMoveOp,
+  PosCustomerOp,
   PosOperationDto,
   PosReturnOp,
   PosSaleOp,
@@ -51,6 +54,11 @@ import {
   PosCashiersService,
 } from './pos-cashiers.service';
 import { POS_OFFLINE_POLICY } from './pos.constants';
+import { PosExtrasService, PosPromotionForDevice } from './pos-extras.service';
+import {
+  PosOptions,
+  resolvePosOptions,
+} from '../sales/entities/sales-settings.entity';
 import { generateDeviceKey, hashDeviceKey } from './utils/pos-crypto.util';
 import {
   getCountry,
@@ -84,6 +92,9 @@ export interface PosCustomer {
   name: string;
   phone: string | null;
   taxNumber: string | null;
+  /** أقصى مديونية للبيع الآجل (null = بلا حد) */
+  creditLimit: number | null;
+  paymentTermsDays: number;
   available: boolean;
 }
 
@@ -107,6 +118,17 @@ export interface PosBootstrap {
   returnsAllowed: boolean;
   /** حد العمل بلا اتصال (انظر pos.constants) */
   offlinePolicy: { warnAfterHours: number; blockAfterHours: number };
+  /**
+   * أرصدة مخزن الجهاز (بوحدة الأساس): كلها في التنزيل الكامل، وما تغيّر منذ
+   * `since` في غيره. الشاشة تنقص منها محلياً مع كل بيع.
+   */
+  stock: { productId: string; quantity: number }[];
+  /** ما على كل عميل الآن (غير الصفري؛ القائمة كاملة دائماً) — لحد الائتمان */
+  customerBalances: { id: string; balance: number }[];
+  /** العروض والأسعار الخاصة السارية (القائمة كاملة دائماً) */
+  promotions: PosPromotionForDevice[];
+  /** باركود الميزان وما يحتاج موافقة مشرف */
+  posOptions: PosOptions;
 }
 
 export interface PosTenantProfile {
@@ -178,6 +200,7 @@ export class PosService {
     private readonly invoices: SalesInvoicesService,
     private readonly returns: SalesReturnsService,
     private readonly cashiers: PosCashiersService,
+    private readonly extras: PosExtrasService,
   ) {}
 
   // ══════════════════════════ الأجهزة ══════════════════════════
@@ -354,17 +377,29 @@ export class PosService {
     const deviceId = device.id;
     const sinceDate = since ? new Date(since) : undefined;
 
-    const [settings, categories, products, customers, openShift, cashiers] =
-      await Promise.all([
-        this.salesSettings.get(tenantId),
-        this.catalogSettings.findCategories(tenantId),
-        this.products.findChangedSince(tenantId, sinceDate),
-        this.customers.findChangedSince(tenantId, sinceDate),
-        this.shifts.findOne({
-          where: { tenantId, deviceId, status: PosShiftStatus.OPEN },
-        }),
-        this.cashiers.findForDevice(tenantId),
-      ]);
+    const [
+      settings,
+      categories,
+      products,
+      customers,
+      openShift,
+      cashiers,
+      stock,
+      customerBalances,
+      promotions,
+    ] = await Promise.all([
+      this.salesSettings.get(tenantId),
+      this.catalogSettings.findCategories(tenantId),
+      this.products.findChangedSince(tenantId, sinceDate),
+      this.customers.findChangedSince(tenantId, sinceDate),
+      this.shifts.findOne({
+        where: { tenantId, deviceId, status: PosShiftStatus.OPEN },
+      }),
+      this.cashiers.findForDevice(tenantId),
+      this.stockOf(device, sinceDate),
+      this.customers.balances(tenantId),
+      this.extras.findPromotionsForDevice(tenantId, serverTime),
+    ]);
 
     await this.devices.update({ id: deviceId }, { lastSeenAt: serverTime });
     const tenant = await this.tenantProfile(tenantId, device.warehouseId);
@@ -390,7 +425,29 @@ export class PosService {
       cashiers,
       returnsAllowed: device.returnsAllowed,
       offlinePolicy: { ...POS_OFFLINE_POLICY },
+      stock,
+      customerBalances,
+      promotions,
+      posOptions: resolvePosOptions(settings.posOptions),
     };
+  }
+
+  /** أرصدة مخزن الجهاز: كلها، أو ما تغيّر منذ آخر سحب */
+  private async stockOf(
+    device: PosDevice,
+    since?: Date,
+  ): Promise<PosBootstrap['stock']> {
+    const rows: { productId: string; quantity: string }[] =
+      await this.devices.manager.query(
+        `SELECT "productId", "quantity" FROM stock_levels
+          WHERE "tenantId" = $1 AND "warehouseId" = $2
+            AND ($3::timestamptz IS NULL OR "updatedAt" > $3)`,
+        [device.tenantId, device.warehouseId, since ?? null],
+      );
+    return rows.map((row) => ({
+      productId: row.productId,
+      quantity: Number(row.quantity),
+    }));
   }
 
   private async tenantProfile(
@@ -495,6 +552,33 @@ export class PosService {
             actor,
           );
           break;
+        case 'customer.create': {
+          const op = await validated(PosCustomerOp, operation.payload);
+          duplicate = await this.customers.createFromPos(
+            op.id,
+            op,
+            device.tenantId,
+          );
+          break;
+        }
+        case 'cash.move': {
+          const op = await validated(PosCashMoveOp, operation.payload);
+          duplicate = await this.extras.recordCashMove(
+            op,
+            await this.shiftOf(op.shiftId, device),
+            device,
+          );
+          break;
+        }
+        case 'audit': {
+          const op = await validated(PosAuditOp, operation.payload);
+          duplicate = await this.extras.recordAudit(
+            op,
+            device,
+            op.shiftId ? await this.shiftOf(op.shiftId, device) : null,
+          );
+          break;
+        }
         case 'shift.close':
           duplicate = await this.closeShift(
             await validated(CloseShiftOp, operation.payload),
@@ -510,6 +594,14 @@ export class PosService {
         message: error instanceof Error ? error.message : 'خطأ غير متوقع',
       };
     }
+  }
+
+  /** وردية مسجّلة على هذا الجهاز */
+  private async shiftOf(id: string, device: PosDevice): Promise<PosShift> {
+    const shift = await this.shifts.findOne({ where: { id } });
+    if (!shift) throw new NotFoundException('الوردية غير مسجّلة');
+    assertShiftOfDevice(shift, device);
+    return shift;
   }
 
   /** @returns true إذا كانت الوردية مسجّلة من قبل (رفع مكرر) */
@@ -693,9 +785,16 @@ export class PosService {
 
     const totals = await this.invoices.shiftTotals(device.tenantId, shift.id);
     const refunds = await this.returns.shiftRefunds(device.tenantId, shift.id);
+    const moves = await this.extras.shiftCashMoves(device.tenantId, shift.id);
     const cashTotal = totals.byMethod.cash ?? 0;
     const cashRefunds = refunds.byMethod.cash ?? 0;
-    const expectedCash = sumMoney([shift.openingCash, cashTotal, -cashRefunds]);
+    const expectedCash = sumMoney([
+      shift.openingCash,
+      cashTotal,
+      -cashRefunds,
+      moves.cashIn,
+      -moves.cashOut,
+    ]);
 
     await this.shifts.update(
       { id: shift.id },
@@ -711,6 +810,9 @@ export class PosService {
         returnsCount: refunds.returnsCount,
         returnsTotal: refunds.returnsTotal,
         cashRefunds,
+        creditTotal: totals.creditTotal,
+        cashIn: moves.cashIn,
+        cashOut: moves.cashOut,
         drawerOpens: op.drawerOpens ?? 0,
         expectedCash,
         cashDifference: sumMoney([op.closingCash, -expectedCash]),
@@ -767,10 +869,16 @@ export class PosService {
     shift.returnsCount = refunds.returnsCount;
     shift.returnsTotal = refunds.returnsTotal;
     shift.cashRefunds = refunds.byMethod.cash ?? 0;
+    shift.creditTotal = totals.creditTotal;
+    const moves = await this.extras.shiftCashMoves(shift.tenantId, shift.id);
+    shift.cashIn = moves.cashIn;
+    shift.cashOut = moves.cashOut;
     shift.expectedCash = sumMoney([
       shift.openingCash,
       shift.cashTotal,
       -shift.cashRefunds,
+      shift.cashIn,
+      -shift.cashOut,
     ]);
   }
 
@@ -891,6 +999,8 @@ function toPosCustomer(customer: Customer): PosCustomer {
     name: customer.name,
     phone: customer.phone ?? null,
     taxNumber: customer.taxNumber ?? null,
+    creditLimit: customer.creditLimit ?? null,
+    paymentTermsDays: customer.paymentTermsDays,
     available: !customer.deletedAt && customer.isActive,
   };
 }

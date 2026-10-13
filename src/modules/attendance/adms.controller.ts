@@ -2,6 +2,8 @@
 // نقاط بروتوكول ADMS / Push التي تتصل بها أجهزة ZKTeco. الردود نص عادي بصيغة
 // يفهمها الجهاز، لا JSON؛ والجهاز يُعرَّف برقمه التسلسلي (SN) المسجّل مسبقاً.
 import { Controller, Get, Post, Query, Req, Res, Logger } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AdmsService } from './adms.service';
@@ -9,6 +11,7 @@ import { AdmsService } from './adms.service';
 /** رد يجعل الجهاز يحتفظ ببياناته ويعيد المحاولة لاحقاً */
 const REJECTED = 'ERROR: Device not registered or disabled';
 
+@ApiTags(apiTag('ADMS'))
 @Controller('iclock')
 export class AdmsController {
   private readonly logger = new Logger(AdmsController.name);

@@ -9,6 +9,8 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { SystemAdmin } from '../../common/decorators/system-admin.decorator';
 import { SystemAdminGuard } from '../../common/guards/system-admin.guard';
@@ -16,6 +18,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { SupportService } from './support.service';
 
 /** وضع الدعم — لمالك النظام فقط */
+@ApiTags(apiTag('SUPPORT'))
 @Controller('auth/support')
 @UseGuards(JwtAuthGuard, SystemAdminGuard)
 @SystemAdmin()

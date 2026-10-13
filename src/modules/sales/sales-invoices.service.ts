@@ -116,8 +116,10 @@ export interface PosSaleInput {
 export interface ShiftTotals {
   invoicesCount: number;
   salesTotal: number;
-  /** صافي المقبوض لكل طريقة دفع: { cash: 120, card: 80 } */
+  /** ما قُبض في الوردية نفسها لكل طريقة دفع: { cash: 120, card: 80 } */
   byMethod: Record<string, number>;
+  /** ما بيع على الحساب (آجل): المبيعات − ما قُبض في الوردية */
+  creditTotal: number;
 }
 
 interface FinalizeOptions {
@@ -305,18 +307,22 @@ export class SalesInvoicesService {
     >(
       `SELECT p."method", SUM(p."amount") AS "amount"
          FROM customer_payments p
-         JOIN sales_invoices i ON i."id" = p."invoiceId"
-        WHERE i."tenantId" = $1 AND i."shiftId" = $2
+        WHERE p."tenantId" = $1 AND p."shiftId" = $2
           AND p."status" = 'posted' AND p."direction" = 'in'
         GROUP BY p."method"`,
       [tenantId, shiftId],
     );
 
+    const salesTotal = Number(sales.total);
     return {
       invoicesCount: sales.count,
-      salesTotal: Number(sales.total),
+      salesTotal,
       byMethod: Object.fromEntries(
         methods.map((m) => [m.method, Number(m.amount)]),
+      ),
+      creditTotal: Math.max(
+        sumMoney([salesTotal, ...methods.map((m) => -Number(m.amount))]),
+        0,
       ),
     };
   }
@@ -592,10 +598,19 @@ export class SalesInvoicesService {
     const lines = await this.posLines(sale, tenantId, decimals);
     const totals = totalsOf(lines);
 
+    // البيع تمّ على الجهاز والإيصال طُبع: هنا يُتحقق من الاتساق فقط. الباقي
+    // على الحساب يُقبل لعميل مسجّل (حد الائتمان فحصته الشاشة عند البيع)
     const tendered = sumMoney(sale.payments.map((t) => t.amount));
-    if (Math.abs(tendered - totals.total) > amountTolerance(decimals)) {
+    const tolerance = amountTolerance(decimals);
+    if (tendered - totals.total > tolerance) {
       throw new BadRequestException(
-        `المقبوض (${tendered}) لا يساوي إجمالي الفاتورة (${totals.total})`,
+        `المقبوض (${tendered}) أكبر من إجمالي الفاتورة (${totals.total})`,
+      );
+    }
+    const onAccount = totals.total - tendered > tolerance;
+    if (onAccount && !customer) {
+      throw new BadRequestException(
+        `المقبوض (${tendered}) لا يساوي إجمالي الفاتورة (${totals.total}) — البيع الآجل لعميل مسجّل فقط`,
       );
     }
     const seller = await this.settings.get(tenantId);
@@ -609,7 +624,9 @@ export class SalesInvoicesService {
           invoiceType: invoiceTypeFor(customer),
           warehouseId: sale.warehouseId,
           invoiceDate: dateOnly(sale.issuedAt),
-          dueDate: dateOnly(sale.issuedAt),
+          dueDate: onAccount
+            ? defaultDueDate(dateOnly(sale.issuedAt), customer)
+            : dateOnly(sale.issuedAt),
           pricesIncludeTax: sale.pricesIncludeTax,
           createdById: userId ?? null,
           ...totals,
@@ -824,6 +841,7 @@ export class SalesInvoicesService {
         method: tender.method,
         reference: tender.reference,
         createdById: userId,
+        shiftId: options.shiftId,
       });
     }
   }

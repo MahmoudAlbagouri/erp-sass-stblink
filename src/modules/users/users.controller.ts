@@ -8,6 +8,8 @@ import {
   Delete,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -25,11 +27,13 @@ import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decor
 import { PERMS } from '../../common/constants/permissions';
 import { FEATURES } from '../../common/constants/features';
 
+@ApiTags(apiTag('USERS'))
 @Controller('users')
 @UseGuards(JwtAuthGuard, SubscriptionGuard)
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  /** إحصائيات المنصة (لمالك النظام) */
   @Get('system-stats')
   @Permissions(PERMS.SYSTEM_STATS)
   @RequiresFeature(FEATURES.EMPLOYEES_MODULE)
@@ -38,6 +42,7 @@ export class UsersController {
     return this.usersService.getSystemStats();
   }
 
+  /** إضافة مستخدم بدوره وفروعه */
   @Post()
   @Permissions(PERMS.USER_CREATE)
   @RequiresFeature(FEATURES.EMPLOYEES_MODULE)
@@ -51,6 +56,7 @@ export class UsersController {
     return this.usersService.create(dto, user, tenantId);
   }
 
+  /** قائمة المستخدمين بأدوارهم وفروعهم */
   @Get()
   @Permissions(PERMS.USER_VIEW)
   @RequiresFeature(FEATURES.EMPLOYEES_MODULE)
@@ -62,6 +68,7 @@ export class UsersController {
     return this.usersService.findAll(user, tenantId);
   }
 
+  /** مستخدم واحد */
   @Get(':id')
   @Permissions(PERMS.USER_VIEW)
   @RequiresFeature(FEATURES.EMPLOYEES_MODULE)
@@ -70,6 +77,7 @@ export class UsersController {
     return this.usersService.findOneScoped(id, user);
   }
 
+  /** تعديل مستخدم: بياناته، دوره، فروعه، حالته */
   @Patch(':id')
   @Permissions(PERMS.USER_UPDATE)
   @RequiresFeature(FEATURES.EMPLOYEES_MODULE)
@@ -82,6 +90,7 @@ export class UsersController {
     return this.usersService.update(id, dto, user);
   }
 
+  /** حذف مستخدم */
   @Delete(':id')
   @Permissions(PERMS.USER_DELETE)
   @RequiresFeature(FEATURES.EMPLOYEES_MODULE)

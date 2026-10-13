@@ -11,6 +11,8 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { FEATURES } from '../../common/constants/features';
 import { PERMS } from '../../common/constants/permissions';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
@@ -27,12 +29,14 @@ import {
 } from './dto/purchasing.dto';
 import { SupplierPaymentsService } from './supplier-payments.service';
 
+@ApiTags(apiTag('SUPPLIER_PAYMENTS'))
 @Controller('purchasing/payments')
 @UseGuards(JwtAuthGuard, TenantScopeGuard, SubscriptionGuard, PermissionsGuard)
 @RequiresFeature(FEATURES.PURCHASING_MODULE)
 export class SupplierPaymentsController {
   constructor(private readonly payments: SupplierPaymentsService) {}
 
+  /** قائمة سدادات الموردين */
   @Get()
   @Permissions(PERMS.PURCHASE_VIEW)
   findAll(
@@ -42,6 +46,7 @@ export class SupplierPaymentsController {
     return this.payments.findAll(tenantId, query);
   }
 
+  /** تسجيل سداد لمورد (على فاتورة أو على الحساب) */
   @Post()
   @Permissions(PERMS.SUPPLIER_PAYMENT_MANAGE)
   create(
@@ -52,6 +57,7 @@ export class SupplierPaymentsController {
     return this.payments.create(dto, tenantId, userId);
   }
 
+  /** إلغاء سداد: يعود المبلغ مستحقاً */
   @Post(':id/cancel')
   @HttpCode(HttpStatus.OK)
   @Permissions(PERMS.SUPPLIER_PAYMENT_MANAGE)

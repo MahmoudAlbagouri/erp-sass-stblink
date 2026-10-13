@@ -12,6 +12,8 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { FEATURES } from '../../common/constants/features';
 import { PERMS } from '../../common/constants/permissions';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
@@ -29,12 +31,14 @@ import {
 } from './dto/inventory.dto';
 import { StocktakesService } from './stocktakes.service';
 
+@ApiTags(apiTag('STOCKTAKES'))
 @Controller('inventory/stocktakes')
 @UseGuards(JwtAuthGuard, TenantScopeGuard, SubscriptionGuard, PermissionsGuard)
 @RequiresFeature(FEATURES.INVENTORY_MODULE)
 export class StocktakesController {
   constructor(private readonly stocktakes: StocktakesService) {}
 
+  /** قائمة عمليات الجرد */
   @Get()
   @Permissions(PERMS.INVENTORY_VIEW)
   findAll(
@@ -44,6 +48,7 @@ export class StocktakesController {
     return this.stocktakes.findAll(tenantId, query);
   }
 
+  /** جرد واحد ببنوده (والمسودة تعرض رصيد النظام الحالي) */
   @Get(':id')
   @Permissions(PERMS.INVENTORY_VIEW)
   findOne(
@@ -53,6 +58,7 @@ export class StocktakesController {
     return this.stocktakes.findOne(id, tenantId);
   }
 
+  /** بدء جرد (مسودة) */
   @Post()
   @Permissions(PERMS.STOCKTAKE_MANAGE)
   create(
@@ -63,6 +69,7 @@ export class StocktakesController {
     return this.stocktakes.create(dto, tenantId, userId);
   }
 
+  /** تعديل مسودة جرد */
   @Patch(':id')
   @Permissions(PERMS.STOCKTAKE_MANAGE)
   update(
@@ -73,6 +80,7 @@ export class StocktakesController {
     return this.stocktakes.update(id, dto, tenantId);
   }
 
+  /** اعتماد الجرد: تُسوّى الأرصدة على المعدود */
   @Post(':id/post')
   @HttpCode(HttpStatus.OK)
   @Permissions(PERMS.STOCKTAKE_MANAGE)
@@ -84,6 +92,7 @@ export class StocktakesController {
     return this.stocktakes.post(id, tenantId, userId);
   }
 
+  /** إلغاء مسودة جرد */
   @Post(':id/cancel')
   @HttpCode(HttpStatus.OK)
   @Permissions(PERMS.STOCKTAKE_MANAGE)

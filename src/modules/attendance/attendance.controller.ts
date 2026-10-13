@@ -11,6 +11,8 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import type { Response } from 'express';
 import { AttendanceService } from './attendance.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -33,11 +35,13 @@ import {
   sendReportBuffer,
 } from '../../common/reports/report.service';
 
+@ApiTags(apiTag('ATTENDANCE'))
 @Controller('attendance')
 @UseGuards(JwtAuthGuard, SubscriptionGuard)
 export class AttendanceController {
   constructor(private readonly attendanceService: AttendanceService) {}
 
+  /** إضافة جهاز بصمة */
   @Post('devices')
   @Permissions(PERMS.BIOMETRIC_DEVICE_CREATE)
   @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION)
@@ -50,6 +54,7 @@ export class AttendanceController {
     return this.attendanceService.createDevice(dto, user);
   }
 
+  /** إرسال موظف إلى جهاز البصمة ليُسجَّل عليه */
   @Post('devices/:id/push-user/:employeeId')
   @Permissions(PERMS.BIOMETRIC_DEVICE_SYNC)
   @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION)
@@ -62,6 +67,7 @@ export class AttendanceController {
     return this.attendanceService.pushUserToDevice(id, employeeId, user);
   }
 
+  /** قائمة أجهزة البصمة وحالة اتصالها */
   @Get('devices')
   @Permissions(PERMS.BIOMETRIC_DEVICE_VIEW)
   @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION)
@@ -70,6 +76,7 @@ export class AttendanceController {
     return this.attendanceService.findAllDevices(user);
   }
 
+  /** جهاز بصمة واحد */
   @Get('devices/:id')
   @Permissions(PERMS.BIOMETRIC_DEVICE_VIEW)
   @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION)
@@ -78,6 +85,7 @@ export class AttendanceController {
     return this.attendanceService.findOneDevice(id, user);
   }
 
+  /** تعديل جهاز بصمة أو إيقافه */
   @Patch('devices/:id')
   @Permissions(PERMS.BIOMETRIC_DEVICE_UPDATE)
   @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION)
@@ -90,6 +98,7 @@ export class AttendanceController {
     return this.attendanceService.updateDevice(id, dto, user);
   }
 
+  /** حذف جهاز بصمة (بصماته المسجّلة تبقى) */
   @Delete('devices/:id')
   @Permissions(PERMS.BIOMETRIC_DEVICE_DELETE)
   @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION)
@@ -100,6 +109,7 @@ export class AttendanceController {
 
   // ══════════════ السجلات: عرض / إضافة يدوية / تعديل / تصدير ══════════════
 
+  /** سجلات الحضور والانصراف (مع فلترة وترقيم) */
   @Get('logs')
   @Permissions(PERMS.ATTENDANCE_LOGS_VIEW)
   @RequiresFeature(FEATURES.ATTENDANCE_MODULE)
@@ -112,6 +122,7 @@ export class AttendanceController {
   }
 
   // ⚠️ لازم تضيف PERMS.ATTENDANCE_LOGS_CREATE في ملف الصلاحيات عندك
+  /** تسجيل بصمة يدوياً لموظف */
   @Post('logs')
   @Permissions(PERMS.ATTENDANCE_LOGS_CREATE)
   @RequiresFeature(FEATURES.ATTENDANCE_MODULE)
@@ -124,6 +135,7 @@ export class AttendanceController {
   }
 
   // ⚠️ لازم تضيف PERMS.ATTENDANCE_LOGS_UPDATE في ملف الصلاحيات عندك
+  /** تصحيح وقت بصمة أو نوعها */
   @Patch('logs/:id')
   @Permissions(PERMS.ATTENDANCE_LOGS_UPDATE)
   @RequiresFeature(FEATURES.ATTENDANCE_MODULE)
@@ -136,6 +148,7 @@ export class AttendanceController {
     return this.attendanceService.updateLogTime(id, dto, user);
   }
 
+  /** تصدير سجلات الحضور (excel أو pdf) */
   @Get('logs/export/:type')
   @Permissions(PERMS.ATTENDANCE_LOGS_VIEW)
   @RequiresFeature(FEATURES.ATTENDANCE_MODULE)
@@ -151,6 +164,7 @@ export class AttendanceController {
     sendReportBuffer(res, type, 'attendance_logs', buffer);
   }
 
+  /** سجلات حضور موظف واحد */
   @Get('logs/employee/:employeeId')
   @Permissions(PERMS.ATTENDANCE_LOGS_VIEW)
   @RequiresFeature(FEATURES.ATTENDANCE_MODULE)
@@ -163,6 +177,7 @@ export class AttendanceController {
     return this.attendanceService.findEmployeeLogs(id, q, user);
   }
 
+  /** ملخص حضور يوم: حاضر، متأخر، غائب، في إجازة */
   @Get('summary/daily')
   @Permissions(PERMS.ATTENDANCE_SUMMARY_VIEW)
   @RequiresFeature(FEATURES.ATTENDANCE_MODULE)
@@ -174,6 +189,7 @@ export class AttendanceController {
     return this.attendanceService.getDailySummary(date, user);
   }
 
+  /** تقرير حضور موظف لشهر */
   @Get('summary/employee/:employeeId/monthly')
   @Permissions(PERMS.ATTENDANCE_REPORTS_VIEW)
   @RequiresFeature(FEATURES.ATTENDANCE_MODULE)

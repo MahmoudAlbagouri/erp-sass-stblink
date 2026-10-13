@@ -11,6 +11,8 @@ import {
   ParseUUIDPipe,
   Res,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import type { Response } from 'express';
 import { LeavesService } from './leaves.service';
 import { LeaveCarryoverCronService } from './leave-carryover.cron.service';
@@ -37,6 +39,7 @@ import { PERMS } from '../../common/constants/permissions';
 import { formatDate } from '../../common/utils/format.util';
 import { FEATURES } from '../../common/constants/features'; // ✅ استيراد الثوابت
 
+@ApiTags(apiTag('LEAVES'))
 @Controller('leaves')
 @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
 export class LeavesController {
@@ -46,6 +49,7 @@ export class LeavesController {
     private readonly reportService: ReportService,
   ) {}
 
+  /** طلب إجازة للموظف الحالي */
   @Post('my-leaves')
   @Permissions(PERMS.LEAVE_REQUEST_SELF)
   @RequiresFeature(FEATURES.LEAVES_MODULE) // ✅ التحقق من توفر الموديول
@@ -60,6 +64,7 @@ export class LeavesController {
     return this.leavesService.create(dto, user.employeeId, tenantId);
   }
 
+  /** تفاصيل استحقاق إجازات موظف */
   @Get('accrual/:employeeId')
   @Permissions(PERMS.LEAVE_VIEW)
   @RequiresFeature(FEATURES.LEAVES_MODULE) // ✅ حماية عرض تفاصيل الاستحقاق
@@ -73,6 +78,7 @@ export class LeavesController {
 
   // ✅ ملخص إجازات الموظف لصفحة "تفاصيل الموظف":
   // الفعلي المستهلك + كل الطلبات بأيامها + المتبقي
+  /** ملخص إجازات موظف وأرصدته */
   @Get('summary/:employeeId')
   @Permissions(PERMS.LEAVE_VIEW)
   @RequiresFeature(FEATURES.LEAVES_MODULE)
@@ -87,6 +93,7 @@ export class LeavesController {
     );
   }
 
+  /** تحديد رصيد إجازات موظف لسنة */
   @Post('balance')
   @Permissions(PERMS.LEAVE_BALANCE_MANAGE)
   @RequiresFeature(FEATURES.LEAVES_MODULE) // ✅ حماية إدارة الرصيد
@@ -98,6 +105,7 @@ export class LeavesController {
     return await this.leavesService.setBalance(dto, tenantId);
   }
 
+  /** إعادة حساب الرصيد المرحَّل لموظف */
   @Post('carryover/recalculate/:employeeId')
   @Permissions(PERMS.LEAVE_BALANCE_MANAGE)
   @RequiresFeature(FEATURES.LEAVES_MODULE) // ✅ حماية إعادة حساب الترحيل
@@ -112,6 +120,7 @@ export class LeavesController {
     );
   }
 
+  /** إعادة حساب الرصيد المرحَّل لكل الموظفين */
   @Post('carryover/recalculate-all')
   @Permissions(PERMS.LEAVE_BALANCE_MANAGE)
   @RequiresFeature(FEATURES.LEAVES_MODULE) // ✅ حماية إعادة حساب الترحيل للجميع
@@ -121,6 +130,7 @@ export class LeavesController {
     return this.carryoverCronService.recalculateAll(tenantId);
   }
 
+  /** تسجيل إجازة لموظف (من الإدارة) */
   @Post('admin/:employeeId')
   @Permissions(PERMS.LEAVE_CREATE_ADMIN)
   @RequiresFeature(FEATURES.LEAVES_MODULE) // ✅ التحقق من توفر الموديول
@@ -134,6 +144,7 @@ export class LeavesController {
   }
 
   // ✅ مسار التصدير الجماعي للإجازات
+  /** تصدير الإجازات (excel أو pdf) */
   @Get('export/:type')
   @Permissions(PERMS.LEAVE_VIEW)
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
@@ -188,6 +199,7 @@ export class LeavesController {
   }
 
   // ✅ مسار التصدير الفردي لإجازة واحدة
+  /** تصدير إجازة واحدة (excel أو pdf) */
   @Get(':id/export/:type')
   @Permissions(PERMS.LEAVE_VIEW)
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
@@ -254,6 +266,7 @@ export class LeavesController {
     });
   }
 
+  /** قائمة طلبات الإجازة */
   @Get()
   @Permissions(PERMS.LEAVE_VIEW)
   @RequiresFeature(FEATURES.LEAVES_MODULE) // ✅ حماية عرض القائمة
@@ -262,6 +275,7 @@ export class LeavesController {
     return this.leavesService.findAll(tenantId);
   }
 
+  /** تغيير حالة طلب إجازة (اعتماد أو رفض) */
   @Patch(':id/status')
   @Permissions(PERMS.LEAVE_APPROVE)
   @RequiresFeature(FEATURES.LEAVES_MODULE) // ✅ حماية الموافقة على الإجازة

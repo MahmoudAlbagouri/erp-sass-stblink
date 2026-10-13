@@ -10,6 +10,8 @@ import {
   UseGuards,
   Res,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import type { Response } from 'express';
 import { BonusesService } from './bonuses.service';
 import { CreateBonusDto } from './dto/create-bonus.dto';
@@ -39,6 +41,7 @@ import {
   formatMoney,
 } from '../../common/utils/format.util';
 
+@ApiTags(apiTag('BONUSES'))
 @Controller('bonuses')
 @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
 export class BonusesController {
@@ -47,6 +50,7 @@ export class BonusesController {
     private readonly reportService: ReportService,
   ) {}
 
+  /** إضافة مكافأة لموظف */
   @Post()
   @Permissions(PERMS.BONUS_CREATE)
   @RequiresFeature(FEATURES.BONUSES_MODULE) // ✅ التحقق من توفر الموديول (يفضل إضافة BONUSES_MODULE للثوابت)
@@ -55,6 +59,7 @@ export class BonusesController {
     return this.bonusesService.create(dto, tenantId);
   }
 
+  /** صرف مكافأة معتمدة مباشرة خارج المسير (تُخصم من صافي المسير لمنع الصرف مرتين) */
   @Patch(':id/disburse')
   @Permissions(PERMS.BONUS_UPDATE)
   @RequiresFeature(FEATURES.BONUSES_MODULE)
@@ -67,6 +72,7 @@ export class BonusesController {
   }
 
   // ✅ مسار التصدير الجماعي للمكافآت
+  /** تصدير المكافآت (excel أو pdf) */
   @Get('export/:type')
   @Permissions(PERMS.BONUS_VIEW)
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
@@ -107,6 +113,7 @@ export class BonusesController {
   }
 
   // ✅ مسار التصدير الفردي للمكافأة
+  /** تصدير مكافأة واحدة (excel أو pdf) */
   @Get(':id/export/:type')
   @Permissions(PERMS.BONUS_VIEW)
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
@@ -150,6 +157,7 @@ export class BonusesController {
     });
   }
 
+  /** قائمة المكافآت */
   @Get()
   @Permissions(PERMS.BONUS_VIEW)
   @RequiresFeature(FEATURES.BONUSES_MODULE) // ✅ حماية عرض القائمة
@@ -158,6 +166,7 @@ export class BonusesController {
     return this.bonusesService.findAll(tenantId);
   }
 
+  /** مكافأة واحدة */
   @Get(':id')
   @Permissions(PERMS.BONUS_VIEW)
   @RequiresFeature(FEATURES.BONUSES_MODULE) // ✅ حماية عرض التفاصيل
@@ -166,6 +175,7 @@ export class BonusesController {
     return this.bonusesService.findOne(id, tenantId);
   }
 
+  /** تعديل مكافأة */
   @Patch(':id')
   @Permissions(PERMS.BONUS_UPDATE)
   @RequiresFeature(FEATURES.BONUSES_MODULE) // ✅ حماية التعديل
@@ -179,6 +189,7 @@ export class BonusesController {
   }
 
   // ✅ Endpoint جديد لتغيير حالة المكافأة
+  /** تغيير حالة مكافأة (اعتماد أو رفض) */
   @Patch(':id/status')
   @Permissions(PERMS.BONUS_UPDATE)
   @RequiresFeature(FEATURES.BONUSES_MODULE) // ✅ حماية تغيير الحالة
@@ -191,6 +202,7 @@ export class BonusesController {
     return this.bonusesService.updateStatus(id, status, tenantId);
   }
 
+  /** حذف مكافأة */
   @Delete(':id')
   @Permissions(PERMS.BONUS_DELETE)
   @RequiresFeature(FEATURES.BONUSES_MODULE) // ✅ حماية الحذف

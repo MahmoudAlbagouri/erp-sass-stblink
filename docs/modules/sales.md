@@ -1,0 +1,112 @@
+# المبيعات (`sales`)
+
+> العملاء، فواتير البيع، مرتجعاتها، مقبوضات العملاء، وإعدادات الفوترة.
+
+## الغرض
+
+إصدار فواتير البيع (من لوحة التحكم أو من الكاشير)، وتتبع ما على العملاء وما
+قُبض منهم.
+
+## المفاهيم والقواعد
+
+- **الفاتورة**: مسودة (بلا رقم ولا أثر) ← **إصدار**: تأخذ رقمها التسلسلي
+  (`INV-000001`)، تخرج بضاعتها، وتُسجَّل تكلفتها بمتوسط التكلفة.
+- **الصادرة لا تُعدَّل ولا تُلغى** (متطلب هيئة الزكاة والضريبة): تصحيحها بمرتجع
+  بيع (إشعار دائن). الرقم يُعطى عند الإصدار فقط فلا تترك المسودات فجوات.
+- **نوعان**: مبسطة (B2C)، وضريبية (B2B) حين يكون للعميل رقم ضريبي.
+- **هيئة الزكاة والضريبة (المرحلة الأولى)**: رمز QR، عدّاد فواتير بلا فجوات،
+  وبصمة كل فاتورة مع بصمة التي قبلها (سلسلة تكشف الحذف أو التعديل).
+- **`uuid`** يولّده العميل (الكاشير): إعادة رفع نفس الفاتورة لا تكرّرها.
+- **العميل**: كود `CUS-000001`، مهلة سداد، **حد ائتمان** يُفحص عند الإصدار،
+  ورصيد افتتاحي. البيع النقدي العابر بلا عميل.
+  **ما على العميل** = الافتتاحي + الصادرة − المرتجعات − المقبوضات + المردود له.
+- **القبض**: عند الإصدار (يُقسَّم: نقدي + شبكة) أو لاحقاً بسند قبض على فاتورة أو
+  على الحساب. السند يحمل فرعه.
+- **المرتجع**: على فاتورة صادرة؛ إصداره يعيد البضاعة ويردّ المبلغ أو يخصمه من
+  دين العميل.
+- **البيع الآجل من الكاشير**: `recordPosSale` يقبل مقبوضاً أقل من الإجمالي لعميل
+  مسجّل. `shiftTotals` يحسب المقبوض بسندات تحمل الوردية (`shiftId`).
+- **إعدادات الفوترة**: صف واحد للشركة (اسم البائع، الرقم الضريبي، السجل، العنوان،
+  تذييل الفاتورة) ومعه إعدادات شاشة الكاشير `posOptions` (باركود الميزان وما
+  يحتاج موافقة مشرف). عنوان الفرع وهاتفه يُطبعان بدل عنوان الشركة إن وُجدا.
+- حد الباقة: `max_invoices` (الصادرة في الشهر).
+- مجمل الربح = قبل الضريبة − التكلفة، وعرضه بصلاحية `view_sales_profit`.
+
+## علاقته بباقي النظام
+
+- يعتمد على `catalog` و`inventory` و`branches`.
+- `pos` يسجّل مبيعاته ومرتجعاته عبر `recordPosSale` و`recordPosReturn` هنا.
+- `utils/payment-recorder.ts` دالة مشتركة لكتابة أي حركة نقدية مع عميل.
+
+## صفحات الواجهة
+
+- `/dashboard/sales` — الفواتير (والطباعة A4 أو حراري عبر `SalesInvoicePrint`).
+- `/dashboard/sales/returns`، `/payments`، `/customers`، `/settings`.
+
+## المرجع
+
+<!-- AUTO:START — يولّده npm run docs:catalog، لا تعدّله باليد -->
+
+### الملفات
+
+- المجلد: `src/modules/sales/`
+- الخدمات: `customer-payments.service.ts`، `customers.service.ts`، `sales-invoices.service.ts`، `sales-returns.service.ts`، `sales-settings.service.ts`
+
+### جداول قاعدة البيانات
+
+| الجدول | الكيان | الملف |
+|---|---|---|
+| `customer_payments` | `CustomerPayment` | `customer-payment.entity.ts` |
+| `customers` | `Customer` | `customer.entity.ts` |
+| `sales_invoices` | `SalesInvoice` | `sales-invoice.entity.ts` |
+| `sales_invoice_lines` | `SalesInvoiceLine` | `sales-invoice.entity.ts` |
+| `sales_returns` | `SalesReturn` | `sales-return.entity.ts` |
+| `sales_return_lines` | `SalesReturnLine` | `sales-return.entity.ts` |
+| `sales_settings` | `SalesSettings` | `sales-settings.entity.ts` |
+
+### المسارات (23)
+
+**مقبوضات العملاء** — `customer-payments.controller.ts` (القسم في Swagger: «مقبوضات العملاء»)
+
+| الطريقة | المسار | الوظيفة | الصلاحية | ميزة الباقة |
+|---|---|---|---|---|
+| GET | `/sales/payments` | قائمة سندات القبض والردّ | عرض فواتير البيع `view_sales` | موديول المبيعات والعملاء `sales_module` |
+| POST | `/sales/payments` | تسجيل قبض من عميل (على فاتورة أو على الحساب) | مقبوضات العملاء `manage_customer_payments` | موديول المبيعات والعملاء `sales_module` |
+| POST | `/sales/payments/:id/cancel` | إلغاء سند قبض: يعود المبلغ على العميل | مقبوضات العملاء `manage_customer_payments` | موديول المبيعات والعملاء `sales_module` |
+
+**العملاء** — `customers.controller.ts` (القسم في Swagger: «العملاء»)
+
+| الطريقة | المسار | الوظيفة | الصلاحية | ميزة الباقة |
+|---|---|---|---|---|
+| GET | `/sales/settings` | إعدادات الفوترة: بيانات البائع والضريبة وتذييل الفاتورة | عرض فواتير البيع `view_sales` | موديول المبيعات والعملاء `sales_module` |
+| PATCH | `/sales/settings` | تعديل إعدادات الفوترة | إعدادات الفوترة (بيانات البائع والرقم الضريبي) `manage_sales_settings` | موديول المبيعات والعملاء `sales_module` |
+| GET | `/sales/customers` | قائمة العملاء وأرصدتهم | عرض العملاء `view_customers` | موديول المبيعات والعملاء `sales_module` |
+| GET | `/sales/customers/:id` | عميل واحد | عرض العملاء `view_customers` | موديول المبيعات والعملاء `sales_module` |
+| GET | `/sales/customers/:id/statement` | كشف حساب عميل | عرض العملاء `view_customers` | موديول المبيعات والعملاء `sales_module` |
+| POST | `/sales/customers` | إضافة عميل | إضافة وتعديل وحذف العملاء `manage_customers` | موديول المبيعات والعملاء `sales_module` |
+| PATCH | `/sales/customers/:id` | تعديل عميل | إضافة وتعديل وحذف العملاء `manage_customers` | موديول المبيعات والعملاء `sales_module` |
+| DELETE | `/sales/customers/:id` | حذف عميل | إضافة وتعديل وحذف العملاء `manage_customers` | موديول المبيعات والعملاء `sales_module` |
+
+**فواتير البيع** — `sales-invoices.controller.ts` (القسم في Swagger: «فواتير البيع»)
+
+| الطريقة | المسار | الوظيفة | الصلاحية | ميزة الباقة |
+|---|---|---|---|---|
+| GET | `/sales/summary` | أرقام لوحة المبيعات: مبيعات اليوم والشهر، المديونيات، المتأخر | عرض فواتير البيع `view_sales` | موديول المبيعات والعملاء `sales_module` |
+| GET | `/sales/invoices` | قائمة فواتير البيع | عرض فواتير البيع `view_sales` | موديول المبيعات والعملاء `sales_module` |
+| GET | `/sales/invoices/:id` | فاتورة بيع واحدة ببنودها وفرعها | عرض فواتير البيع `view_sales` | موديول المبيعات والعملاء `sales_module` |
+| POST | `/sales/invoices` | إنشاء فاتورة بيع (مسودة) | إنشاء وتعديل فواتير البيع (مسودة) `manage_sales` | موديول المبيعات والعملاء `sales_module` |
+| PATCH | `/sales/invoices/:id` | تعديل مسودة فاتورة بيع | إنشاء وتعديل فواتير البيع (مسودة) `manage_sales` | موديول المبيعات والعملاء `sales_module` |
+| POST | `/sales/invoices/:id/issue` | إصدار الفاتورة: تأخذ رقمها، تخرج البضاعة، ويُسجَّل ما قُبض | إصدار فواتير البيع `issue_sales` | موديول المبيعات والعملاء `sales_module` · حد: `max_invoices` |
+| POST | `/sales/invoices/:id/cancel` | إلغاء مسودة فاتورة بيع | إنشاء وتعديل فواتير البيع (مسودة) `manage_sales` | موديول المبيعات والعملاء `sales_module` |
+
+**مرتجعات البيع** — `sales-returns.controller.ts` (القسم في Swagger: «مرتجعات البيع»)
+
+| الطريقة | المسار | الوظيفة | الصلاحية | ميزة الباقة |
+|---|---|---|---|---|
+| GET | `/sales/returns` | قائمة مرتجعات البيع | عرض فواتير البيع `view_sales` | موديول المبيعات والعملاء `sales_module` |
+| GET | `/sales/returns/:id` | مرتجع بيع واحد ببنوده | عرض فواتير البيع `view_sales` | موديول المبيعات والعملاء `sales_module` |
+| POST | `/sales/returns` | إنشاء مرتجع بيع على فاتورة (مسودة) | مرتجعات البيع (إشعارات دائنة) `manage_sales_returns` | موديول المبيعات والعملاء `sales_module` |
+| POST | `/sales/returns/:id/issue` | إصدار المرتجع: تعود البضاعة للمخزن ويُردّ المبلغ أو يُخصم من دين العميل | مرتجعات البيع (إشعارات دائنة) `manage_sales_returns` | موديول المبيعات والعملاء `sales_module` |
+| POST | `/sales/returns/:id/cancel` | إلغاء مسودة مرتجع بيع | مرتجعات البيع (إشعارات دائنة) `manage_sales_returns` | موديول المبيعات والعملاء `sales_module` |
+
+<!-- AUTO:END -->

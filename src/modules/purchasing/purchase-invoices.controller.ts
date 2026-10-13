@@ -12,6 +12,8 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { FEATURES } from '../../common/constants/features';
 import { PERMS } from '../../common/constants/permissions';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
@@ -29,12 +31,14 @@ import {
 } from './dto/purchasing.dto';
 import { PurchaseInvoicesService } from './purchase-invoices.service';
 
+@ApiTags(apiTag('PURCHASE_INVOICES'))
 @Controller('purchasing/invoices')
 @UseGuards(JwtAuthGuard, TenantScopeGuard, SubscriptionGuard, PermissionsGuard)
 @RequiresFeature(FEATURES.PURCHASING_MODULE)
 export class PurchaseInvoicesController {
   constructor(private readonly invoices: PurchaseInvoicesService) {}
 
+  /** قائمة فواتير الشراء */
   @Get()
   @Permissions(PERMS.PURCHASE_VIEW)
   findAll(
@@ -44,6 +48,7 @@ export class PurchaseInvoicesController {
     return this.invoices.findAll(tenantId, query);
   }
 
+  /** فاتورة شراء واحدة ببنودها */
   @Get(':id')
   @Permissions(PERMS.PURCHASE_VIEW)
   findOne(
@@ -53,6 +58,7 @@ export class PurchaseInvoicesController {
     return this.invoices.findOne(id, tenantId);
   }
 
+  /** إنشاء فاتورة شراء (مسودة) */
   @Post()
   @Permissions(PERMS.PURCHASE_MANAGE)
   create(
@@ -63,6 +69,7 @@ export class PurchaseInvoicesController {
     return this.invoices.create(dto, tenantId, userId);
   }
 
+  /** تعديل مسودة فاتورة شراء */
   @Patch(':id')
   @Permissions(PERMS.PURCHASE_MANAGE)
   update(
@@ -73,6 +80,7 @@ export class PurchaseInvoicesController {
     return this.invoices.update(id, dto, tenantId);
   }
 
+  /** اعتماد فاتورة الشراء: تدخل البضاعة المخزن ويُحدَّث متوسط التكلفة */
   @Post(':id/post')
   @HttpCode(HttpStatus.OK)
   @Permissions(PERMS.PURCHASE_POST)
@@ -84,6 +92,7 @@ export class PurchaseInvoicesController {
     return this.invoices.post(id, tenantId, userId);
   }
 
+  /** إلغاء فاتورة شراء (المعتمدة تخرج بضاعتها من المخزن) */
   @Post(':id/cancel')
   @HttpCode(HttpStatus.OK)
   @Permissions(PERMS.PURCHASE_POST)

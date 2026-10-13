@@ -11,6 +11,8 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { FEATURES } from '../../common/constants/features';
 import { PERMS } from '../../common/constants/permissions';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
@@ -28,6 +30,7 @@ import {
 } from './dto/purchasing.dto';
 import { SuppliersService } from './suppliers.service';
 
+@ApiTags(apiTag('SUPPLIERS'))
 @Controller('purchasing')
 @UseGuards(JwtAuthGuard, TenantScopeGuard, SubscriptionGuard, PermissionsGuard)
 @RequiresFeature(FEATURES.PURCHASING_MODULE)
@@ -41,6 +44,7 @@ export class SuppliersController {
     return this.suppliers.summary(tenantId);
   }
 
+  /** قائمة الموردين وأرصدتهم */
   @Get('suppliers')
   @Permissions(PERMS.SUPPLIER_VIEW)
   findAll(
@@ -50,6 +54,7 @@ export class SuppliersController {
     return this.suppliers.findAll(tenantId, query);
   }
 
+  /** مورد واحد */
   @Get('suppliers/:id')
   @Permissions(PERMS.SUPPLIER_VIEW)
   findOne(
@@ -59,6 +64,7 @@ export class SuppliersController {
     return this.suppliers.findOne(id, tenantId);
   }
 
+  /** كشف حساب مورد */
   @Get('suppliers/:id/statement')
   @Permissions(PERMS.SUPPLIER_VIEW)
   statement(
@@ -69,12 +75,14 @@ export class SuppliersController {
     return this.suppliers.statement(id, tenantId, query);
   }
 
+  /** إضافة مورد */
   @Post('suppliers')
   @Permissions(PERMS.SUPPLIER_MANAGE)
   create(@Body() dto: CreateSupplierDto, @CurrentTenantId() tenantId: string) {
     return this.suppliers.create(dto, tenantId);
   }
 
+  /** تعديل مورد */
   @Patch('suppliers/:id')
   @Permissions(PERMS.SUPPLIER_MANAGE)
   update(
@@ -85,6 +93,7 @@ export class SuppliersController {
     return this.suppliers.update(id, dto, tenantId);
   }
 
+  /** حذف مورد */
   @Delete('suppliers/:id')
   @Permissions(PERMS.SUPPLIER_MANAGE)
   remove(

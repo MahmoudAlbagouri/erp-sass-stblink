@@ -24,6 +24,8 @@ export interface PaymentRecord {
   reference?: string | null;
   note?: string | null;
   createdById?: string | null;
+  /** وردية الكاشير التي دخل المبلغ درجها أو خرج منه */
+  shiftId?: string | null;
 }
 
 /**
@@ -58,6 +60,7 @@ export async function recordPayment(
       reference: record.reference ?? null,
       note: record.note ?? null,
       createdById: record.createdById ?? null,
+      shiftId: record.shiftId ?? null,
     }),
   );
 }

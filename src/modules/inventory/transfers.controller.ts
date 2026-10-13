@@ -12,6 +12,8 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { FEATURES } from '../../common/constants/features';
 import { PERMS } from '../../common/constants/permissions';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
@@ -30,12 +32,14 @@ import {
 } from './dto/inventory.dto';
 import { TransfersService } from './transfers.service';
 
+@ApiTags(apiTag('TRANSFERS'))
 @Controller('inventory/transfers')
 @UseGuards(JwtAuthGuard, TenantScopeGuard, SubscriptionGuard, PermissionsGuard)
 @RequiresFeature(FEATURES.INVENTORY_MODULE)
 export class TransfersController {
   constructor(private readonly transfers: TransfersService) {}
 
+  /** قائمة التحويلات بين المخازن */
   @Get()
   @Permissions(PERMS.INVENTORY_VIEW)
   findAll(
@@ -45,6 +49,7 @@ export class TransfersController {
     return this.transfers.findAll(tenantId, query);
   }
 
+  /** تحويل واحد ببنوده */
   @Get(':id')
   @Permissions(PERMS.INVENTORY_VIEW)
   findOne(
@@ -54,6 +59,7 @@ export class TransfersController {
     return this.transfers.findOne(id, tenantId);
   }
 
+  /** إنشاء تحويل (مسودة) */
   @Post()
   @Permissions(PERMS.STOCK_TRANSFER_MANAGE)
   create(
@@ -64,6 +70,7 @@ export class TransfersController {
     return this.transfers.create(dto, tenantId, userId);
   }
 
+  /** تعديل مسودة تحويل */
   @Patch(':id')
   @Permissions(PERMS.STOCK_TRANSFER_MANAGE)
   update(
@@ -74,6 +81,7 @@ export class TransfersController {
     return this.transfers.update(id, dto, tenantId);
   }
 
+  /** إرسال التحويل: تخرج البضاعة من المخزن المرسِل */
   @Post(':id/send')
   @HttpCode(HttpStatus.OK)
   @Permissions(PERMS.STOCK_TRANSFER_MANAGE)
@@ -85,6 +93,7 @@ export class TransfersController {
     return this.transfers.send(id, tenantId, userId);
   }
 
+  /** استلام التحويل: تدخل البضاعة المخزن المستلِم */
   @Post(':id/receive')
   @HttpCode(HttpStatus.OK)
   @Permissions(PERMS.STOCK_TRANSFER_RECEIVE)
@@ -97,6 +106,7 @@ export class TransfersController {
     return this.transfers.receive(id, dto, tenantId, userId);
   }
 
+  /** إلغاء تحويل (تعود البضاعة المرسَلة لمخزنها) */
   @Post(':id/cancel')
   @HttpCode(HttpStatus.OK)
   @Permissions(PERMS.STOCK_TRANSFER_MANAGE)

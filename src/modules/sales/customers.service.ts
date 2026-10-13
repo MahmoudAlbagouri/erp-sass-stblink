@@ -181,6 +181,61 @@ export class CustomersService {
   }
 
   /** إجمالي ما على كل العملاء */
+  /**
+   * ما على كل عميل الآن (غير الصفري فقط) — تنزّله أجهزة الكاشير لتفحص حد
+   * الائتمان عند البيع الآجل بلا إنترنت.
+   */
+  async balances(tenantId: string): Promise<{ id: string; balance: number }[]> {
+    const rows = await this.customers
+      .createQueryBuilder('customer')
+      .select('customer.id', 'id')
+      .addSelect(BALANCE_SQL, 'balance')
+      .where('customer.tenantId = :tenantId', { tenantId })
+      .andWhere(`${BALANCE_SQL} <> 0`)
+      .getRawMany<{ id: string; balance: string }>();
+    return rows.map((row) => ({ id: row.id, balance: Number(row.balance) }));
+  }
+
+  /**
+   * عميل أضافه الكاشير على شاشته (ربما بلا إنترنت) بمعرّف ولّده الجهاز،
+   * لتشير إليه فواتيره التالية في الطابور.
+   * @returns true إذا كان مسجّلاً من قبل (رفع مكرر)
+   */
+  async createFromPos(
+    id: string,
+    dto: Pick<CreateCustomerDto, 'name' | 'phone' | 'taxNumber'>,
+    tenantId: string,
+  ): Promise<boolean> {
+    const existing = await this.customers.findOne({
+      where: { id },
+      withDeleted: true,
+    });
+    if (existing) {
+      if (existing.tenantId !== tenantId) {
+        throw new NotFoundException('العميل غير موجود');
+      }
+      return true;
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      await manager.insert(Customer, {
+        id,
+        tenantId,
+        name: dto.name,
+        phone: dto.phone ?? null,
+        taxNumber: dto.taxNumber ?? null,
+        code: await nextDocumentNumber(
+          manager,
+          'customers',
+          CODE_PREFIX,
+          tenantId,
+          'code',
+        ),
+      });
+    });
+    return false;
+  }
+
   async totalReceivables(tenantId: string): Promise<number> {
     const [row] = await this.customers.query<{ value: string }[]>(
       `SELECT COALESCE(SUM(${BALANCE_SQL}), 0) AS "value"

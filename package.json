@@ -7,6 +7,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build",
+    "docs:catalog": "node scripts/docs-catalog.cjs",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
@@ -39,6 +40,7 @@
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/schedule": "^6.1.3",
+    "@nestjs/swagger": "^11.4.7",
     "@nestjs/typeorm": "^11.0.0",
     "argon2": "^0.44.0",
     "axios": "^1.16.1",

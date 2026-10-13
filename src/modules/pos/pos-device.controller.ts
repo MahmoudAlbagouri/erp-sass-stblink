@@ -10,6 +10,8 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { PosDeviceBootstrapQueryDto, PosDeviceSyncDto } from './dto/pos.dto';
 import {
   PosContext,
@@ -26,6 +28,7 @@ import { PosService } from './pos.service';
  * أياماً بلا إنترنت، والرفع عند عودته لا ينتظر أحداً ليسجّل دخوله. ربط الشاشة
  * أول مرة وإدارة الأجهزة يبقيان بجلسة مستخدم في PosController.
  */
+@ApiTags(apiTag('POS_DEVICE'))
 @Controller('pos/device')
 @UseGuards(PosDeviceGuard)
 export class PosDeviceController {

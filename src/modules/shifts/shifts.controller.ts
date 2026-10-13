@@ -8,6 +8,8 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
 import { Permissions } from '../../common/decorators/permissions.decorator';
@@ -18,11 +20,13 @@ import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decor
 // ✅ استيراد الثوابت
 import { PERMS } from '../../common/constants/permissions';
 
+@ApiTags(apiTag('SHIFTS'))
 @Controller('shifts')
 @UseGuards(JwtAuthGuard)
 export class ShiftsController {
   constructor(private readonly shiftsService: ShiftsService) {}
 
+  /** إضافة وقت دوام */
   @Post()
   @Permissions(PERMS.SHIFT_CREATE)
   @UseGuards(PermissionsGuard)
@@ -30,6 +34,7 @@ export class ShiftsController {
     return this.shiftsService.create(dto, tenantId);
   }
 
+  /** قائمة أوقات الدوام */
   @Get()
   @Permissions(PERMS.SHIFT_VIEW)
   @UseGuards(PermissionsGuard)
@@ -37,6 +42,7 @@ export class ShiftsController {
     return this.shiftsService.findAll(tenantId);
   }
 
+  /** تعديل وقت دوام */
   @Patch(':id')
   @Permissions(PERMS.SHIFT_UPDATE)
   @UseGuards(PermissionsGuard)

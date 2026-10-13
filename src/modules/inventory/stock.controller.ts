@@ -12,6 +12,8 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { FEATURES } from '../../common/constants/features';
 import { PERMS } from '../../common/constants/permissions';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
@@ -32,6 +34,7 @@ import { ImportProductsWithStockDto } from './dto/import-stock.dto';
 import { StockImportService } from './stock-import.service';
 import { StockService } from './stock.service';
 
+@ApiTags(apiTag('STOCK'))
 @Controller('inventory')
 @UseGuards(JwtAuthGuard, TenantScopeGuard, SubscriptionGuard, PermissionsGuard)
 @RequiresFeature(FEATURES.INVENTORY_MODULE)
@@ -61,6 +64,7 @@ export class StockController {
     return this.stockImport.import(dto, tenantId, userId);
   }
 
+  /** أرصدة الأصناف في المخازن (مع تنبيه الناقص والسالب) */
   @Get('stock')
   @Permissions(PERMS.INVENTORY_VIEW)
   findLevels(
@@ -70,6 +74,7 @@ export class StockController {
     return this.stock.findLevels(tenantId, query);
   }
 
+  /** ملخص المخزون: عدد الأصناف، قيمته، الناقص، السالب */
   @Get('stock/summary')
   @Permissions(PERMS.INVENTORY_VIEW)
   summary(
@@ -91,6 +96,7 @@ export class StockController {
     return this.stock.lookup(tenantId, warehouseId, search);
   }
 
+  /** تحديد حد إعادة الطلب لصنف في مخزن */
   @Patch('stock/min-quantity')
   @Permissions(PERMS.STOCK_ADJUST)
   setMinQuantity(
@@ -100,6 +106,7 @@ export class StockController {
     return this.stock.setMinQuantity(dto, tenantId);
   }
 
+  /** دفتر حركات المخزون */
   @Get('movements')
   @Permissions(PERMS.INVENTORY_VIEW)
   findMovements(
@@ -109,6 +116,7 @@ export class StockController {
     return this.stock.findMovements(tenantId, query);
   }
 
+  /** تسوية مخزون أو رصيد افتتاحي */
   @Post('adjustments')
   @Permissions(PERMS.STOCK_ADJUST)
   adjust(

@@ -10,6 +10,8 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { PERMS } from '../../common/constants/permissions';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
 import { Permissions } from '../../common/decorators/permissions.decorator';
@@ -23,6 +25,7 @@ import { CreateBranchDto, UpdateBranchDto } from './dto/branch.dto';
  * الفروع متاحة لكل الشركات مهما كانت باقتها: شركة تستخدم الموارد البشرية فقط
  * لها فروع كما لشركة تبيع.
  */
+@ApiTags(apiTag('BRANCHES'))
 @Controller('branches')
 @UseGuards(JwtAuthGuard, TenantScopeGuard)
 export class BranchesController {
@@ -44,6 +47,7 @@ export class BranchesController {
     }));
   }
 
+  /** قائمة الفروع مع عدد مخازنها وموظفيها وأجهزتها ومستخدميها */
   @Get()
   @Permissions(PERMS.BRANCH_VIEW)
   @UseGuards(PermissionsGuard)
@@ -51,6 +55,7 @@ export class BranchesController {
     return this.branches.findAllWithCounts(tenantId);
   }
 
+  /** إضافة فرع */
   @Post()
   @Permissions(PERMS.BRANCH_MANAGE)
   @UseGuards(PermissionsGuard)
@@ -58,6 +63,7 @@ export class BranchesController {
     return this.branches.create(dto, tenantId);
   }
 
+  /** تعديل فرع أو إيقافه */
   @Patch(':id')
   @Permissions(PERMS.BRANCH_MANAGE)
   @UseGuards(PermissionsGuard)
@@ -69,6 +75,7 @@ export class BranchesController {
     return this.branches.update(id, dto, tenantId);
   }
 
+  /** حذف فرع (بلا مخازن ولا مستخدمين مقيَّدين به) */
   @Delete(':id')
   @Permissions(PERMS.BRANCH_MANAGE)
   @UseGuards(PermissionsGuard)

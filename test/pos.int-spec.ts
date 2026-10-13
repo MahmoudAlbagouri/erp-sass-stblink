@@ -22,6 +22,12 @@ import {
   PosShiftStatus,
 } from '../src/modules/pos/entities/pos.entity';
 import { PosCashiersService } from '../src/modules/pos/pos-cashiers.service';
+import { PosExtrasService } from '../src/modules/pos/pos-extras.service';
+import {
+  PosAuditLog,
+  PosCashMovement,
+  PosPromotion,
+} from '../src/modules/pos/entities/pos-extras.entity';
 import { PosService } from '../src/modules/pos/pos.service';
 import { CustomersService } from '../src/modules/sales/customers.service';
 import { CustomerPayment } from '../src/modules/sales/entities/customer-payment.entity';
@@ -217,6 +223,11 @@ describe('pos module', () => {
         dataSource,
       ),
       cashiers,
+      new PosExtrasService(
+        dataSource.getRepository(PosCashMovement),
+        dataSource.getRepository(PosAuditLog),
+        dataSource.getRepository(PosPromotion),
+      ),
     );
   });
 

@@ -10,6 +10,8 @@ import {
   NotFoundException,
   Res,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import type { Response } from 'express';
 import { AdvancesService } from './advances.service';
 import { CreateAdvanceDto } from './dto/create-advance.dto';
@@ -38,6 +40,7 @@ import {
 } from '../../common/utils/format.util';
 import { FEATURES } from '../../common/constants/features'; // ✅ استيراد الثوابت
 
+@ApiTags(apiTag('ADVANCES'))
 @Controller('advances')
 @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
 export class AdvancesController {
@@ -46,6 +49,7 @@ export class AdvancesController {
     private readonly reportService: ReportService,
   ) {}
 
+  /** تأكيد تسليم السلفة للموظف خارج المسير (السداد يبقى خصماً من الراتب) */
   @Patch(':id/disburse')
   @Permissions(PERMS.ADVANCE_APPROVE)
   @RequiresFeature(FEATURES.ADVANCES_MODULE)
@@ -57,6 +61,7 @@ export class AdvancesController {
     return this.advancesService.disburseAdvance(id, user.tenantId, user.id);
   }
 
+  /** طلب سلفة للموظف الحالي */
   @Post('my-advances')
   @Permissions(PERMS.ADVANCE_REQUEST_SELF)
   @RequiresFeature(FEATURES.ADVANCES_MODULE) // ✅ التحقق من توفر الموديول
@@ -71,6 +76,7 @@ export class AdvancesController {
     return this.advancesService.create(dto, user.employeeId, tenantId);
   }
 
+  /** تسجيل سلفة لموظف (من الإدارة) */
   @Post('admin/:employeeId')
   @Permissions(PERMS.ADVANCE_CREATE_ADMIN)
   @RequiresFeature(FEATURES.ADVANCES_MODULE) // ✅ التحقق من توفر الموديول
@@ -84,6 +90,7 @@ export class AdvancesController {
   }
 
   // ✅ مسار التصدير الجماعي للسلف
+  /** تصدير السلف (excel أو pdf) */
   @Get('export/:type')
   @Permissions(PERMS.ADVANCE_VIEW)
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
@@ -132,6 +139,7 @@ export class AdvancesController {
   }
 
   // ✅ مسار التصدير الفردي لسلفة واحدة
+  /** تصدير سلفة واحدة (excel أو pdf) */
   @Get(':id/export/:type')
   @Permissions(PERMS.ADVANCE_VIEW)
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
@@ -189,6 +197,7 @@ export class AdvancesController {
     });
   }
 
+  /** قائمة السلف */
   @Get()
   @Permissions(PERMS.ADVANCE_VIEW)
   @RequiresFeature(FEATURES.ADVANCES_MODULE) // ✅ حماية عرض القائمة
@@ -197,6 +206,7 @@ export class AdvancesController {
     return this.advancesService.findAll(tenantId);
   }
 
+  /** تغيير حالة سلفة (اعتماد أو رفض) */
   @Patch(':id/status')
   @Permissions(PERMS.ADVANCE_APPROVE)
   @RequiresFeature(FEATURES.ADVANCES_MODULE) // ✅ حماية الموافقة

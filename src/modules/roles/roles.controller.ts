@@ -9,6 +9,8 @@ import {
   Delete,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { RolesService } from './roles.service';
 import { CreateRoleDto } from './dto/create-role.dto';
 import { UpdateRoleDto } from './dto/update-role.dto';
@@ -23,11 +25,13 @@ import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decor
 // ✅ استيراد الثوابت
 import { PERMS } from '../../common/constants/permissions';
 
+@ApiTags(apiTag('ROLES'))
 @Controller('roles')
 @UseGuards(JwtAuthGuard)
 export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
 
+  /** إضافة دور بصلاحياته */
   @Post()
   @Permissions(PERMS.ROLE_CREATE)
   @UseGuards(PermissionsGuard)
@@ -39,6 +43,7 @@ export class RolesController {
     return this.rolesService.create(dto, user, tenantId);
   }
 
+  /** قائمة الأدوار */
   @Get()
   @Permissions(PERMS.ROLE_VIEW)
   @UseGuards(PermissionsGuard)
@@ -49,6 +54,7 @@ export class RolesController {
     return this.rolesService.findAll(user, tenantId);
   }
 
+  /** دور واحد بصلاحياته */
   @Get(':id')
   @Permissions(PERMS.ROLE_VIEW)
   @UseGuards(PermissionsGuard)
@@ -60,6 +66,7 @@ export class RolesController {
     return this.rolesService.findOne(id, user, tenantId);
   }
 
+  /** تعديل دور أو صلاحياته */
   @Patch(':id')
   @Permissions(PERMS.ROLE_UPDATE)
   @UseGuards(PermissionsGuard)
@@ -72,6 +79,7 @@ export class RolesController {
     return this.rolesService.update(id, dto, user, tenantId);
   }
 
+  /** حذف دور */
   @Delete(':id')
   @Permissions(PERMS.ROLE_DELETE)
   @UseGuards(PermissionsGuard)

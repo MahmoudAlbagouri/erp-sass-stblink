@@ -13,6 +13,8 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { FEATURES } from '../../common/constants/features';
 import { PERMS } from '../../common/constants/permissions';
 import { CheckQuota } from '../../common/decorators/check-quota.decorator';
@@ -32,6 +34,7 @@ import { ImportProductsDto } from './dto/import-products.dto';
 import { ProductsImportService } from './products-import.service';
 import { ProductsService } from './products.service';
 
+@ApiTags(apiTag('PRODUCTS'))
 @Controller('catalog/products')
 @UseGuards(JwtAuthGuard, TenantScopeGuard, SubscriptionGuard, PermissionsGuard)
 @RequiresFeature(FEATURES.PRODUCTS_MODULE)
@@ -56,6 +59,7 @@ export class ProductsController {
     return this.productsImport.import(dto, tenantId);
   }
 
+  /** إضافة صنف */
   @Post()
   @Permissions(PERMS.PRODUCT_CREATE)
   @CheckQuota('max_products')
@@ -63,6 +67,7 @@ export class ProductsController {
     return this.productsService.create(dto, tenantId);
   }
 
+  /** قائمة الأصناف (بحث وفلترة وترقيم) */
   @Get()
   @Permissions(PERMS.PRODUCT_VIEW)
   findAll(
@@ -73,6 +78,7 @@ export class ProductsController {
   }
 
   // قبل ':id' حتى لا يُعامل "barcode" كمعرّف
+  /** صنف بباركوده */
   @Get('barcode/:barcode')
   @Permissions(PERMS.PRODUCT_VIEW)
   findByBarcode(
@@ -82,6 +88,7 @@ export class ProductsController {
     return this.productsService.findByBarcode(barcode, tenantId);
   }
 
+  /** صنف واحد بوحداته وباركوداته */
   @Get(':id')
   @Permissions(PERMS.PRODUCT_VIEW)
   findOne(
@@ -91,6 +98,7 @@ export class ProductsController {
     return this.productsService.findOne(id, tenantId);
   }
 
+  /** تعديل صنف */
   @Patch(':id')
   @Permissions(PERMS.PRODUCT_UPDATE)
   update(
@@ -101,6 +109,7 @@ export class ProductsController {
     return this.productsService.update(id, dto, tenantId);
   }
 
+  /** حذف صنف */
   @Delete(':id')
   @Permissions(PERMS.PRODUCT_DELETE)
   remove(

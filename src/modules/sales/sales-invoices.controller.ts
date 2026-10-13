@@ -12,6 +12,8 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { FEATURES } from '../../common/constants/features';
 import { PERMS } from '../../common/constants/permissions';
 import { CheckQuota } from '../../common/decorators/check-quota.decorator';
@@ -49,6 +51,7 @@ function withoutCost(invoice: SalesInvoice): SalesInvoice {
   return invoice;
 }
 
+@ApiTags(apiTag('SALES_INVOICES'))
 @Controller('sales')
 @UseGuards(JwtAuthGuard, TenantScopeGuard, SubscriptionGuard, PermissionsGuard)
 @RequiresFeature(FEATURES.SALES_MODULE)
@@ -66,6 +69,7 @@ export class SalesInvoicesController {
     return canSeeProfit(user) ? summary : { ...summary, monthProfit: null };
   }
 
+  /** قائمة فواتير البيع */
   @Get('invoices')
   @Permissions(PERMS.SALES_VIEW)
   async findAll(
@@ -78,6 +82,7 @@ export class SalesInvoicesController {
     return result;
   }
 
+  /** فاتورة بيع واحدة ببنودها وفرعها */
   @Get('invoices/:id')
   @Permissions(PERMS.SALES_VIEW)
   async findOne(
@@ -89,6 +94,7 @@ export class SalesInvoicesController {
     return canSeeProfit(user) ? invoice : withoutCost(invoice);
   }
 
+  /** إنشاء فاتورة بيع (مسودة) */
   @Post('invoices')
   @Permissions(PERMS.SALES_MANAGE)
   async create(
@@ -100,6 +106,7 @@ export class SalesInvoicesController {
     return canSeeProfit(user) ? invoice : withoutCost(invoice);
   }
 
+  /** تعديل مسودة فاتورة بيع */
   @Patch('invoices/:id')
   @Permissions(PERMS.SALES_MANAGE)
   async update(
@@ -112,6 +119,7 @@ export class SalesInvoicesController {
     return canSeeProfit(user) ? invoice : withoutCost(invoice);
   }
 
+  /** إصدار الفاتورة: تأخذ رقمها، تخرج البضاعة، ويُسجَّل ما قُبض */
   @Post('invoices/:id/issue')
   @HttpCode(HttpStatus.OK)
   @Permissions(PERMS.SALES_ISSUE)
@@ -126,6 +134,7 @@ export class SalesInvoicesController {
     return canSeeProfit(user) ? invoice : withoutCost(invoice);
   }
 
+  /** إلغاء مسودة فاتورة بيع */
   @Post('invoices/:id/cancel')
   @HttpCode(HttpStatus.OK)
   @Permissions(PERMS.SALES_MANAGE)

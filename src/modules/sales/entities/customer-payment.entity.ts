@@ -108,4 +108,13 @@ export class CustomerPayment extends TenantOwnedEntity {
 
   @Column({ type: 'uuid', nullable: true })
   createdById?: string | null;
+
+  /**
+   * وردية الكاشير التي دخل المبلغ درجها (أو خرج منه). null = من لوحة التحكم.
+   * قبضٌ لاحق من لوحة التحكم على فاتورة بيعت آجلاً من الكاشير لا يُحسب على
+   * وردية بيعها.
+   */
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  shiftId?: string | null;
 }

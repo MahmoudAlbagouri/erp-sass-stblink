@@ -11,6 +11,8 @@ import {
   Res,
   BadRequestException,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import type { Response } from 'express';
 import {
   EmployeesService,
@@ -93,6 +95,7 @@ const toFilterOptions = (query: EmployeeFilterDto): EmployeeFilterOptions => ({
   search: query.search,
 });
 
+@ApiTags(apiTag('EMPLOYEES'))
 @Controller('employees')
 @UseGuards(JwtAuthGuard, SubscriptionGuard, PermissionsGuard)
 export class EmployeesController {
@@ -102,6 +105,7 @@ export class EmployeesController {
     private readonly employeesOnboardingService: EmployeesOnboardingService,
   ) {}
 
+  /** تهيئة موظف جديد دفعة واحدة: ملفه، حسابه، عقده، راتبه */
   @Post('onboard')
   @Permissions(PERMS.EMPLOYEE_ONBOARD)
   @RequiresFeature(FEATURES.EMPLOYEES_MODULE)
@@ -119,6 +123,7 @@ export class EmployeesController {
     );
   }
 
+  /** إضافة موظف */
   @Post()
   @Permissions(PERMS.EMPLOYEE_CREATE)
   @RequiresFeature(FEATURES.EMPLOYEES_MODULE)
@@ -128,6 +133,7 @@ export class EmployeesController {
   }
 
   // ✅ الفلترة المتقدمة — لازم تكون قبل route ':id'
+  /** قائمة الموظفين بفلترة متقدمة (قسم، فرع، وردية، حالة…) */
   @Get('filter')
   @Permissions(PERMS.EMPLOYEE_VIEW)
   @RequiresFeature(FEATURES.EMPLOYEES_MODULE)
@@ -139,6 +145,7 @@ export class EmployeesController {
   }
 
   // ✅ تصدير نتائج الفلترة المتقدمة — قبل route ':id' أيضاً
+  /** تصدير نتائج الفلترة (excel أو pdf) */
   @Get('export-filtered/:type')
   @Permissions(PERMS.EMPLOYEE_EXPORT)
   @RequiresFeature(FEATURES.REPORTS_EXPORT)
@@ -164,6 +171,7 @@ export class EmployeesController {
     });
   }
 
+  /** تصدير كل الموظفين (excel أو pdf) */
   @Get('export/:type')
   @Permissions(PERMS.EMPLOYEE_EXPORT)
   @RequiresFeature(FEATURES.REPORTS_EXPORT)
@@ -184,6 +192,7 @@ export class EmployeesController {
     });
   }
 
+  /** تصدير ملف موظف واحد (excel أو pdf) */
   @Get(':id/export/:type')
   @Permissions(PERMS.EMPLOYEE_EXPORT)
   @RequiresFeature(FEATURES.REPORTS_EXPORT)
@@ -292,6 +301,7 @@ export class EmployeesController {
     });
   }
 
+  /** قائمة الموظفين */
   @Get()
   @Permissions(PERMS.EMPLOYEE_VIEW)
   @RequiresFeature(FEATURES.EMPLOYEES_MODULE)
@@ -299,6 +309,7 @@ export class EmployeesController {
     return this.employeesService.findAll(tenantId);
   }
 
+  /** ملف موظف كامل: عقده، رواتبه، سلفه، إجازاته… */
   @Get(':id')
   @Permissions(PERMS.EMPLOYEE_VIEW)
   @RequiresFeature(FEATURES.EMPLOYEES_MODULE)
@@ -306,6 +317,7 @@ export class EmployeesController {
     return this.employeesService.findOne(id, tenantId);
   }
 
+  /** تعديل موظف */
   @Patch(':id')
   @Permissions(PERMS.EMPLOYEE_UPDATE)
   @RequiresFeature(FEATURES.EMPLOYEES_MODULE)
@@ -317,6 +329,7 @@ export class EmployeesController {
     return this.employeesService.update(id, dto, tenantId);
   }
 
+  /** حذف موظف */
   @Delete(':id')
   @Permissions(PERMS.EMPLOYEE_DELETE)
   @RequiresFeature(FEATURES.EMPLOYEES_MODULE)

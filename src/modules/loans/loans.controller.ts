@@ -10,6 +10,8 @@ import {
   NotFoundException,
   Res,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import type { Response } from 'express';
 import { LoansService } from './loans.service';
 import { CreateLoanDto } from './dto/create-loan.dto';
@@ -38,6 +40,7 @@ import {
 } from '../../common/utils/format.util';
 import { FEATURES } from '../../common/constants/features'; // ✅ استيراد الثوابت
 
+@ApiTags(apiTag('LOANS'))
 @Controller('loans')
 @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
 export class LoansController {
@@ -46,6 +49,7 @@ export class LoansController {
     private readonly reportService: ReportService,
   ) {}
 
+  /** طلب قرض للموظف الحالي */
   @Post('my-loans')
   @Permissions(PERMS.LOAN_REQUEST_SELF)
   @RequiresFeature(FEATURES.LOANS_MODULE) // ✅ التحقق من توفر الموديول
@@ -63,6 +67,7 @@ export class LoansController {
   }
 
   // ✅ مسار جديد: إنشاء قرض لموظف من قبل المدير
+  /** تسجيل قرض لموظف (من الإدارة) */
   @Post('admin/:employeeId')
   @Permissions(PERMS.LOAN_CREATE_ADMIN)
   @RequiresFeature(FEATURES.LOANS_MODULE) // ✅ التحقق من توفر الموديول
@@ -76,6 +81,7 @@ export class LoansController {
   }
 
   // ✅ مسار التصدير الجماعي للقروض
+  /** تصدير القروض (excel أو pdf) */
   @Get('export/:type')
   @Permissions(PERMS.LOAN_VIEW)
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
@@ -127,6 +133,7 @@ export class LoansController {
   }
 
   // ✅ مسار التصدير الفردي للقرض
+  /** تصدير قرض واحد (excel أو pdf) */
   @Get(':id/export/:type')
   @Permissions(PERMS.LOAN_VIEW)
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
@@ -190,6 +197,7 @@ export class LoansController {
     });
   }
 
+  /** قائمة القروض */
   @Get()
   @Permissions(PERMS.LOAN_VIEW)
   @RequiresFeature(FEATURES.LOANS_MODULE) // ✅ حماية عرض القائمة
@@ -198,6 +206,7 @@ export class LoansController {
     return this.loansService.findAll(tenantId);
   }
 
+  /** تغيير حالة قرض (اعتماد أو رفض) */
   @Patch(':id/status')
   @Permissions(PERMS.LOAN_APPROVE)
   @RequiresFeature(FEATURES.LOANS_MODULE) // ✅ حماية الموافقة على القرض

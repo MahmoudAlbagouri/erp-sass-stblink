@@ -1,6 +1,6 @@
 // src/modules/catalog/dto/catalog-settings.dto.ts
 // DTOs لإعدادات الأصناف: التصنيفات، الوحدات، الضرائب.
-import { PartialType } from '@nestjs/mapped-types';
+import { PartialType } from '@nestjs/swagger';
 import {
   IsBoolean,
   IsEnum,

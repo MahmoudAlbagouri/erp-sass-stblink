@@ -411,6 +411,14 @@ export const PERMS = {
     name: 'process_pos_returns',
     labelAr: 'عمل مرتجع وردّ مبلغ من شاشة الكاشير',
   },
+  POS_PROMOTION_MANAGE: {
+    name: 'manage_pos_promotions',
+    labelAr: 'إدارة عروض وأسعار الكاشير',
+  },
+  POS_AUDIT_VIEW: {
+    name: 'view_pos_audit',
+    labelAr: 'عرض سجل تدقيق الكاشير وحركات الدرج',
+  },
   POS_DEVICE_MANAGE: {
     name: 'manage_pos_devices',
     labelAr: 'إضافة وتعديل أجهزة الكاشير',

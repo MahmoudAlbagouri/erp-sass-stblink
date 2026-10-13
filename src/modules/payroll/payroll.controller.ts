@@ -10,6 +10,8 @@ import {
   Query,
   ParseUUIDPipe,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import type { Response } from 'express';
 import { PayrollService } from './payroll.service';
 import { SalariesService } from '../salaries/salaries.service';
@@ -27,6 +29,7 @@ import { ReportService } from '../../common/reports/report.service';
 import { PERMS } from '../../common/constants/permissions';
 import { FEATURES } from '../../common/constants/features';
 
+@ApiTags(apiTag('PAYROLL'))
 @Controller('payroll')
 @UseGuards(JwtAuthGuard, SubscriptionGuard)
 export class PayrollController {
@@ -36,6 +39,7 @@ export class PayrollController {
     private readonly reportService: ReportService,
   ) {}
 
+  /** قائمة مسيرات الرواتب */
   @Get()
   @Permissions(PERMS.PAYROLL_VIEW)
   @RequiresFeature(FEATURES.PAYROLL_MODULE)
@@ -52,6 +56,7 @@ export class PayrollController {
     );
   }
 
+  /** إعداد مسودة مسير شهر: صافي كل موظف من راتبه وإضافاته وخصوماته (بلا أثر مالي) */
   @Post('generate/:month/:year')
   @Permissions(PERMS.PAYROLL_GENERATE)
   @RequiresFeature(FEATURES.PAYROLL_MODULE)
@@ -70,6 +75,7 @@ export class PayrollController {
   }
 
   // ✅ Endpoint جديد لتأكيد صرف المسير
+  /** تأكيد صرف المسير: تُرقَّم أقساط القروض والخصومات ويُقفل المسير */
   @Patch(':id/disburse')
   @Permissions(PERMS.PAYROLL_GENERATE)
   @RequiresFeature(FEATURES.PAYROLL_MODULE)
@@ -83,6 +89,7 @@ export class PayrollController {
     return this.payrollService.disbursePayroll(id, tenantId, user.id);
   }
 
+  /** مسير واحد ببنود موظفيه */
   @Get(':id')
   @Permissions(PERMS.PAYROLL_VIEW)
   @RequiresFeature(FEATURES.PAYROLL_MODULE)
@@ -91,6 +98,7 @@ export class PayrollController {
     return this.payrollService.findOneWithDetails(id, tenantId);
   }
 
+  /** تصدير مسير شهر (excel أو pdf) */
   @Get('export/:type/:month/:year')
   @Permissions(PERMS.PAYROLL_EXPORT)
   @RequiresFeature(FEATURES.REPORTS_EXPORT)

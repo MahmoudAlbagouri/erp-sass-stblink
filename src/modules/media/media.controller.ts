@@ -9,6 +9,8 @@ import {
   BadRequestException,
   Get,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import {
   isSafePathSegment,
@@ -26,11 +28,13 @@ function assertSafeSegment(value: string, label: string): void {
   }
 }
 
+@ApiTags(apiTag('MEDIA'))
 @Controller('media')
 @UseGuards(JwtAuthGuard) // ✅ الرفع/العرض/الحذف للمستخدمين المسجلين فقط
 export class MediaController {
   constructor(private readonly filesService: FilesService) {}
 
+  /** رفع ملف أو صورة إلى مجلد */
   @Post('upload/:folder')
   @UseInterceptors(FilesInterceptor('files', 10, storageConfig('products')))
   upload(
@@ -57,6 +61,7 @@ export class MediaController {
     return { success: true, message: 'تم الرفع بنجاح', data: uploadedData };
   }
 
+  /** صور مجلد */
   @Get('list/:folder/images')
   async listImages(@Param('folder') folder: string) {
     assertSafeSegment(folder, 'اسم المجلد');
@@ -67,7 +72,7 @@ export class MediaController {
     };
   }
 
-  // استجابة للملفات فقط
+  /** ملفات مجلد (غير الصور) */
   @Get('list/:folder/files')
   async listFiles(@Param('folder') folder: string) {
     assertSafeSegment(folder, 'اسم المجلد');
@@ -78,6 +83,7 @@ export class MediaController {
     };
   }
 
+  /** حذف ملف مرفوع */
   @Delete('delete/:folder/:subFolder/:fileName')
   async remove(
     @Param('folder') folder: string,

@@ -10,6 +10,8 @@ import {
   UseGuards,
   Res,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import type { Response } from 'express';
 import { ContractsService } from './contracts.service';
 import { CreateContractDto } from './dto/create-contract.dto';
@@ -29,6 +31,7 @@ import { PERMS } from '../../common/constants/permissions';
 import { formatDate } from '../../common/utils/format.util';
 import { FEATURES } from '../../common/constants/features'; // ✅ استيراد الثوابت
 
+@ApiTags(apiTag('CONTRACTS'))
 @Controller('contracts')
 @UseGuards(JwtAuthGuard, SubscriptionGuard, PermissionsGuard) // ✅ تفعيل حراس الاشتراك والصلاحيات
 export class ContractsController {
@@ -37,6 +40,7 @@ export class ContractsController {
     private readonly reportService: ReportService,
   ) {}
 
+  /** إضافة عقد لموظف (عقد واحد لكل موظف) */
   @Post()
   @Permissions(PERMS.CONTRACT_CREATE)
   @RequiresFeature(FEATURES.CONTRACTS_MODULE) // ✅ التحقق من توفر الموديول في الخطة
@@ -45,6 +49,7 @@ export class ContractsController {
   }
 
   // ✅ مسار التصدير الجماعي للعقود
+  /** تصدير العقود (excel أو pdf) */
   @Get('export/:type')
   @Permissions(PERMS.CONTRACT_EXPORT)
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
@@ -91,6 +96,7 @@ export class ContractsController {
   }
 
   // ✅ مسار التصدير الفردي لعقد واحد (يجب أن يكون قبل findOne)
+  /** تصدير عقد واحد (excel أو pdf) */
   @Get(':id/export/:type')
   @Permissions(PERMS.CONTRACT_EXPORT)
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
@@ -157,6 +163,7 @@ export class ContractsController {
     });
   }
 
+  /** قائمة العقود */
   @Get()
   @Permissions(PERMS.CONTRACT_VIEW)
   @RequiresFeature(FEATURES.CONTRACTS_MODULE) // ✅ حماية عرض القائمة
@@ -164,6 +171,7 @@ export class ContractsController {
     return this.contractsService.findAll(tenantId);
   }
 
+  /** عقد واحد */
   @Get(':id')
   @Permissions(PERMS.CONTRACT_VIEW)
   @RequiresFeature(FEATURES.CONTRACTS_MODULE) // ✅ حماية عرض التفاصيل
@@ -171,6 +179,7 @@ export class ContractsController {
     return this.contractsService.findOne(id, tenantId);
   }
 
+  /** تعديل عقد */
   @Patch(':id')
   @Permissions(PERMS.CONTRACT_UPDATE)
   @RequiresFeature(FEATURES.CONTRACTS_MODULE) // ✅ حماية التعديل
@@ -182,6 +191,7 @@ export class ContractsController {
     return this.contractsService.update(id, dto, tenantId);
   }
 
+  /** حذف عقد */
   @Delete(':id')
   @Permissions(PERMS.CONTRACT_DELETE)
   @RequiresFeature(FEATURES.CONTRACTS_MODULE) // ✅ حماية الحذف

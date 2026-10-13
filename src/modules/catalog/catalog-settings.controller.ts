@@ -12,6 +12,8 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { FEATURES } from '../../common/constants/features';
 import { PERMS } from '../../common/constants/permissions';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
@@ -31,6 +33,7 @@ import {
   UpdateUnitDto,
 } from './dto/catalog-settings.dto';
 
+@ApiTags(apiTag('CATALOG_SETTINGS'))
 @Controller('catalog')
 @UseGuards(JwtAuthGuard, TenantScopeGuard, SubscriptionGuard, PermissionsGuard)
 @RequiresFeature(FEATURES.PRODUCTS_MODULE)
@@ -38,12 +41,14 @@ export class CatalogSettingsController {
   constructor(private readonly settings: CatalogSettingsService) {}
 
   // ─── التصنيفات ──────────────────────────────────────────────
+  /** قائمة تصنيفات الأصناف */
   @Get('categories')
   @Permissions(PERMS.PRODUCT_VIEW)
   findCategories(@CurrentTenantId() tenantId: string) {
     return this.settings.findCategories(tenantId);
   }
 
+  /** إضافة تصنيف */
   @Post('categories')
   @Permissions(PERMS.CATALOG_SETTINGS_MANAGE)
   createCategory(
@@ -53,6 +58,7 @@ export class CatalogSettingsController {
     return this.settings.createCategory(dto, tenantId);
   }
 
+  /** تعديل تصنيف */
   @Patch('categories/:id')
   @Permissions(PERMS.CATALOG_SETTINGS_MANAGE)
   updateCategory(
@@ -63,6 +69,7 @@ export class CatalogSettingsController {
     return this.settings.updateCategory(id, dto, tenantId);
   }
 
+  /** حذف تصنيف */
   @Delete('categories/:id')
   @Permissions(PERMS.CATALOG_SETTINGS_MANAGE)
   removeCategory(
@@ -73,18 +80,21 @@ export class CatalogSettingsController {
   }
 
   // ─── الوحدات ────────────────────────────────────────────────
+  /** قائمة وحدات القياس */
   @Get('units')
   @Permissions(PERMS.PRODUCT_VIEW)
   findUnits(@CurrentTenantId() tenantId: string) {
     return this.settings.findUnits(tenantId);
   }
 
+  /** إضافة وحدة قياس */
   @Post('units')
   @Permissions(PERMS.CATALOG_SETTINGS_MANAGE)
   createUnit(@Body() dto: CreateUnitDto, @CurrentTenantId() tenantId: string) {
     return this.settings.createUnit(dto, tenantId);
   }
 
+  /** تعديل وحدة قياس */
   @Patch('units/:id')
   @Permissions(PERMS.CATALOG_SETTINGS_MANAGE)
   updateUnit(
@@ -95,6 +105,7 @@ export class CatalogSettingsController {
     return this.settings.updateUnit(id, dto, tenantId);
   }
 
+  /** حذف وحدة قياس */
   @Delete('units/:id')
   @Permissions(PERMS.CATALOG_SETTINGS_MANAGE)
   removeUnit(
@@ -105,12 +116,14 @@ export class CatalogSettingsController {
   }
 
   // ─── الضرائب ────────────────────────────────────────────────
+  /** قائمة نسب الضريبة */
   @Get('tax-rates')
   @Permissions(PERMS.PRODUCT_VIEW)
   findTaxRates(@CurrentTenantId() tenantId: string) {
     return this.settings.findTaxRates(tenantId);
   }
 
+  /** إضافة نسبة ضريبة */
   @Post('tax-rates')
   @Permissions(PERMS.CATALOG_SETTINGS_MANAGE)
   createTaxRate(
@@ -120,6 +133,7 @@ export class CatalogSettingsController {
     return this.settings.createTaxRate(dto, tenantId);
   }
 
+  /** تعديل نسبة ضريبة */
   @Patch('tax-rates/:id')
   @Permissions(PERMS.CATALOG_SETTINGS_MANAGE)
   updateTaxRate(
@@ -130,6 +144,7 @@ export class CatalogSettingsController {
     return this.settings.updateTaxRate(id, dto, tenantId);
   }
 
+  /** حذف نسبة ضريبة */
   @Delete('tax-rates/:id')
   @Permissions(PERMS.CATALOG_SETTINGS_MANAGE)
   removeTaxRate(

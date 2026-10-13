@@ -10,6 +10,8 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { FEATURES } from '../../common/constants/features';
 import { PERMS } from '../../common/constants/permissions';
 import { CheckQuota } from '../../common/decorators/check-quota.decorator';
@@ -23,18 +25,21 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateWarehouseDto, UpdateWarehouseDto } from './dto/inventory.dto';
 import { WarehousesService } from './warehouses.service';
 
+@ApiTags(apiTag('WAREHOUSES'))
 @Controller('inventory/warehouses')
 @UseGuards(JwtAuthGuard, TenantScopeGuard, SubscriptionGuard, PermissionsGuard)
 @RequiresFeature(FEATURES.INVENTORY_MODULE)
 export class WarehousesController {
   constructor(private readonly warehouses: WarehousesService) {}
 
+  /** قائمة المخازن مع فرع كل مخزن */
   @Get()
   @Permissions(PERMS.INVENTORY_VIEW)
   findAll(@CurrentTenantId() tenantId: string) {
     return this.warehouses.findAll(tenantId);
   }
 
+  /** إضافة مخزن لفرع */
   @Post()
   @Permissions(PERMS.WAREHOUSE_MANAGE)
   @CheckQuota('max_warehouses')
@@ -42,6 +47,7 @@ export class WarehousesController {
     return this.warehouses.create(dto, tenantId);
   }
 
+  /** تعديل مخزن أو نقله لفرع آخر أو إيقافه */
   @Patch(':id')
   @Permissions(PERMS.WAREHOUSE_MANAGE)
   update(
@@ -52,6 +58,7 @@ export class WarehousesController {
     return this.warehouses.update(id, dto, tenantId);
   }
 
+  /** حذف مخزن (بلا أرصدة ولا تحويلات مفتوحة) */
   @Delete(':id')
   @Permissions(PERMS.WAREHOUSE_MANAGE)
   remove(

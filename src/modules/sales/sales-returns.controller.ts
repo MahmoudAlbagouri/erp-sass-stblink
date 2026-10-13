@@ -11,6 +11,8 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { FEATURES } from '../../common/constants/features';
 import { PERMS } from '../../common/constants/permissions';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
@@ -28,12 +30,14 @@ import {
 } from './dto/sales.dto';
 import { SalesReturnsService } from './sales-returns.service';
 
+@ApiTags(apiTag('SALES_RETURNS'))
 @Controller('sales/returns')
 @UseGuards(JwtAuthGuard, TenantScopeGuard, SubscriptionGuard, PermissionsGuard)
 @RequiresFeature(FEATURES.SALES_MODULE)
 export class SalesReturnsController {
   constructor(private readonly returns: SalesReturnsService) {}
 
+  /** قائمة مرتجعات البيع */
   @Get()
   @Permissions(PERMS.SALES_VIEW)
   findAll(
@@ -43,6 +47,7 @@ export class SalesReturnsController {
     return this.returns.findAll(tenantId, query);
   }
 
+  /** مرتجع بيع واحد ببنوده */
   @Get(':id')
   @Permissions(PERMS.SALES_VIEW)
   findOne(
@@ -52,6 +57,7 @@ export class SalesReturnsController {
     return this.returns.findOne(id, tenantId);
   }
 
+  /** إنشاء مرتجع بيع على فاتورة (مسودة) */
   @Post()
   @Permissions(PERMS.SALES_RETURN_MANAGE)
   create(
@@ -62,6 +68,7 @@ export class SalesReturnsController {
     return this.returns.create(dto, tenantId, userId);
   }
 
+  /** إصدار المرتجع: تعود البضاعة للمخزن ويُردّ المبلغ أو يُخصم من دين العميل */
   @Post(':id/issue')
   @HttpCode(HttpStatus.OK)
   @Permissions(PERMS.SALES_RETURN_MANAGE)
@@ -74,6 +81,7 @@ export class SalesReturnsController {
     return this.returns.issue(id, dto, tenantId, userId);
   }
 
+  /** إلغاء مسودة مرتجع بيع */
   @Post(':id/cancel')
   @HttpCode(HttpStatus.OK)
   @Permissions(PERMS.SALES_RETURN_MANAGE)

@@ -13,6 +13,8 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { FEATURES } from '../../common/constants/features';
 import type { CurrentUserData } from '../../common/types/auth.types';
 import { PERMS } from '../../common/constants/permissions';
@@ -27,6 +29,10 @@ import { TenantScopeGuard } from '../../common/guards/tenant-scope.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import {
   BindDeviceDto,
+  CreatePromotionDto,
+  PosAuditQueryDto,
+  PosCashMovementQueryDto,
+  UpdatePromotionDto,
   CreatePosCashierDto,
   CreatePosDeviceDto,
   PosBootstrapQueryDto,
@@ -36,8 +42,10 @@ import {
   UpdatePosDeviceDto,
 } from './dto/pos.dto';
 import { PosCashiersService } from './pos-cashiers.service';
+import { PosExtrasService } from './pos-extras.service';
 import { PosService } from './pos.service';
 
+@ApiTags(apiTag('POS'))
 @Controller('pos')
 @UseGuards(JwtAuthGuard, TenantScopeGuard, SubscriptionGuard, PermissionsGuard)
 @RequiresFeature(FEATURES.POS_MODULE)
@@ -45,6 +53,7 @@ export class PosController {
   constructor(
     private readonly pos: PosService,
     private readonly cashiers: PosCashiersService,
+    private readonly extras: PosExtrasService,
   ) {}
 
   // ─── شاشة الكاشير ───────────────────────────────────────────
@@ -128,12 +137,14 @@ export class PosController {
   }
 
   // ─── الأجهزة والورديات (لوحة التحكم) ─────────────────────────
+  /** قائمة أجهزة الكاشير (مع مخزنها وفرعها ووردياتها المفتوحة) */
   @Get('devices')
   @Permissions(PERMS.POS_VIEW)
   findDevices(@CurrentTenantId() tenantId: string) {
     return this.pos.findDevices(tenantId);
   }
 
+  /** إضافة جهاز كاشير */
   @Post('devices')
   @Permissions(PERMS.POS_DEVICE_MANAGE)
   @CheckQuota('max_pos_devices')
@@ -144,6 +155,7 @@ export class PosController {
     return this.pos.createDevice(dto, tenantId);
   }
 
+  /** تعديل جهاز كاشير أو إيقافه */
   @Patch('devices/:id')
   @Permissions(PERMS.POS_DEVICE_MANAGE)
   updateDevice(
@@ -154,6 +166,7 @@ export class PosController {
     return this.pos.updateDevice(id, dto, tenantId);
   }
 
+  /** حذف جهاز كاشير */
   @Delete('devices/:id')
   @Permissions(PERMS.POS_DEVICE_MANAGE)
   removeDevice(
@@ -164,12 +177,14 @@ export class PosController {
   }
 
   // ─── الكاشيرات وأرقامهم السرية (لوحة التحكم) ─────────────────
+  /** قائمة الكاشيرات */
   @Get('cashiers')
   @Permissions(PERMS.POS_VIEW)
   findCashiers(@CurrentTenantId() tenantId: string) {
     return this.cashiers.findAll(tenantId);
   }
 
+  /** إضافة كاشير برقمه السري */
   @Post('cashiers')
   @Permissions(PERMS.POS_DEVICE_MANAGE)
   createCashier(
@@ -179,6 +194,7 @@ export class PosController {
     return this.cashiers.create(dto, tenantId);
   }
 
+  /** تعديل كاشير أو رقمه السري أو إيقافه */
   @Patch('cashiers/:id')
   @Permissions(PERMS.POS_DEVICE_MANAGE)
   updateCashier(
@@ -189,6 +205,7 @@ export class PosController {
     return this.cashiers.update(id, dto, tenantId);
   }
 
+  /** حذف كاشير */
   @Delete('cashiers/:id')
   @Permissions(PERMS.POS_DEVICE_MANAGE)
   removeCashier(
@@ -198,6 +215,7 @@ export class PosController {
     return this.cashiers.remove(id, tenantId);
   }
 
+  /** ورديات الكاشير وأرقامها */
   @Get('shifts')
   @Permissions(PERMS.POS_VIEW)
   findShifts(
@@ -205,6 +223,66 @@ export class PosController {
     @CurrentTenantId() tenantId: string,
   ) {
     return this.pos.findShifts(tenantId, query);
+  }
+
+  // ─── حركات الدرج وسجل التدقيق (لوحة التحكم) ─────────────────
+  /** إيداعات وسحوبات الدرج النقدية خلال الورديات */
+  @Get('cash-movements')
+  @Permissions(PERMS.POS_AUDIT_VIEW)
+  findCashMovements(
+    @Query() query: PosCashMovementQueryDto,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.extras.findCashMovements(tenantId, query);
+  }
+
+  /** سجل تدقيق الكاشير: حذف سطور، إفراغ سلة، فتح درج، خصومات، موافقات */
+  @Get('audit')
+  @Permissions(PERMS.POS_AUDIT_VIEW)
+  findAudit(
+    @Query() query: PosAuditQueryDto,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.extras.findAudit(tenantId, query);
+  }
+
+  // ─── العروض والأسعار الخاصة ─────────────────
+  /** قائمة عروض الكاشير وأسعاره الخاصة */
+  @Get('promotions')
+  @Permissions(PERMS.POS_VIEW)
+  findPromotions(@CurrentTenantId() tenantId: string) {
+    return this.extras.findPromotions(tenantId);
+  }
+
+  /** إضافة عرض: سعر خاص، خصم نسبة، أو اشترِ X واحصل على Y */
+  @Post('promotions')
+  @Permissions(PERMS.POS_PROMOTION_MANAGE)
+  createPromotion(
+    @Body() dto: CreatePromotionDto,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.extras.createPromotion(dto, tenantId);
+  }
+
+  /** تعديل عرض أو إيقافه */
+  @Patch('promotions/:id')
+  @Permissions(PERMS.POS_PROMOTION_MANAGE)
+  updatePromotion(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdatePromotionDto,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.extras.updatePromotion(id, dto, tenantId);
+  }
+
+  /** حذف عرض */
+  @Delete('promotions/:id')
+  @Permissions(PERMS.POS_PROMOTION_MANAGE)
+  removePromotion(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.extras.removePromotion(id, tenantId);
   }
 }
 

@@ -9,6 +9,8 @@ import {
   UseGuards,
   Query,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { PlansService } from './plans.service';
 import { CreatePlanDto } from './dto/create-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
@@ -18,11 +20,13 @@ import { Permissions } from '../../common/decorators/permissions.decorator';
 import { PERMS } from '../../common/constants/permissions';
 import { FEATURES } from '../../common/constants/features';
 
+@ApiTags(apiTag('PLANS'))
 @Controller('plans')
 @UseGuards(JwtAuthGuard)
 export class PlansController {
   constructor(private readonly plansService: PlansService) {}
 
+  /** المميزات التي يمكن إضافتها لباقة */
   @Get('features/list')
   @Permissions(PERMS.PLAN_VIEW)
   @UseGuards(PermissionsGuard)
@@ -30,6 +34,7 @@ export class PlansController {
     return Object.values(FEATURES);
   }
 
+  /** إضافة باقة */
   @Post()
   @Permissions(PERMS.PLAN_CREATE)
   @UseGuards(PermissionsGuard)
@@ -37,6 +42,7 @@ export class PlansController {
     return this.plansService.create(dto);
   }
 
+  /** قائمة الباقات */
   @Get()
   @Permissions(PERMS.PLAN_VIEW)
   @UseGuards(PermissionsGuard)
@@ -44,6 +50,7 @@ export class PlansController {
     return this.plansService.findAll(includeInactive === 'true');
   }
 
+  /** باقة واحدة */
   @Get(':id')
   @Permissions(PERMS.PLAN_VIEW)
   @UseGuards(PermissionsGuard)
@@ -51,6 +58,7 @@ export class PlansController {
     return this.plansService.findOne(id);
   }
 
+  /** تعديل باقة */
   @Patch(':id')
   @Permissions(PERMS.PLAN_UPDATE)
   @UseGuards(PermissionsGuard)
@@ -58,6 +66,7 @@ export class PlansController {
     return this.plansService.update(id, dto);
   }
 
+  /** حذف باقة */
   @Delete(':id')
   @Permissions(PERMS.PLAN_DELETE)
   @UseGuards(PermissionsGuard)

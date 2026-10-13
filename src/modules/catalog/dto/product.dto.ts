@@ -1,5 +1,5 @@
 // src/modules/catalog/dto/product.dto.ts
-import { PartialType } from '@nestjs/mapped-types';
+import { PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,

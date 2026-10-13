@@ -10,6 +10,8 @@ import {
   UseGuards,
   Res,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import type { Response } from 'express';
 import { DeductionsService } from './deduction.service';
 import { CreateDeductionDto } from './dto/create-deduction.dto';
@@ -35,6 +37,7 @@ import {
   formatMoney,
 } from '../../common/utils/format.util';
 
+@ApiTags(apiTag('DEDUCTIONS'))
 @Controller('deductions')
 @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
 export class DeductionsController {
@@ -43,6 +46,7 @@ export class DeductionsController {
     private readonly reportService: ReportService,
   ) {}
 
+  /** إضافة خصم على موظف (دفعة واحدة أو أقساط شهرية) */
   @Post()
   @Permissions(PERMS.DEDUCTION_CREATE)
   @RequiresFeature(FEATURES.DEDUCTIONS_MODULE) // ✅ التحقق من توفر الموديول
@@ -52,6 +56,7 @@ export class DeductionsController {
   }
 
   // ✅ مسار التصدير الجماعي للخصومات
+  /** تصدير الخصومات (excel أو pdf) */
   @Get('export/:type')
   @Permissions(PERMS.DEDUCTION_VIEW)
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
@@ -96,6 +101,7 @@ export class DeductionsController {
   }
 
   // ✅ مسار التصدير الفردي للخصم
+  /** تصدير خصم واحد (excel أو pdf) */
   @Get(':id/export/:type')
   @Permissions(PERMS.DEDUCTION_VIEW)
   @RequiresFeature(FEATURES.REPORTS_EXPORT) // ✅ التحقق من ميزة التصدير
@@ -146,6 +152,7 @@ export class DeductionsController {
     });
   }
 
+  /** قائمة الخصومات */
   @Get()
   @Permissions(PERMS.DEDUCTION_VIEW)
   @RequiresFeature(FEATURES.DEDUCTIONS_MODULE) // ✅ حماية عرض القائمة
@@ -154,6 +161,7 @@ export class DeductionsController {
     return this.deductionsService.findAll(tenantId);
   }
 
+  /** خصم واحد */
   @Get(':id')
   @Permissions(PERMS.DEDUCTION_VIEW)
   @RequiresFeature(FEATURES.DEDUCTIONS_MODULE) // ✅ حماية عرض التفاصيل
@@ -162,6 +170,7 @@ export class DeductionsController {
     return this.deductionsService.findOne(id, tenantId);
   }
 
+  /** تعديل خصم */
   @Patch(':id')
   @Permissions(PERMS.DEDUCTION_UPDATE)
   @RequiresFeature(FEATURES.DEDUCTIONS_MODULE) // ✅ حماية التعديل
@@ -175,6 +184,7 @@ export class DeductionsController {
   }
 
   // ✅ Endpoint جديد لتغيير حالة الخصم
+  /** تغيير حالة خصم (نشط، مكتمل، ملغي) */
   @Patch(':id/status')
   @Permissions(PERMS.DEDUCTION_UPDATE)
   @RequiresFeature(FEATURES.DEDUCTIONS_MODULE) // ✅ حماية تغيير الحالة
@@ -187,6 +197,7 @@ export class DeductionsController {
     return this.deductionsService.updateStatus(id, status, tenantId);
   }
 
+  /** حذف خصم */
   @Delete(':id')
   @Permissions(PERMS.DEDUCTION_DELETE)
   @RequiresFeature(FEATURES.DEDUCTIONS_MODULE) // ✅ حماية الحذف

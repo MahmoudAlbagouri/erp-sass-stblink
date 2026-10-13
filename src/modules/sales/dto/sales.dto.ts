@@ -1,5 +1,5 @@
 // src/modules/sales/dto/sales.dto.ts
-import { PartialType } from '@nestjs/mapped-types';
+import { PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -40,6 +40,53 @@ const TAX_NUMBER_MESSAGE = 'الرقم الضريبي يتكون من 15 رقم�
 
 // ══════════════════════════ إعدادات الفوترة ══════════════════════════
 
+export class ScaleBarcodeOptionsDto {
+  @IsBoolean()
+  enabled!: boolean;
+
+  /** بادئات الباركود الموزون (خانتان لكل بادئة) */
+  @IsArray()
+  @ArrayMaxSize(20)
+  @Matches(/^\d{2}$/, { each: true, message: 'بادئة الميزان خانتان رقميتان' })
+  prefixes!: string[];
+
+  /** خانات كود الصنف بعد البادئة (القيمة تأخذ الباقي حتى 12 خانة) */
+  @IsInt()
+  @Min(4)
+  @Max(6)
+  itemDigits!: number;
+
+  @IsIn(['weight', 'price'])
+  valueType!: 'weight' | 'price';
+
+  @IsInt()
+  @Min(0)
+  @Max(3)
+  valueDecimals!: number;
+}
+
+export class PosApprovalsDto {
+  /** حذف سطر أو إفراغ السلة أو حذف فاتورة معلّقة */
+  @IsBoolean()
+  void!: boolean;
+
+  @IsBoolean()
+  cashOut!: boolean;
+
+  @IsBoolean()
+  manualDrawer!: boolean;
+}
+
+export class PosOptionsDto {
+  @ValidateNested()
+  @Type(() => ScaleBarcodeOptionsDto)
+  scale!: ScaleBarcodeOptionsDto;
+
+  @ValidateNested()
+  @Type(() => PosApprovalsDto)
+  approvals!: PosApprovalsDto;
+}
+
 export class UpdateSalesSettingsDto {
   @IsOptional()
   @IsString()
@@ -69,6 +116,12 @@ export class UpdateSalesSettingsDto {
   @IsString()
   @MaxLength(300)
   invoiceFooter?: string | null;
+
+  /** إعدادات شاشة الكاشير: باركود الميزان وما يحتاج موافقة مشرف */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PosOptionsDto)
+  posOptions?: PosOptionsDto;
 }
 
 // ══════════════════════════ العملاء ══════════════════════════

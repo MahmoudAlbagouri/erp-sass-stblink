@@ -12,6 +12,8 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { FEATURES } from '../../common/constants/features';
 import { PERMS } from '../../common/constants/permissions';
 import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decorator';
@@ -31,6 +33,7 @@ import {
 } from './dto/sales.dto';
 import { SalesSettingsService } from './sales-settings.service';
 
+@ApiTags(apiTag('CUSTOMERS'))
 @Controller('sales')
 @UseGuards(JwtAuthGuard, TenantScopeGuard, SubscriptionGuard, PermissionsGuard)
 @RequiresFeature(FEATURES.SALES_MODULE)
@@ -42,12 +45,14 @@ export class CustomersController {
 
   // ─── إعدادات الفوترة ────────────────────────────────────────
   // القراءة لكل من يرى الفواتير (تُطبع عليها)، والتعديل بصلاحية خاصة
+  /** إعدادات الفوترة: بيانات البائع والضريبة وتذييل الفاتورة */
   @Get('settings')
   @Permissions(PERMS.SALES_VIEW)
   getSettings(@CurrentTenantId() tenantId: string) {
     return this.settings.get(tenantId);
   }
 
+  /** تعديل إعدادات الفوترة */
   @Patch('settings')
   @Permissions(PERMS.SALES_SETTINGS_MANAGE)
   updateSettings(
@@ -58,6 +63,7 @@ export class CustomersController {
   }
 
   // ─── العملاء ────────────────────────────────────────────────
+  /** قائمة العملاء وأرصدتهم */
   @Get('customers')
   @Permissions(PERMS.CUSTOMER_VIEW)
   findAll(
@@ -67,6 +73,7 @@ export class CustomersController {
     return this.customers.findAll(tenantId, query);
   }
 
+  /** عميل واحد */
   @Get('customers/:id')
   @Permissions(PERMS.CUSTOMER_VIEW)
   findOne(
@@ -76,6 +83,7 @@ export class CustomersController {
     return this.customers.findOne(id, tenantId);
   }
 
+  /** كشف حساب عميل */
   @Get('customers/:id/statement')
   @Permissions(PERMS.CUSTOMER_VIEW)
   statement(
@@ -86,12 +94,14 @@ export class CustomersController {
     return this.customers.statement(id, tenantId, query);
   }
 
+  /** إضافة عميل */
   @Post('customers')
   @Permissions(PERMS.CUSTOMER_MANAGE)
   create(@Body() dto: CreateCustomerDto, @CurrentTenantId() tenantId: string) {
     return this.customers.create(dto, tenantId);
   }
 
+  /** تعديل عميل */
   @Patch('customers/:id')
   @Permissions(PERMS.CUSTOMER_MANAGE)
   update(
@@ -102,6 +112,7 @@ export class CustomersController {
     return this.customers.update(id, dto, tenantId);
   }
 
+  /** حذف عميل */
   @Delete('customers/:id')
   @Permissions(PERMS.CUSTOMER_MANAGE)
   remove(

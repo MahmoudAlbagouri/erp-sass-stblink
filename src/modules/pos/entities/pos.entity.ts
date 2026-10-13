@@ -122,6 +122,26 @@ export class PosCashier extends TenantOwnedEntity {
   @Column({ type: 'timestamptz', nullable: true })
   returnRevokedAt?: Date | null;
 
+  /**
+   * مشرف: يوافق برقمه السري على ما يتجاوز صلاحية الكاشير (خصم فوق الحد، بيع
+   * تحت أقل سعر، وما تشترط إعدادات الشركة موافقة عليه).
+   */
+  @Column({ default: false })
+  isSupervisor!: boolean;
+
+  /**
+   * أقصى خصم يدوي يمنحه على الفاتورة (% من قيمتها). null = بلا حد. تجاوزه
+   * يحتاج موافقة مشرف. عروض الإدارة لا تُحسب منه.
+   */
+  @Column({
+    type: 'numeric',
+    precision: 5,
+    scale: 2,
+    nullable: true,
+    transformer: decimalTransformer,
+  })
+  maxDiscountPercent?: number | null;
+
   @Column({ default: true })
   isActive!: boolean;
 }
@@ -200,11 +220,26 @@ export class PosShift {
   @Column(money)
   cashRefunds!: number;
 
+  /** ما بيع على الحساب (آجل) لعملاء مسجّلين: لم يدخل الدرج */
+  @Column(money)
+  creditTotal!: number;
+
+  /** نقد أُودع في الدرج خلال الوردية بلا بيع (فكّة، عهدة إضافية) */
+  @Column(money)
+  cashIn!: number;
+
+  /** نقد سُحب من الدرج بلا مرتجع (مصروف نثري، توريد للخزنة) */
+  @Column(money)
+  cashOut!: number;
+
   /** مرات فتح الدرج يدوياً بلا بيع (للمراجعة) */
   @Column({ type: 'int', default: 0 })
   drawerOpens!: number;
 
-  /** المفترض في الدرج = العهدة + المبيعات النقدية − المردود نقداً */
+  /**
+   * المفترض في الدرج =
+   * العهدة + المبيعات النقدية − المردود نقداً + الإيداعات − المسحوبات
+   */
   @Column(money)
   expectedCash!: number;
 

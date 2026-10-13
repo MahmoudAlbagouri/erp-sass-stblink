@@ -9,6 +9,12 @@ import { SalesModule } from '../sales/sales.module';
 import { QuotaResolver } from '../subscriptions/interfaces/quota-resolver.interface';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { PosCashier, PosDevice, PosShift } from './entities/pos.entity';
+import {
+  PosAuditLog,
+  PosCashMovement,
+  PosPromotion,
+} from './entities/pos-extras.entity';
+import { PosExtrasService } from './pos-extras.service';
 import { PosDeviceGuard } from './guards/pos-device.guard';
 import { PosCashiersService } from './pos-cashiers.service';
 import { PosDeviceController } from './pos-device.controller';
@@ -35,7 +41,14 @@ export class PosDevicesQuotaResolver implements QuotaResolver {
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([PosDevice, PosShift, PosCashier]),
+    TypeOrmModule.forFeature([
+      PosDevice,
+      PosShift,
+      PosCashier,
+      PosCashMovement,
+      PosAuditLog,
+      PosPromotion,
+    ]),
     JwtModule.register({}), // PosDeviceGuard: جلسة المستخدم الاختيارية
     CatalogModule, // ProductsService, CatalogSettingsService
     InventoryModule, // WarehousesService
@@ -46,6 +59,7 @@ export class PosDevicesQuotaResolver implements QuotaResolver {
   providers: [
     PosService,
     PosCashiersService,
+    PosExtrasService,
     PosDeviceGuard,
     PosDevicesQuotaResolver,
   ],

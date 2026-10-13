@@ -9,6 +9,8 @@ import {
   Query,
   NotFoundException,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { ResignationsService } from './resignations.service';
 import { CreateResignationDto } from './dto/create-resignation.dto';
 import { DecisionResignationDto } from './dto/decision-resignation.dto';
@@ -26,12 +28,14 @@ import { PERMS } from '../../common/constants/permissions';
 import { FEATURES } from '../../common/constants/features'; // ✅ استيراد الثوابت
 import { ResignationStatus } from './entities/resignation.entity';
 
+@ApiTags(apiTag('RESIGNATIONS'))
 @Controller('resignations')
 @UseGuards(JwtAuthGuard, SubscriptionGuard) // ✅ تفعيل حراس الاشتراك والمصادقة
 export class ResignationsController {
   constructor(private readonly resignationsService: ResignationsService) {}
 
   // ✅ مسار جديد لجلب طلبات الموظف الحالي
+  /** طلبات استقالة الموظف الحالي */
   @Get('my-requests')
   @Permissions(PERMS.RESIGNATION_REQUEST_SELF)
   @RequiresFeature(FEATURES.RESIGNATIONS_MODULE) // ✅ التحقق من توفر الموديول
@@ -45,6 +49,7 @@ export class ResignationsController {
     return this.resignationsService.findMyRequests(user.employeeId, tenantId);
   }
 
+  /** تقديم طلب استقالة */
   @Post('my-request')
   @Permissions(PERMS.RESIGNATION_REQUEST_SELF)
   @RequiresFeature(FEATURES.RESIGNATIONS_MODULE) // ✅ التحقق من توفر الموديول
@@ -59,6 +64,7 @@ export class ResignationsController {
     return this.resignationsService.create(dto, user.employeeId, tenantId);
   }
 
+  /** سحب طلب الاستقالة المعلَّق */
   @Post('my-request/cancel')
   @Permissions(PERMS.RESIGNATION_REQUEST_SELF)
   @RequiresFeature(FEATURES.RESIGNATIONS_MODULE) // ✅ التحقق من توفر الموديول
@@ -72,6 +78,7 @@ export class ResignationsController {
     return this.resignationsService.cancelMyRequest(user.employeeId, tenantId);
   }
 
+  /** قبول طلب استقالة أو رفضه */
   @Post(':id/decision')
   @Permissions(PERMS.RESIGNATION_APPROVE)
   @RequiresFeature(FEATURES.RESIGNATIONS_MODULE) // ✅ التحقق من توفر الموديول
@@ -84,6 +91,7 @@ export class ResignationsController {
     return this.resignationsService.makeDecision(id, dto, tenantId);
   }
 
+  /** قائمة طلبات الاستقالة */
   @Get()
   @Permissions(PERMS.RESIGNATION_VIEW_ALL)
   @RequiresFeature(FEATURES.RESIGNATIONS_MODULE) // ✅ حماية عرض القائمة
@@ -95,6 +103,7 @@ export class ResignationsController {
     return this.resignationsService.findAll(tenantId, status);
   }
 
+  /** طلب استقالة واحد */
   @Get(':id')
   @Permissions(PERMS.RESIGNATION_VIEW_ALL)
   @RequiresFeature(FEATURES.RESIGNATIONS_MODULE) // ✅ حماية عرض التفاصيل

@@ -9,6 +9,8 @@ import {
   ParseUUIDPipe,
   Res,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import type { Response } from 'express';
 import { SettlementsService } from './settlements.service';
 import { ConfirmSettlementDto } from './dto/confirm-settlement.dto';
@@ -27,6 +29,7 @@ import { PERMS } from '../../common/constants/permissions';
 import { FEATURES } from '../../common/constants/features';
 import { DISPLAY_LOCALE, formatDate } from '../../common/utils/format.util';
 
+@ApiTags(apiTag('SETTLEMENTS'))
 @Controller('settlements')
 @UseGuards(JwtAuthGuard, SubscriptionGuard)
 export class SettlementsController {
@@ -35,6 +38,7 @@ export class SettlementsController {
     private readonly reportService: ReportService,
   ) {}
 
+  /** حساب مستحقات بدل الإجازة لموظف (معاينة بلا حفظ) */
   @Post('calculate/:employeeId')
   @Permissions(PERMS.SETTLEMENT_VIEW)
   @RequiresFeature(FEATURES.SETTLEMENTS_MODULE)
@@ -46,6 +50,7 @@ export class SettlementsController {
     return this.settlementsService.calculateSettlement(employeeId, tenantId);
   }
 
+  /** تأكيد التسوية وحفظها */
   @Post('confirm')
   @Permissions(PERMS.SETTLEMENT_CREATE)
   @RequiresFeature(FEATURES.SETTLEMENTS_MODULE)
@@ -58,6 +63,7 @@ export class SettlementsController {
   }
 
   // ✅ Endpoint جديد لتأكيد الصرف
+  /** تأكيد صرف تسوية مباشرة خارج المسير */
   @Patch(':id/disburse')
   @Permissions(PERMS.SETTLEMENT_CREATE)
   @RequiresFeature(FEATURES.SETTLEMENTS_MODULE)
@@ -70,6 +76,7 @@ export class SettlementsController {
     return this.settlementsService.disburseSettlement(id, tenantId, user);
   }
 
+  /** تصدير التسويات (excel أو pdf) */
   @Get('export/:type')
   @Permissions(PERMS.SETTLEMENT_EXPORT)
   @RequiresFeature(FEATURES.REPORTS_EXPORT)
@@ -115,6 +122,7 @@ export class SettlementsController {
     });
   }
 
+  /** قائمة التسويات */
   @Get()
   @Permissions(PERMS.SETTLEMENT_VIEW)
   @RequiresFeature(FEATURES.SETTLEMENTS_MODULE)
@@ -123,6 +131,7 @@ export class SettlementsController {
     return this.settlementsService.findAll(tenantId);
   }
 
+  /** تسويات موظف واحد */
   @Get('employee/:employeeId')
   @Permissions(PERMS.SETTLEMENT_VIEW)
   @RequiresFeature(FEATURES.SETTLEMENTS_MODULE)

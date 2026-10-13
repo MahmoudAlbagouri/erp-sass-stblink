@@ -1,5 +1,7 @@
 // src/modules/dashboard/dashboard.controller.ts
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { Type } from 'class-transformer';
 import { IsIn, IsOptional, IsUUID, Matches } from 'class-validator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -39,11 +41,13 @@ export class DashboardQueryDto {
  * الصفحة الرئيسية. بلا حارس صلاحية أو خطة على المسار نفسه: أي مستخدم شركة يفتح
  * الرئيسية، والخدمة تُسقط كل قسم لا يحق له (انظر DashboardService.accessOf).
  */
+@ApiTags(apiTag('DASHBOARD'))
 @Controller('dashboard')
 @UseGuards(JwtAuthGuard, TenantScopeGuard)
 export class DashboardController {
   constructor(private readonly dashboard: DashboardService) {}
 
+  /** أرقام الصفحة الرئيسية: مبيعات، مشتريات، مخزون، موارد بشرية، حضور */
   @Get('overview')
   overview(
     @CurrentUser() user: CurrentUserData,

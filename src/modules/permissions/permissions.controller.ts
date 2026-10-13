@@ -9,6 +9,8 @@ import {
   Delete,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { apiTag } from '../../config/swagger.config';
 import { PermissionsService } from './permissions.service';
 import { CreatePermissionDto } from './dto/create-permission.dto';
 import { UpdatePermissionDto } from './dto/update-permission.dto';
@@ -23,11 +25,13 @@ import { CurrentTenantId } from '../../common/decorators/current-tenant-id.decor
 // ✅ استيراد الثوابت
 import { PERMS } from '../../common/constants/permissions';
 
+@ApiTags(apiTag('PERMISSIONS'))
 @Controller('permissions')
 @UseGuards(JwtAuthGuard)
 export class PermissionsController {
   constructor(private readonly permissionsService: PermissionsService) {}
 
+  /** إضافة صلاحية */
   @Post()
   @Permissions(PERMS.PERMISSION_CREATE)
   @UseGuards(PermissionsGuard)
@@ -39,6 +43,7 @@ export class PermissionsController {
     return this.permissionsService.create(dto, user, tenantId);
   }
 
+  /** قائمة الصلاحيات */
   @Get()
   @Permissions(PERMS.PERMISSION_VIEW)
   @UseGuards(PermissionsGuard)
@@ -49,6 +54,7 @@ export class PermissionsController {
     return this.permissionsService.findAll(user, tenantId);
   }
 
+  /** صلاحية واحدة */
   @Get(':id')
   @Permissions(PERMS.PERMISSION_VIEW)
   @UseGuards(PermissionsGuard)
@@ -60,6 +66,7 @@ export class PermissionsController {
     return this.permissionsService.findOne(id, user, tenantId);
   }
 
+  /** تعديل صلاحية */
   @Patch(':id')
   @Permissions(PERMS.PERMISSION_UPDATE)
   @UseGuards(PermissionsGuard)
@@ -72,6 +79,7 @@ export class PermissionsController {
     return this.permissionsService.update(id, dto, user, tenantId);
   }
 
+  /** حذف صلاحية */
   @Delete(':id')
   @Permissions(PERMS.PERMISSION_DELETE)
   @UseGuards(PermissionsGuard)
