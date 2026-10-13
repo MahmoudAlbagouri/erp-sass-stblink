@@ -23,6 +23,11 @@ import {
   moneyDecimalsOf,
   roundMoney,
 } from '../../common/utils/money.util';
+import {
+  assertWarehouseVisible,
+  restrictToScopedWarehouses,
+  scopedWarehouseIds,
+} from '../branches/branch-scope';
 import { Product, ProductType } from '../catalog/entities/product.entity';
 import { TaxCategory } from '../catalog/entities/tax-rate.entity';
 import { ProductsService } from '../catalog/products.service';
@@ -179,6 +184,7 @@ export class SalesInvoicesService {
       .leftJoinAndSelect('invoice.warehouse', 'warehouse')
       .loadRelationCountAndMap('invoice.linesCount', 'invoice.lines')
       .where('invoice.tenantId = :tenantId', { tenantId });
+    restrictToScopedWarehouses(qb, 'invoice.warehouseId');
 
     const search = query.search?.trim();
     if (search) {
@@ -231,9 +237,10 @@ export class SalesInvoicesService {
   async findOne(id: string, tenantId: string): Promise<SalesInvoice> {
     const invoice = await this.invoices.findOne({
       where: { id, tenantId },
-      relations: ['customer', 'warehouse', 'lines'],
+      relations: ['customer', 'warehouse', 'warehouse.branch', 'lines'],
     });
     if (!invoice) throw new NotFoundException('فاتورة البيع غير موجودة');
+    assertWarehouseVisible(invoice.warehouseId, 'فاتورة البيع غير موجودة');
 
     invoice.lines?.sort((a, b) => a.sortOrder - b.sortOrder);
     return invoice;
@@ -268,6 +275,7 @@ export class SalesInvoicesService {
       lock: { mode: 'pessimistic_write' },
     });
     if (!invoice) throw new NotFoundException('فاتورة البيع غير موجودة');
+    assertWarehouseVisible(invoice.warehouseId, 'فاتورة البيع غير موجودة');
     return invoice;
   }
 
@@ -314,6 +322,9 @@ export class SalesInvoicesService {
   }
 
   async summary(tenantId: string): Promise<SalesSummary> {
+    // المستخدم المقيَّد بفروع يرى أرقام فروعه (ذمم العملاء تبقى للشركة كلها:
+    // العميل ليس تابعاً لفرع)
+    const allowed = scopedWarehouseIds();
     const [row] = await this.invoices.query<
       {
         today: string;
@@ -337,8 +348,9 @@ export class SalesInvoicesService {
              AND "total" - "returnedAmount" - "paidAmount" > 0), 0) AS "overdue",
          (COUNT(*) FILTER (WHERE "status" = 'draft'))::int AS "drafts"
        FROM sales_invoices
-       WHERE "tenantId" = $1 AND "deletedAt" IS NULL`,
-      [tenantId],
+       WHERE "tenantId" = $1 AND "deletedAt" IS NULL
+         ${allowed ? 'AND "warehouseId" = ANY($2::uuid[])' : ''}`,
+      allowed ? [tenantId, allowed] : [tenantId],
     );
 
     return {

@@ -8,12 +8,20 @@ import { InjectRepository } from '@nestjs/typeorm';
 import {
   Repository,
   Between,
+  In,
   FindOptionsWhere,
   DataSource,
   EntityManager,
   LessThanOrEqual,
   MoreThanOrEqual,
 } from 'typeorm';
+import {
+  assertBranchVisible,
+  restrictToScopedBranches,
+  scopedBranchIds,
+  scopedEmployeeWhere,
+} from '../branches/branch-scope';
+import { resolveBranchId } from '../branches/branches.util';
 import {
   BiometricDevice,
   DeviceStatus,
@@ -581,13 +589,23 @@ export class AttendanceService {
       ...dto,
       serialNumber,
       tenantId: user.tenantId,
+      branchId: await resolveBranchId(
+        this.dataSource.manager,
+        user.tenantId,
+        dto.branchId,
+      ),
     });
     return withLiveStatus(await this.deviceRepo.save(device));
   }
 
   async findAllDevices(user: CurrentUserData): Promise<BiometricDevice[]> {
+    const allowed = scopedBranchIds();
     const devices = await this.deviceRepo.find({
-      where: { tenantId: user.tenantId },
+      where: {
+        tenantId: user.tenantId,
+        ...(allowed ? { branchId: In(allowed) } : {}),
+      },
+      relations: { branch: true },
       order: { createdAt: 'DESC' },
     });
     return devices.map(withLiveStatus);
@@ -601,6 +619,7 @@ export class AttendanceService {
       where: { id, tenantId: user.tenantId },
     });
     if (!device) throw new NotFoundException('الجهاز غير موجود');
+    assertBranchVisible(device.branchId, 'الجهاز غير موجود');
     return withLiveStatus(device);
   }
 
@@ -613,7 +632,15 @@ export class AttendanceService {
       where: { id, tenantId: user.tenantId },
     });
     if (!device) throw new NotFoundException('الجهاز غير موجود');
+    assertBranchVisible(device.branchId, 'الجهاز غير موجود');
 
+    if (dto.branchId && dto.branchId !== device.branchId) {
+      await resolveBranchId(
+        this.dataSource.manager,
+        user.tenantId,
+        dto.branchId,
+      );
+    }
     const serialNumber = dto.serialNumber?.trim();
     if (serialNumber && serialNumber !== device.serialNumber) {
       await this.assertSerialFree(serialNumber);
@@ -644,6 +671,7 @@ export class AttendanceService {
       where: { id, tenantId: user.tenantId },
     });
     if (!device) throw new NotFoundException('الجهاز غير موجود');
+    assertBranchVisible(device.branchId, 'الجهاز غير موجود');
 
     await this.dataSource.transaction(async (manager) => {
       await manager.delete(DeviceCommand, { deviceId: device.id });
@@ -700,6 +728,13 @@ export class AttendanceService {
       .leftJoinAndSelect('log.employee', 'employee')
       .leftJoinAndSelect('log.device', 'device')
       .where('log.tenantId = :tenantId', { tenantId: user.tenantId });
+    // الحضور يتبع فرع الموظف (لا فرع الجهاز الذي بصم عليه)
+    restrictToScopedBranches(qb, 'employee.branchId');
+    if (query.branchId) {
+      qb.andWhere('employee.branchId = :branchId', {
+        branchId: query.branchId,
+      });
+    }
 
     const { from, to } = this.resolveRange(
       query,
@@ -824,9 +859,14 @@ export class AttendanceService {
     }
     const day = dayKeyInZone(dayStart, zone);
 
+    const allowed = scopedBranchIds();
     const [employees, logs] = await Promise.all([
       this.dataSource.getRepository(Employee).find({
-        where: { tenantId: user.tenantId, status: 'active' },
+        where: {
+          tenantId: user.tenantId,
+          status: 'active',
+          ...(allowed ? { branchId: In(allowed) } : {}),
+        },
         relations: ['shift'],
         order: { fullName: 'ASC' },
       }),
@@ -834,6 +874,7 @@ export class AttendanceService {
       this.logRepo.find({
         where: {
           tenantId: user.tenantId,
+          ...scopedEmployeeWhere(),
           punchTime: Between(
             new Date(dayStart.getTime() - 24 * HOUR_MS),
             new Date(dayStart.getTime() + 48 * HOUR_MS),
@@ -941,6 +982,7 @@ export class AttendanceService {
       relations: ['shift'],
     });
     if (!employee) throw new NotFoundException('الموظف غير موجود');
+    assertBranchVisible(employee.branchId, 'الموظف غير موجود');
 
     const zone = await this.zoneOf(user.tenantId);
     const shift = employee.shift;

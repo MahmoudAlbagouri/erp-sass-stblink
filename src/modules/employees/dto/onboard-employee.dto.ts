@@ -178,6 +178,11 @@ export class OnboardEmployeeDto {
   @IsOptional()
   jobTitle?: string;
 
+  /** الفرع الذي يعمل فيه الموظف — يُترك فارغاً للفرع الرئيسي */
+  @IsUUID()
+  @IsOptional()
+  branchId?: string;
+
   // ✅ department أصبح departmentId
   @IsUUID()
   @IsOptional()

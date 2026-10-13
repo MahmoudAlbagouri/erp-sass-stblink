@@ -66,6 +66,11 @@ export class CreateEmployeeDto {
   @IsOptional()
   jobTitle?: string;
 
+  /** الفرع الذي يعمل فيه الموظف — يُترك فارغاً للفرع الرئيسي */
+  @IsUUID()
+  @IsOptional()
+  branchId?: string;
+
   // ✅ department أصبح departmentId (UUID) بدل نص حر
   @IsUUID()
   @IsOptional()

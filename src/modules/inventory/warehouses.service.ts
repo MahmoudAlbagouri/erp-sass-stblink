@@ -7,6 +7,12 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, Not, Repository } from 'typeorm';
+import {
+  assertWarehouseAllowed,
+  assertWarehouseVisible,
+  scopedWarehouseIds,
+} from '../branches/branch-scope';
+import { ensureMainBranch, resolveBranchId } from '../branches/branches.util';
 import { CreateWarehouseDto, UpdateWarehouseDto } from './dto/inventory.dto';
 import { StockLevel } from './entities/stock-level.entity';
 import {
@@ -28,10 +34,13 @@ export class WarehousesService {
     private readonly transfers: Repository<StockTransfer>,
   ) {}
 
+  /** مخازن الشركة التي يحق للمستخدم رؤيتها (مخازن فروعه)، مع فرع كل منها */
   async findAll(tenantId: string): Promise<Warehouse[]> {
     await this.ensureDefaults(tenantId);
+    const allowed = scopedWarehouseIds();
     return this.warehouses.find({
-      where: { tenantId },
+      where: { tenantId, ...(allowed ? { id: In(allowed) } : {}) },
+      relations: { branch: true },
       // الرئيسي أولاً (ترتيب قيم الـ enum في القاعدة: main ثم branch)
       order: { type: 'ASC', name: 'ASC' },
     });
@@ -42,17 +51,23 @@ export class WarehousesService {
       where: { id, tenantId },
     });
     if (!warehouse) throw new NotFoundException('المخزن غير موجود');
+    assertWarehouseVisible(warehouse.id, 'المخزن غير موجود');
     return warehouse;
   }
 
   /**
    * مخازن فعّالة تابعة للشركة — يرمي 404 إذا كان أحدها غير موجود.
    * داخل معاملة يُمرَّر الـ manager حتى لا يُطلب اتصال ثانٍ من الـ pool.
+   *
+   * كل مستند وكل حركة مخزون يمرّان من هنا، فهنا يُمنع المستخدم المقيَّد بفروع
+   * من العمل على مخزن فرع آخر. `anyBranch` للحالة الوحيدة التي يُسمّى فيها
+   * مخزن فرع آخر دون تحريك رصيده: الطرف المقابل في طلب تحويل.
    */
   async findActiveByIds(
     ids: string[],
     tenantId: string,
     manager?: EntityManager,
+    { anyBranch = false }: { anyBranch?: boolean } = {},
   ): Promise<Warehouse[]> {
     const unique = [...new Set(ids)];
     const repository = manager?.getRepository(Warehouse) ?? this.warehouses;
@@ -66,6 +81,7 @@ export class WarehousesService {
     if (inactive) {
       throw new BadRequestException(`المخزن "${inactive.name}" موقوف`);
     }
+    if (!anyBranch) found.forEach((w) => assertWarehouseAllowed(w.id));
     return found;
   }
 
@@ -87,10 +103,16 @@ export class WarehousesService {
   async create(dto: CreateWarehouseDto, tenantId: string): Promise<Warehouse> {
     await this.ensureDefaults(tenantId);
     await this.assertNameFree(dto.name, tenantId);
+    const branchId = await resolveBranchId(
+      this.warehouses.manager,
+      tenantId,
+      dto.branchId,
+    );
 
     return this.warehouses.save(
       this.warehouses.create({
         ...dto,
+        branchId,
         tenantId,
         type: WarehouseType.BRANCH,
       }),
@@ -112,6 +134,10 @@ export class WarehousesService {
     }
     if (dto.isActive === false && warehouse.isActive) {
       await this.assertNoOpenTransfers(id, tenantId, 'إيقاف');
+    }
+    // نقل المخزن إلى فرع آخر ينقل معه تاريخه كله: فرع المستند هو فرع مخزنه
+    if (dto.branchId && dto.branchId !== warehouse.branchId) {
+      await resolveBranchId(this.warehouses.manager, tenantId, dto.branchId);
     }
 
     Object.assign(warehouse, dto);
@@ -151,11 +177,13 @@ export class WarehousesService {
     });
     if (existing > 0) return;
 
+    const branch = await ensureMainBranch(this.warehouses.manager, tenantId);
     await this.warehouses
       .createQueryBuilder()
       .insert()
       .values({
         tenantId,
+        branchId: branch.id,
         name: MAIN_WAREHOUSE_NAME,
         type: WarehouseType.MAIN,
         allowNegativeStock: false,

@@ -10,6 +10,7 @@ import {
   Index,
 } from 'typeorm';
 import { Tenant } from '../../tenants/entities/tenant.entity';
+import { Branch } from '../../branches/entities/branch.entity';
 
 export enum DeviceStatus {
   ONLINE = 'online',
@@ -67,6 +68,14 @@ export class BiometricDevice {
   @ManyToOne(() => Tenant, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'tenant_id' })
   tenant!: Tenant;
+
+  /** الفرع المركَّب فيه الجهاز */
+  @Column({ name: 'branch_id', type: 'uuid', nullable: true })
+  branchId?: string | null;
+
+  @ManyToOne(() => Branch, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'branch_id' })
+  branch?: Branch | null;
 
   @Column({ default: true })
   isActive!: boolean;

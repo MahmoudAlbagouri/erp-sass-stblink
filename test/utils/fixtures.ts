@@ -16,8 +16,8 @@ export interface TenantFixture {
   tenantId: string;
   /** توكن مدير الشركة (كل الصلاحيات عدا system:) */
   adminToken: string;
-  /** توكن موظف بصلاحيات محددة */
-  tokenWith: (permissions: string[]) => string;
+  /** توكن موظف بصلاحيات محددة، ومقيَّد بفروع إن حُدِّدت */
+  tokenWith: (permissions: string[], branchIds?: string[]) => string;
 }
 
 function signToken(payload: Omit<JwtPayload, 'isDisclaimerAccepted'>): string {
@@ -71,9 +71,10 @@ export async function createTenantFixture(
       sub: `00000000-0000-4000-8000-${String(sequence).padStart(12, '0')}`,
       isSuperAdmin: true,
     }),
-    tokenWith: (permissions) =>
+    tokenWith: (permissions, branchIds) =>
       signToken({
         ...base,
+        branchIds,
         sub: `00000000-0000-4000-9000-${String(sequence).padStart(12, '0')}`,
         isSuperAdmin: false,
         role: {

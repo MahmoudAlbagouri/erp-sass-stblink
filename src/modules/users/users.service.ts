@@ -14,6 +14,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { Role } from '../roles/entities/role.entity';
 import { UserStatus } from '../../common/enums/user.enums';
 import { CurrentUserData } from '../../common/decorators/current-user.decorator';
+import { resolveUserBranches } from '../branches/branches.util';
 
 const ASSIGN_SUPER_ADMIN_PERMISSION = 'assign_super_admin';
 
@@ -28,7 +29,7 @@ export class UsersService {
   async findOne(id: string): Promise<User> {
     const user = await this.userRepository.findOne({
       where: { id },
-      relations: ['role', 'role.permissions', 'employee'],
+      relations: ['role', 'role.permissions', 'employee', 'branches'],
     });
 
     if (!user) throw new NotFoundException('User not found');
@@ -99,7 +100,7 @@ export class UsersService {
     currentUser: CurrentUserData,
     tenantId: string,
   ): Promise<User> {
-    const { roleId, password, ...userData } = dto;
+    const { roleId, password, branchIds, ...userData } = dto;
     const role = roleId
       ? await this.resolveAssignableRole(roleId, currentUser, tenantId)
       : undefined;
@@ -110,6 +111,11 @@ export class UsersService {
       password: hashedPassword,
       tenantId: tenantId,
       role: role,
+      branches: await resolveUserBranches(
+        this.userRepository.manager,
+        tenantId,
+        branchIds,
+      ),
       isSuperAdmin: this.canAssignSuperAdmin(currentUser)
         ? (dto.isSuperAdmin ?? false)
         : false,
@@ -130,7 +136,7 @@ export class UsersService {
 
     return this.userRepository.find({
       where: whereCondition,
-      relations: ['role', 'role.permissions', 'tenant'],
+      relations: ['role', 'role.permissions', 'tenant', 'branches'],
       order: { created_at: 'DESC' },
     });
   }
@@ -143,7 +149,7 @@ export class UsersService {
     const user = await this.findOneScoped(id, currentUser);
 
     // 🔒 حقول الإقرار لا تتغير إلا عبر POST /auth/accept-disclaimer
-    const { roleId, ...changes } = dto as UpdateUserDto &
+    const { roleId, branchIds, ...changes } = dto as UpdateUserDto &
       Record<string, unknown>;
     delete changes.isDisclaimerAccepted;
     delete changes.disclaimerAcceptedAt;
@@ -167,6 +173,15 @@ export class UsersService {
         user.tenantId,
       );
       user.roleId = user.role.id;
+    }
+
+    // الحقل غائب = لا تغيير. يسري على المستخدم مع أول تجديد لتوكنه (دقائق)
+    if (branchIds !== undefined && user.tenantId) {
+      user.branches = await resolveUserBranches(
+        this.userRepository.manager,
+        user.tenantId,
+        branchIds,
+      );
     }
 
     return this.userRepository.save(user);

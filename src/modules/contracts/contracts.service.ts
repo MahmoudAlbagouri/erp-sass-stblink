@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, ILike, In } from 'typeorm';
+import { scopedEmployeeWhere } from '../branches/branch-scope';
 import { Contract, ContractType } from './entities/contract.entity';
 import { CreateContractDto } from './dto/create-contract.dto';
 import { UpdateContractDto } from './dto/update-contract.dto';
@@ -56,7 +57,7 @@ export class ContractsService {
 
   async findAll(tenantId: string): Promise<Contract[]> {
     return await this.repo.find({
-      where: { tenantId },
+      where: { tenantId, ...scopedEmployeeWhere() },
       relations: ['employee'],
     });
   }

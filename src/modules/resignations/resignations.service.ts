@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, Repository } from 'typeorm';
+import { scopedEmployeeWhere } from '../branches/branch-scope';
 import {
   ResignationRequest,
   ResignationStatus,
@@ -106,7 +107,10 @@ export class ResignationsService {
     tenantId: string,
     status?: ResignationStatus,
   ): Promise<ResignationRequest[]> {
-    const where: FindOptionsWhere<ResignationRequest> = { tenantId };
+    const where: FindOptionsWhere<ResignationRequest> = {
+      tenantId,
+      ...scopedEmployeeWhere(),
+    };
     if (status) where.status = status;
 
     return this.reqRepo.find({

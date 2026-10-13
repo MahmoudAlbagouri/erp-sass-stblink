@@ -1,6 +1,8 @@
 // src/modules/sales/utils/payment-recorder.ts
 import { EntityManager } from 'typeorm';
 import { nextDocumentNumber } from '../../../common/utils/document-number.util';
+import { currentBranchScope } from '../../branches/branch-scope';
+import { ensureMainBranch } from '../../branches/branches.util';
 import {
   CustomerPayment,
   PaymentDirection,
@@ -13,6 +15,8 @@ export interface PaymentRecord {
   customerId?: string | null;
   invoiceId?: string | null;
   salesReturnId?: string | null;
+  /** لدفعة على الحساب فقط: مع فاتورة أو مرتجع يُؤخذ الفرع من مخزنهما */
+  branchId?: string | null;
   direction: PaymentDirection;
   paymentDate: string;
   amount: number;
@@ -43,6 +47,7 @@ export async function recordPayment(
         NUMBER_PREFIX,
         tenantId,
       ),
+      branchId: await branchOf(manager, tenantId, record),
       customerId: record.customerId ?? null,
       invoiceId: record.invoiceId ?? null,
       salesReturnId: record.salesReturnId ?? null,
@@ -54,6 +59,38 @@ export async function recordPayment(
       note: record.note ?? null,
       createdById: record.createdById ?? null,
     }),
+  );
+}
+
+/**
+ * فرع الحركة: فرع مخزن الفاتورة (أو المرتجع). دفعة على الحساب بلا مستند:
+ * الفرع المختار، وإلا فرع المستخدم المقيَّد، وإلا الرئيسي.
+ */
+async function branchOf(
+  manager: EntityManager,
+  tenantId: string,
+  record: PaymentRecord,
+): Promise<string> {
+  const source = record.invoiceId
+    ? { table: 'sales_invoices', id: record.invoiceId }
+    : record.salesReturnId
+      ? { table: 'sales_returns', id: record.salesReturnId }
+      : null;
+
+  if (source) {
+    const [row] = await manager.query<{ branchId: string }[]>(
+      `SELECT w."branchId" FROM ${source.table} d
+         JOIN warehouses w ON w.id = d."warehouseId"
+        WHERE d.id = $1 AND d."tenantId" = $2`,
+      [source.id, tenantId],
+    );
+    if (row) return row.branchId;
+  }
+
+  return (
+    record.branchId ??
+    currentBranchScope()?.branchIds[0] ??
+    (await ensureMainBranch(manager, tenantId)).id
   );
 }
 

@@ -1,6 +1,7 @@
 // src/modules/inventory/transfers.service.ts
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -27,6 +28,10 @@ import {
 } from './entities/stock-transfer.entity';
 import { assertNoDuplicateProducts, StockService } from './stock.service';
 import { WarehousesService } from './warehouses.service';
+import {
+  isWarehouseAllowed,
+  scopedWarehouseIds,
+} from '../branches/branch-scope';
 
 const REFERENCE_TYPE = 'transfer';
 const NUMBER_PREFIX = 'TR-';
@@ -62,6 +67,15 @@ export class TransfersService {
       .loadRelationCountAndMap('transfer.linesCount', 'transfer.lines')
       .where('transfer.tenantId = :tenantId', { tenantId });
 
+    // التحويل يخصّ فرعين: يراه من يتبعه أحد طرفيه
+    const allowed = scopedWarehouseIds();
+    if (allowed) {
+      qb.andWhere(
+        '(transfer.fromWarehouseId IN (:...allowed) OR transfer.toWarehouseId IN (:...allowed))',
+        { allowed },
+      );
+    }
+
     if (query.status) {
       qb.andWhere('transfer.status = :status', { status: query.status });
     }
@@ -93,8 +107,21 @@ export class TransfersService {
         'lines.product.baseUnit',
       ],
     });
-    if (!transfer) throw new NotFoundException('التحويل غير موجود');
+    if (!transfer || !this.concerns(transfer)) {
+      throw new NotFoundException('التحويل غير موجود');
+    }
     return transfer;
+  }
+
+  /** هل أحد طرفي التحويل من مخازن فروع المستخدم؟ */
+  private concerns(transfer: {
+    fromWarehouseId: string;
+    toWarehouseId: string;
+  }): boolean {
+    return (
+      isWarehouseAllowed(transfer.fromWarehouseId) ||
+      isWarehouseAllowed(transfer.toWarehouseId)
+    );
   }
 
   // ══════════════════════════ المسودة ══════════════════════════
@@ -363,10 +390,17 @@ export class TransfersService {
     if (fromWarehouseId === toWarehouseId) {
       throw new BadRequestException('اختر مخزنين مختلفين للتحويل');
     }
+    // الطرف الآخر قد يكون مخزن فرع آخر: الإرسال والاستلام نفساهما يتحققان
+    // لاحقاً (عند تحريك الرصيد) أن المنفّذ من فرع المخزن الذي يتحرك رصيده
     await this.warehouses.findActiveByIds(
       [fromWarehouseId, toWarehouseId],
       tenantId,
+      undefined,
+      { anyBranch: true },
     );
+    if (!this.concerns({ fromWarehouseId, toWarehouseId })) {
+      throw new ForbiddenException('لا يتبع أيٌّ من المخزنين فروعك');
+    }
 
     const productIds = lines.map((l) => l.productId);
     assertNoDuplicateProducts(productIds);
@@ -383,7 +417,9 @@ export class TransfersService {
       where: { id, tenantId },
       lock: { mode: 'pessimistic_write' },
     });
-    if (!transfer) throw new NotFoundException('التحويل غير موجود');
+    if (!transfer || !this.concerns(transfer)) {
+      throw new NotFoundException('التحويل غير موجود');
+    }
     return transfer;
   }
 

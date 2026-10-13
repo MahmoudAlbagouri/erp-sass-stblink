@@ -5,6 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import {
+  assertWarehouseVisible,
+  restrictToScopedWarehouses,
+} from '../branches/branch-scope';
 import Decimal from 'decimal.js';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import {
@@ -67,6 +71,7 @@ export class PurchaseReturnsService {
       .leftJoinAndSelect('ret.warehouse', 'warehouse')
       .loadRelationCountAndMap('ret.linesCount', 'ret.lines')
       .where('ret.tenantId = :tenantId', { tenantId });
+    restrictToScopedWarehouses(qb, 'ret.warehouseId');
 
     if (query.status) {
       qb.andWhere('ret.status = :status', { status: query.status });
@@ -106,6 +111,7 @@ export class PurchaseReturnsService {
       ],
     });
     if (!purchaseReturn) throw new NotFoundException('المرتجع غير موجود');
+    assertWarehouseVisible(purchaseReturn.warehouseId, 'المرتجع غير موجود');
     return purchaseReturn;
   }
 
@@ -284,6 +290,7 @@ export class PurchaseReturnsService {
       lock: { mode: 'pessimistic_write' },
     });
     if (!purchaseReturn) throw new NotFoundException('المرتجع غير موجود');
+    assertWarehouseVisible(purchaseReturn.warehouseId, 'المرتجع غير موجود');
     return purchaseReturn;
   }
 }

@@ -34,6 +34,11 @@ export interface JwtPayload {
   country?: string;
   currency?: string;
   timezone?: string;
+  /**
+   * الفروع المقيَّد بها المستخدم. غائبة أو فارغة = كل الفروع.
+   * انظر modules/branches/branch-scope.
+   */
+  branchIds?: string[];
 }
 
 /** إعدادات دولة الشركة كما تُحمَل داخل التوكن */
@@ -63,6 +68,8 @@ export interface CurrentUserData {
   /** عملة الشركة ISO 4217 */
   currency?: string;
   timezone?: string;
+  /** الفروع المقيَّد بها (فارغة = كل الفروع) */
+  branchIds?: string[];
 }
 
 export type AuthenticatedRequest = Request & { user: CurrentUserData };

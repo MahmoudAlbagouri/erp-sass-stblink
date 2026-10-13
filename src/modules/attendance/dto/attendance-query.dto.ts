@@ -31,6 +31,11 @@ export class AttendanceQueryDto {
   @IsUUID()
   employeeId?: string;
 
+  /** موظفو فرع محدد */
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
+
   // ✅ بحث نصي باسم الموظف
   @IsOptional()
   @IsString()

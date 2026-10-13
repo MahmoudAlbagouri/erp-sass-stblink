@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
+import { scopedEmployeeWhere } from '../branches/branch-scope';
 import Decimal from 'decimal.js';
 import { moneyDecimalsOf, roundMoney } from '../../common/utils/money.util';
 import { EndOfService, EOSReason } from './entities/eos.entity';
@@ -171,7 +172,7 @@ export class EOSService {
 
   async findAll(tenantId: string): Promise<EndOfService[]> {
     return this.eosRepo.find({
-      where: { tenantId },
+      where: { tenantId, ...scopedEmployeeWhere() },
       relations: ['employee'],
       order: { terminationDate: 'DESC' },
     });

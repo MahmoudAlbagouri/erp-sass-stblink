@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { scopedEmployeeWhere } from '../branches/branch-scope';
 import { Loan, LoanStatus } from './entities/loan.entity';
 import { CreateLoanDto } from './dto/create-loan.dto';
 
@@ -26,7 +27,7 @@ export class LoansService {
 
   async findAll(tenantId: string) {
     return await this.repo.find({
-      where: { tenantId },
+      where: { tenantId, ...scopedEmployeeWhere() },
       relations: ['employee'],
       order: { createdAt: 'DESC' },
     });

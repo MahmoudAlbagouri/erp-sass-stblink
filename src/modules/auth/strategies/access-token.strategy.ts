@@ -33,6 +33,7 @@ export class AccessTokenStrategy extends PassportStrategy(Strategy, 'jwt') {
       country: payload.country,
       currency: payload.currency,
       timezone: payload.timezone,
+      branchIds: payload.branchIds ?? [],
     };
   }
 }

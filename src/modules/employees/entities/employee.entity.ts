@@ -19,6 +19,7 @@ import { Advance } from '../../advances/entities/advance.entity';
 import { Shift } from '../../shifts/entities/shift.entity';
 import { Education } from './education.entity';
 import { Department } from '../../departments/entities/department.entity';
+import { Branch } from '../../branches/entities/branch.entity';
 
 import { Bonus } from '../../bonuses/entities/bonus.entity';
 import { Deduction } from '../../deduction/entities/deduction.entity';
@@ -76,6 +77,14 @@ export class Employee {
   })
   @JoinColumn({ name: 'department_id' })
   department?: Department;
+
+  /** الفرع الذي يعمل فيه الموظف */
+  @Column({ name: 'branch_id', type: 'uuid', nullable: true })
+  branchId?: string | null;
+
+  @ManyToOne(() => Branch, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'branch_id' })
+  branch?: Branch | null;
 
   @Column({
     type: 'enum',

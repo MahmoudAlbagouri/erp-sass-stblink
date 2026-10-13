@@ -34,7 +34,15 @@ export enum CustomerPaymentStatus {
 @Index(['tenantId', 'customerId'])
 @Index(['tenantId', 'invoiceId'])
 @Index(['tenantId', 'paymentDate'])
+@Index(['tenantId', 'branchId'])
 export class CustomerPayment extends TenantOwnedEntity {
+  /**
+   * الفرع الذي قبض (أو ردّ) المبلغ: فرع الفاتورة إن وُجدت، وإلا ما اختاره
+   * المستخدم، وإلا الفرع الرئيسي.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  branchId?: string | null;
+
   /** RC-000001 */
   @Column({ type: 'varchar', length: 20 })
   number!: string;

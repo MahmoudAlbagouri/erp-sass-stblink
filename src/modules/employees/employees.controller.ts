@@ -85,6 +85,7 @@ const toFilterOptions = (query: EmployeeFilterDto): EmployeeFilterOptions => ({
   nationalityType: query.nationalityType,
   departmentId: query.departmentId,
   shiftId: query.shiftId,
+  branchId: query.branchId,
   hasUser: query.hasUser !== undefined ? query.hasUser === 'true' : undefined,
   hasContract:
     query.hasContract !== undefined ? query.hasContract === 'true' : undefined,

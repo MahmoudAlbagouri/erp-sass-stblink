@@ -12,6 +12,11 @@ import {
   resolvePagination,
 } from '../../common/dto/pagination.dto';
 import { sumMoney } from '../../common/utils/document-totals.util';
+import {
+  assertBranchAllowed,
+  assertBranchVisible,
+  restrictToScopedBranches,
+} from '../branches/branch-scope';
 import { CustomersService } from './customers.service';
 import {
   CreateCustomerPaymentDto,
@@ -56,6 +61,11 @@ export class CustomerPaymentsService {
       .leftJoinAndSelect('payment.customer', 'customer')
       .leftJoinAndSelect('payment.invoice', 'invoice')
       .where('payment.tenantId = :tenantId', { tenantId });
+    restrictToScopedBranches(qb, 'payment.branchId');
+
+    if (query.branchId) {
+      qb.andWhere('payment.branchId = :branchId', { branchId: query.branchId });
+    }
 
     if (query.customerId) {
       qb.andWhere('payment.customerId = :customerId', {
@@ -93,6 +103,7 @@ export class CustomerPaymentsService {
       relations: ['customer', 'invoice'],
     });
     if (!payment) throw new NotFoundException('سند القبض غير موجود');
+    assertBranchVisible(payment.branchId, 'سند القبض غير موجود');
     return payment;
   }
 
@@ -104,6 +115,7 @@ export class CustomerPaymentsService {
     if (!dto.invoiceId && !dto.customerId) {
       throw new BadRequestException('اختر العميل أو الفاتورة');
     }
+    if (dto.branchId) assertBranchAllowed(dto.branchId);
     if (dto.customerId) {
       await this.customers.findActive(dto.customerId, tenantId);
     }
@@ -141,6 +153,7 @@ export class CustomerPaymentsService {
       const payment = await recordPayment(manager, tenantId, {
         customerId,
         invoiceId: dto.invoiceId,
+        branchId: dto.branchId,
         direction: PaymentDirection.IN,
         paymentDate: dto.paymentDate,
         amount: dto.amount,
@@ -163,6 +176,7 @@ export class CustomerPaymentsService {
         lock: { mode: 'pessimistic_write' },
       });
       if (!payment) throw new NotFoundException('سند القبض غير موجود');
+      assertBranchVisible(payment.branchId, 'سند القبض غير موجود');
       if (payment.status !== CustomerPaymentStatus.POSTED) {
         throw new BadRequestException('هذا السند ملغي بالفعل');
       }

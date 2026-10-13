@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { scopedWarehouseIds } from '../branches/branch-scope';
 import { DataSource, Repository } from 'typeorm';
 import {
   paginated,
@@ -56,6 +57,15 @@ export class SupplierPaymentsService {
       .leftJoinAndSelect('payment.supplier', 'supplier')
       .leftJoinAndSelect('payment.invoice', 'invoice')
       .where('payment.tenantId = :tenantId', { tenantId });
+
+    // سداد فاتورة فرع آخر لا يظهر؛ الدفعة على الحساب (بلا فاتورة) للشركة كلها
+    const allowed = scopedWarehouseIds();
+    if (allowed) {
+      qb.andWhere(
+        '(payment.invoiceId IS NULL OR invoice.warehouseId IN (:...allowed))',
+        { allowed },
+      );
+    }
 
     if (query.supplierId) {
       qb.andWhere('payment.supplierId = :supplierId', {

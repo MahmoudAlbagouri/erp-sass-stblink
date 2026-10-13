@@ -269,6 +269,10 @@ export class AuthService {
       isSystemAdmin: user.isSystemAdmin,
       isDisclaimerAccepted: user.isDisclaimerAccepted, // ✅ حالة الإقرار داخل التوكن
       employeeId: user.employee?.id,
+      // مدير الشركة لا يُقيَّد بفروع
+      branchIds: user.isSuperAdmin
+        ? []
+        : (user.branches ?? []).filter((b) => !b.deletedAt).map((b) => b.id),
       role: user.role
         ? {
             id: user.role.id,

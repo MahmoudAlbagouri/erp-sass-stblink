@@ -18,6 +18,10 @@ import {
   sumMoney,
 } from '../../common/utils/document-totals.util';
 import { moneyDecimalsOf } from '../../common/utils/money.util';
+import {
+  assertWarehouseVisible,
+  restrictToScopedWarehouses,
+} from '../branches/branch-scope';
 import { StockMovementType } from '../inventory/entities/stock-movement.entity';
 import { StockService } from '../inventory/stock.service';
 import {
@@ -109,6 +113,7 @@ export class SalesReturnsService {
       .leftJoinAndSelect('ret.warehouse', 'warehouse')
       .loadRelationCountAndMap('ret.linesCount', 'ret.lines')
       .where('ret.tenantId = :tenantId', { tenantId });
+    restrictToScopedWarehouses(qb, 'ret.warehouseId');
 
     if (query.status) {
       qb.andWhere('ret.status = :status', { status: query.status });
@@ -141,6 +146,7 @@ export class SalesReturnsService {
       relations: ['customer', 'invoice', 'warehouse', 'lines'],
     });
     if (!salesReturn) throw new NotFoundException('المرتجع غير موجود');
+    assertWarehouseVisible(salesReturn.warehouseId, 'المرتجع غير موجود');
     return salesReturn;
   }
 
@@ -480,6 +486,7 @@ export class SalesReturnsService {
       lock: { mode: 'pessimistic_write' },
     });
     if (!salesReturn) throw new NotFoundException('المرتجع غير موجود');
+    assertWarehouseVisible(salesReturn.warehouseId, 'المرتجع غير موجود');
     return salesReturn;
   }
 }

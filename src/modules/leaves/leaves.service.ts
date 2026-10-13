@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { scopedEmployeeWhere } from '../branches/branch-scope';
 import {
   LeaveRequest,
   LeaveStatus,
@@ -260,7 +261,7 @@ export class LeavesService {
   // ✅ تحديث findAll لجلب بيانات الموظف
   async findAll(tenantId: string) {
     return await this.repo.find({
-      where: { tenantId },
+      where: { tenantId, ...scopedEmployeeWhere() },
       relations: ['employee'],
       order: { createdAt: 'DESC' },
     });

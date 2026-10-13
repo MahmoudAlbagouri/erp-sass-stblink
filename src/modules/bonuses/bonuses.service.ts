@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Between, DataSource, Repository } from 'typeorm';
+import { scopedEmployeeWhere } from '../branches/branch-scope';
 import { Bonus, BonusStatus } from './entities/bonus.entity';
 import { CreateBonusDto } from './dto/create-bonus.dto';
 import { UpdateBonusDto } from './dto/update-bonus.dto';
@@ -40,7 +41,7 @@ export class BonusesService {
 
   async findAll(tenantId: string): Promise<Bonus[]> {
     return this.bonusRepo.find({
-      where: { tenantId },
+      where: { tenantId, ...scopedEmployeeWhere() },
       relations: ['employee', 'disbursedBy'],
       order: { payoutDate: 'DESC', createdAt: 'DESC' },
     });

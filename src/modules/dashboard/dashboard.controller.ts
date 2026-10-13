@@ -32,7 +32,7 @@ export class DashboardQueryDto {
   /** فرع واحد بدل كل الفروع */
   @IsOptional()
   @IsUUID(undefined, { message: 'الفرع المختار غير صالح' })
-  warehouseId?: string;
+  branchId?: string;
 }
 
 /**

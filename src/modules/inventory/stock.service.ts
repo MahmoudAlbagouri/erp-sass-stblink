@@ -29,6 +29,10 @@ import {
 } from './entities/stock-movement.entity';
 import { Warehouse } from './entities/warehouse.entity';
 import { WarehousesService } from './warehouses.service';
+import {
+  restrictToScopedWarehouses,
+  scopedWarehouseIds,
+} from '../branches/branch-scope';
 
 /** خانات الكميات والتكلفة في قاعدة البيانات: numeric(14,4) */
 const SCALE = 4;
@@ -269,6 +273,7 @@ export class StockService {
         'item.tenantId = level.tenantId AND item.productId = level.productId',
       )
       .where('level.tenantId = :tenantId', { tenantId });
+    restrictToScopedWarehouses(qb, 'level.warehouseId');
 
     if (query.warehouseId) {
       qb.andWhere('level.warehouseId = :warehouseId', {
@@ -306,9 +311,22 @@ export class StockService {
     );
   }
 
-  async summary(tenantId: string, warehouseId?: string): Promise<StockSummary> {
-    const params: string[] = [tenantId];
-    if (warehouseId) params.push(warehouseId);
+  /** `warehouseId`: مخزن واحد، أو مخازن فرع، أو غائب لكل المخازن */
+  async summary(
+    tenantId: string,
+    warehouseId?: string | string[],
+  ): Promise<StockSummary> {
+    const params: (string | string[])[] = [tenantId];
+    const filters: string[] = [];
+    if (warehouseId) {
+      params.push([warehouseId].flat());
+      filters.push(`AND l."warehouseId" = ANY($${params.length}::uuid[])`);
+    }
+    const allowed = scopedWarehouseIds();
+    if (allowed) {
+      params.push(allowed);
+      filters.push(`AND l."warehouseId" = ANY($${params.length}::uuid[])`);
+    }
 
     const [row] = await this.levels.query<
       { items: number; value: string; low: number; negative: number }[]
@@ -324,7 +342,7 @@ export class StockService {
          JOIN warehouses w ON w."id" = l."warehouseId" AND w."deletedAt" IS NULL
          LEFT JOIN inventory_items i
                 ON i."tenantId" = l."tenantId" AND i."productId" = l."productId"
-        WHERE l."tenantId" = $1 ${warehouseId ? 'AND l."warehouseId" = $2' : ''}`,
+        WHERE l."tenantId" = $1 ${filters.join(' ')}`,
       params,
     );
 
@@ -357,6 +375,7 @@ export class StockService {
       .leftJoinAndSelect('movement.product', 'product')
       .leftJoinAndSelect('movement.warehouse', 'warehouse')
       .where('movement.tenantId = :tenantId', { tenantId });
+    restrictToScopedWarehouses(qb, 'movement.warehouseId');
 
     if (query.warehouseId) {
       qb.andWhere('movement.warehouseId = :warehouseId', {

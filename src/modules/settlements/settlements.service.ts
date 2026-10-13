@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
+import { restrictToScopedBranches } from '../branches/branch-scope';
 import Decimal from 'decimal.js';
 import { moneyDecimalsOf, roundMoney } from '../../common/utils/money.util';
 import { Settlement } from './entities/settlement.entity';
@@ -290,13 +291,14 @@ export class SettlementsService {
   }
 
   async findAll(tenantId: string): Promise<Settlement[]> {
-    return await this.repo
+    const qb = this.repo
       .createQueryBuilder('s')
       .leftJoinAndSelect('s.employee', 'employee')
       .leftJoinAndSelect('s.disbursedBy', 'disbursedBy') // ✅ جلب بيانات المستخدم الذي قام بالصرف
-      .where('s.tenantId = :tenantId', { tenantId })
-      .orderBy('s.createdAt', 'DESC')
-      .getMany();
+      .where('s.tenantId = :tenantId', { tenantId });
+    restrictToScopedBranches(qb, 'employee.branchId');
+
+    return qb.orderBy('s.createdAt', 'DESC').getMany();
   }
 
   async findByEmployee(

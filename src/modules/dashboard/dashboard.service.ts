@@ -4,7 +4,11 @@
 // يملك المستخدم صلاحية عرضه.
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource } from 'typeorm';
+import {
+  DataSource,
+  type ObjectLiteral,
+  type SelectQueryBuilder,
+} from 'typeorm';
 import { FEATURES } from '../../common/constants/features';
 import { PERMS } from '../../common/constants/permissions';
 import type { CurrentUserData } from '../../common/types/auth.types';
@@ -15,6 +19,8 @@ import {
   tenantTimezoneOf,
 } from '../../common/utils/timezone.util';
 import { AttendanceService } from '../attendance/attendance.service';
+import { scopedBranchIds, scopedWarehouseIds } from '../branches/branch-scope';
+import { Branch } from '../branches/entities/branch.entity';
 import { Contract } from '../contracts/entities/contract.entity';
 import { Department } from '../departments/entities/department.entity';
 import { Employee } from '../employees/entities/employee.entity';
@@ -49,8 +55,8 @@ export interface DashboardQuery {
   /** أو فترة مخصصة (YYYY-MM-DD، الطرفان مشمولان) — لها الأولوية على `days` */
   from?: string;
   to?: string;
-  /** فرع (مخزن) واحد: يقيّد المبيعات والمشتريات والمخزون. غائب = كل الفروع */
-  warehouseId?: string;
+  /** فرع واحد: يقيّد كل أقسام الصفحة. غائب = كل الفروع (المسموحة للمستخدم) */
+  branchId?: string;
 }
 
 export interface DashboardOverview {
@@ -65,9 +71,9 @@ export interface DashboardOverview {
     custom: boolean;
   };
   /** الفرع المختار، أو null لكل الفروع */
-  warehouseId: string | null;
-  /** فروع الشركة لقائمة الاختيار؛ null إن لم يحق للمستخدم أي قسم يتبع الفروع */
-  branches: { id: string; name: string }[] | null;
+  branchId: string | null;
+  /** فروع الشركة النشطة المسموحة للمستخدم، لقائمة الاختيار */
+  branches: { id: string; name: string }[];
   sales: SalesOverview | null;
   purchasing: PurchasingOverview | null;
   inventory: InventoryOverview | null;
@@ -107,7 +113,7 @@ export interface SalesOverview {
   topCustomers: (NamedAmount & { invoices: number })[];
   /** أكبر العملاء مديونية حتى الآن (لا يتقيد بالفترة) */
   topDebtors: NamedAmount[];
-  /** مبيعات كل فرع في الفترة — كل الفروع دائماً، حتى مع اختيار فرع */
+  /** مبيعات كل فرع (مجموع مخازنه) في الفترة — كل الفروع دائماً، حتى مع اختيار فرع */
   branches: {
     id: string;
     name: string;
@@ -164,6 +170,8 @@ export interface HrOverview {
     bonuses: number;
     deductions: number;
   };
+  /** الموظفون النشطون في كل فرع */
+  branches: { name: string; count: number }[];
   /** ما يحتاج متابعة خلال 30 يوماً */
   alerts: {
     /** عقود تنتهي خلال المدة */
@@ -175,7 +183,10 @@ export interface HrOverview {
     /** انضموا خلال المدة الماضية */
     newHires: number;
   };
-  /** آخر مسيرات الرواتب، الأقدم أولاً؛ null بلا صلاحية عرض المسير */
+  /**
+   * آخر مسيرات الرواتب، الأقدم أولاً. المسير للشركة كلها، فيغيب (null) بلا
+   * صلاحية عرضه، ومع اختيار فرع أو لمستخدم مقيَّد بفروع.
+   */
   payroll:
     | { year: number; month: number; total: number; paid: boolean }[]
     | null;
@@ -208,6 +219,8 @@ interface Period {
   zone: string;
 }
 
+/** معرّف لا يطابق أي فرع */
+const NO_BRANCH = '00000000-0000-0000-0000-000000000000';
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 @Injectable()
@@ -227,23 +240,30 @@ export class DashboardService {
     const period = await this.resolvePeriod(tenantId, query);
     const allowed = await this.accessOf(user);
 
-    const scoped = allowed.sales || allowed.purchasing || allowed.inventory;
-    const branches = scoped ? await this.branchesOf(tenantId) : null;
-    const warehouseId = query.warehouseId ?? null;
-    if (warehouseId && !branches?.some((b) => b.id === warehouseId)) {
+    const branches = await this.branchesOf(tenantId);
+    const branchId = query.branchId ?? null;
+    if (branchId && !branches.some((b) => b.id === branchId)) {
       throw new BadRequestException('الفرع المختار غير موجود');
     }
+    // ما تُقيَّد به الأرقام: الفرع المختار، وإلا فروع المستخدم المقيَّد، وإلا
+    // null = الشركة كلها. المستندات تُقيَّد بمخازن الفروع، والموظفون بالفروع
+    const branchIds = branchId ? [branchId] : scopedBranchIds();
+    const warehouseIds = branchId
+      ? await this.warehousesOf(tenantId, branchId)
+      : scopedWarehouseIds();
 
     const [sales, purchasing, inventory, hr, attendance] = await Promise.all([
       allowed.sales
-        ? this.sales(tenantId, period, warehouseId, allowed.pos)
+        ? this.sales(tenantId, period, warehouseIds, branchIds, allowed.pos)
         : null,
       allowed.purchasing
-        ? this.purchasing(tenantId, period, warehouseId)
+        ? this.purchasing(tenantId, period, warehouseIds)
         : null,
-      allowed.inventory ? this.inventory(tenantId, warehouseId) : null,
-      allowed.employees ? this.hr(tenantId, period, allowed.payroll) : null,
-      allowed.attendance ? this.attendanceToday(user, period) : null,
+      allowed.inventory ? this.inventory(tenantId, warehouseIds) : null,
+      allowed.employees
+        ? this.hr(tenantId, period, branchIds, allowed.payroll)
+        : null,
+      allowed.attendance ? this.attendanceToday(user, period, branchIds) : null,
     ]);
 
     return {
@@ -255,7 +275,7 @@ export class DashboardService {
         previousTo: period.previousTo,
         custom: period.custom,
       },
-      warehouseId,
+      branchId,
       branches,
       sales,
       purchasing,
@@ -368,14 +388,28 @@ export class DashboardService {
     };
   }
 
-  /** الفروع = مخازن الشركة الفعّالة (كل فاتورة تخرج من مخزن فرعها) */
+  /** فروع الشركة النشطة التي يحق للمستخدم رؤيتها، الرئيسي أولاً */
   private branchesOf(tenantId: string) {
     return this.query<{ id: string; name: string }>(
-      `SELECT "id", "name" FROM warehouses
+      `SELECT "id", "name" FROM branches
         WHERE "tenantId" = $1 AND "deletedAt" IS NULL AND "isActive" = true
-        ORDER BY ("type" = 'main') DESC, "name" ASC`,
-      [tenantId],
+          AND ($2::uuid[] IS NULL OR "id" = ANY($2::uuid[]))
+        ORDER BY "isMain" DESC, "name" ASC`,
+      [tenantId, scopedBranchIds()],
     );
+  }
+
+  /** مخازن فرع (حتى الموقوفة: فواتيرها القديمة تُحسب) */
+  private async warehousesOf(
+    tenantId: string,
+    branchId: string,
+  ): Promise<string[]> {
+    const rows = await this.query<{ id: string }>(
+      `SELECT "id" FROM warehouses
+        WHERE "tenantId" = $1 AND "branchId" = $2 AND "deletedAt" IS NULL`,
+      [tenantId, branchId],
+    );
+    return rows.map((row) => row.id);
   }
 
   private query<T>(sql: string, params: unknown[]): Promise<T[]> {
@@ -387,18 +421,19 @@ export class DashboardService {
   private async sales(
     tenantId: string,
     period: Period,
-    warehouseId: string | null,
+    warehouseIds: string[] | null,
+    branchIds: string[] | null,
     withPos: boolean,
   ): Promise<SalesOverview> {
-    /** فواتير صادرة للشركة، مقيّدة بالفرع إن اختير. `$2` = الفرع أو NULL */
+    /** فواتير صادرة للشركة، مقيّدة بمخازن الفروع. `$2` = المخازن أو NULL */
     const issued = (alias = '') => {
       const col = (name: string) =>
         alias ? `${alias}."${name}"` : `"${name}"`;
       return `${col('tenantId')} = $1 AND ${col('status')} = 'issued'
               AND ${col('deletedAt')} IS NULL
-              AND ($2::uuid IS NULL OR ${col('warehouseId')} = $2)`;
+              AND ($2::uuid[] IS NULL OR ${col('warehouseId')} = ANY($2::uuid[]))`;
     };
-    const scope = [tenantId, warehouseId];
+    const scope = [tenantId, warehouseIds];
     const inPeriod = [...scope, period.start, period.end];
 
     const [
@@ -468,19 +503,18 @@ export class DashboardService {
           WHERE ${issued()}`,
         scope,
       ),
-      // سند القبض لا يحمل فرعاً: فرعه فرع فاتورته
+      // سند القبض يحمل فرعه (فرع فاتورته، أو المختار لدفعة على الحساب)
       this.query<{ method: string; amount: number }>(
         `SELECT payment."method"::text AS "method",
                 SUM(payment."amount")::float AS "amount"
            FROM customer_payments payment
-           LEFT JOIN sales_invoices invoice ON invoice."id" = payment."invoiceId"
           WHERE payment."tenantId" = $1 AND payment."direction" = 'in'
             AND payment."status" = 'posted' AND payment."deletedAt" IS NULL
             AND payment."paymentDate" BETWEEN $3 AND $4
-            AND ($2::uuid IS NULL OR invoice."warehouseId" = $2)
+            AND ($2::uuid[] IS NULL OR payment."branchId" = ANY($2::uuid[]))
           GROUP BY 1
           ORDER BY 2 DESC`,
-        [...scope, period.from, period.to],
+        [tenantId, branchIds, period.from, period.to],
       ),
       this.query<{ name: string; quantity: number; total: number }>(
         `SELECT MAX(line."productName") AS "name",
@@ -528,20 +562,23 @@ export class DashboardService {
         invoices: number;
         profit: number;
       }>(
-        `SELECT warehouse."id" AS "id", warehouse."name" AS "name",
+        `SELECT branch."id" AS "id", branch."name" AS "name",
                 COALESCE(SUM(invoice."total"), 0)::float AS "total",
                 COUNT(invoice."id")::int AS "invoices",
                 COALESCE(SUM(invoice."subtotal" - invoice."costTotal"), 0)::float AS "profit"
-           FROM warehouses warehouse
+           FROM branches branch
+           LEFT JOIN warehouses warehouse
+                  ON warehouse."branchId" = branch."id"
            LEFT JOIN sales_invoices invoice
                   ON invoice."warehouseId" = warehouse."id"
                  AND invoice."status" = 'issued' AND invoice."deletedAt" IS NULL
                  AND invoice."issuedAt" >= $2 AND invoice."issuedAt" < $3
-          WHERE warehouse."tenantId" = $1 AND warehouse."deletedAt" IS NULL
-          GROUP BY warehouse."id", warehouse."name"
-         HAVING warehouse."isActive" = true OR COUNT(invoice."id") > 0
+          WHERE branch."tenantId" = $1 AND branch."deletedAt" IS NULL
+            AND ($4::uuid[] IS NULL OR branch."id" = ANY($4::uuid[]))
+          GROUP BY branch."id", branch."name"
+         HAVING branch."isActive" = true OR COUNT(invoice."id") > 0
           ORDER BY 3 DESC, 2 ASC`,
-        [tenantId, period.start, period.end],
+        [tenantId, period.start, period.end, scopedBranchIds()],
       ),
       withPos
         ? this.query<NamedAmount & { invoices: number }>(
@@ -579,9 +616,11 @@ export class DashboardService {
       ),
       withPos
         ? this.query<{ count: number }>(
-            `SELECT COUNT(*)::int AS "count" FROM pos_shifts
-              WHERE "tenantId" = $1 AND "status" = 'open'`,
-            [tenantId],
+            `SELECT COUNT(*)::int AS "count" FROM pos_shifts shift
+               JOIN pos_devices device ON device."id" = shift."deviceId"
+              WHERE shift."tenantId" = $1 AND shift."status" = 'open'
+                AND ($2::uuid[] IS NULL OR device."warehouseId" = ANY($2::uuid[]))`,
+            scope,
           )
         : null,
     ]);
@@ -677,16 +716,16 @@ export class DashboardService {
   private async purchasing(
     tenantId: string,
     period: Period,
-    warehouseId: string | null,
+    warehouseIds: string[] | null,
   ): Promise<PurchasingOverview> {
     const posted = (alias = '') => {
       const col = (name: string) =>
         alias ? `${alias}."${name}"` : `"${name}"`;
       return `${col('tenantId')} = $1 AND ${col('status')} = 'posted'
               AND ${col('deletedAt')} IS NULL
-              AND ($2::uuid IS NULL OR ${col('warehouseId')} = $2)`;
+              AND ($2::uuid[] IS NULL OR ${col('warehouseId')} = ANY($2::uuid[]))`;
     };
-    const scope = [tenantId, warehouseId];
+    const scope = [tenantId, warehouseIds];
     const totalsBetween = (from: string, to: string) =>
       this.query<{ total: number; invoices: number }>(
         `SELECT COALESCE(SUM("total"), 0)::float AS "total", COUNT(*)::int AS "invoices"
@@ -727,10 +766,10 @@ export class DashboardService {
 
   private async inventory(
     tenantId: string,
-    warehouseId: string | null,
+    warehouseIds: string[] | null,
   ): Promise<InventoryOverview> {
     const [summary, lowStock] = await Promise.all([
-      this.stock.summary(tenantId, warehouseId ?? undefined),
+      this.stock.summary(tenantId, warehouseIds ?? undefined),
       this.query<{
         product: string;
         warehouse: string;
@@ -744,12 +783,12 @@ export class DashboardService {
            JOIN products product ON product."id" = level."productId" AND product."deletedAt" IS NULL
            JOIN warehouses warehouse ON warehouse."id" = level."warehouseId" AND warehouse."deletedAt" IS NULL
           WHERE level."tenantId" = $1
-            AND ($2::uuid IS NULL OR level."warehouseId" = $2)
+            AND ($2::uuid[] IS NULL OR level."warehouseId" = ANY($2::uuid[]))
             AND level."minQuantity" IS NOT NULL
             AND level."quantity" <= level."minQuantity"
           ORDER BY (level."quantity" - level."minQuantity") ASC, product."name" ASC
           LIMIT ${LOW_STOCK_ITEMS}`,
-        [tenantId, warehouseId],
+        [tenantId, warehouseIds],
       ),
     ]);
 
@@ -772,15 +811,27 @@ export class DashboardService {
   private async hr(
     tenantId: string,
     period: Period,
+    branchIds: string[] | null,
     withPayroll: boolean,
   ): Promise<HrOverview> {
     const manager = this.dataSource.manager;
-    const pendingIn = (table: string) =>
+    /** طلبات معلّقة لموظفي الفروع. `employeeColumn`: عمود الموظف في الجدول */
+    const pendingIn = (table: string, employeeColumn = 'employee_id') =>
       this.query<{ count: number }>(
-        `SELECT COUNT(*)::int AS "count" FROM ${table}
-          WHERE "tenant_id" = $1 AND "status" = 'pending'`,
-        [tenantId],
+        `SELECT COUNT(*)::int AS "count" FROM ${table} request
+           JOIN employees employee ON employee."id" = request."${employeeColumn}"
+          WHERE request."tenant_id" = $1 AND request."status" = 'pending'
+            AND ($2::uuid[] IS NULL OR employee."branch_id" = ANY($2::uuid[]))`,
+        [tenantId, branchIds],
       ).then((rows) => rows[0]?.count ?? 0);
+    /** يقيّد استعلاماً فيه الموظف باسم `employee` بالفروع */
+    const inBranches = <T extends ObjectLiteral>(qb: SelectQueryBuilder<T>) =>
+      branchIds
+        ? qb.andWhere('employee.branchId IN (:...branchIds)', {
+            // قائمة فارغة = لا شيء (لا خطأ صياغة في IN)
+            branchIds: branchIds.length ? branchIds : [NO_BRANCH],
+          })
+        : qb;
 
     const { today, zone } = period;
     const windowEnd = dayKeyInZone(
@@ -793,18 +844,22 @@ export class DashboardService {
       zone,
     );
     const activeEmployees = () =>
-      manager
-        .createQueryBuilder(Employee, 'employee')
-        .where('employee.tenantId = :tenantId', { tenantId })
-        .andWhere(`employee.status = 'active'`);
-
-    const [byStatus, byDepartment, pending, alerts, payrolls] =
-      await Promise.all([
+      inBranches(
         manager
           .createQueryBuilder(Employee, 'employee')
-          .select('employee.status', 'status')
-          .addSelect('COUNT(*)::int', 'count')
           .where('employee.tenantId = :tenantId', { tenantId })
+          .andWhere(`employee.status = 'active'`),
+      );
+
+    const [byStatus, byDepartment, byBranch, pending, alerts, payrolls] =
+      await Promise.all([
+        inBranches(
+          manager
+            .createQueryBuilder(Employee, 'employee')
+            .select('employee.status', 'status')
+            .addSelect('COUNT(*)::int', 'count')
+            .where('employee.tenantId = :tenantId', { tenantId }),
+        )
           .groupBy('employee.status')
           .getRawMany<{ status: string; count: number }>(),
         activeEmployees()
@@ -818,8 +873,15 @@ export class DashboardService {
           .groupBy('department.name')
           .orderBy('count', 'DESC')
           .getRawMany<{ name: string | null; count: number }>(),
+        activeEmployees()
+          .leftJoin(Branch, 'branch', 'branch.id = employee.branchId')
+          .select('branch.name', 'name')
+          .addSelect('COUNT(*)::int', 'count')
+          .groupBy('branch.name')
+          .orderBy('count', 'DESC')
+          .getRawMany<{ name: string | null; count: number }>(),
         Promise.all([
-          pendingIn('leave_requests'),
+          pendingIn('leave_requests', 'employeeId'),
           pendingIn('advances'),
           pendingIn('loans'),
           pendingIn('bonuses'),
@@ -827,38 +889,42 @@ export class DashboardService {
         ]),
         Promise.all([
           // عقد موظف نشط ينتهي من اليوم حتى نهاية النافذة
-          manager
-            .createQueryBuilder(Contract, 'contract')
-            .innerJoin(
-              Employee,
-              'employee',
-              `employee.id = contract.employeeId AND employee.status = 'active'`,
-            )
-            .where('contract.tenantId = :tenantId', { tenantId })
-            .andWhere('contract.endDate BETWEEN :today AND :windowEnd', {
-              today,
-              windowEnd,
-            })
-            .getCount(),
+          inBranches(
+            manager
+              .createQueryBuilder(Contract, 'contract')
+              .innerJoin(
+                Employee,
+                'employee',
+                `employee.id = contract.employeeId AND employee.status = 'active'`,
+              )
+              .where('contract.tenantId = :tenantId', { tenantId })
+              .andWhere('contract.endDate BETWEEN :today AND :windowEnd', {
+                today,
+                windowEnd,
+              }),
+          ).getCount(),
           // منتهية بالفعل أو تنتهي خلال النافذة: كلاهما يحتاج تجديداً
           activeEmployees()
             .andWhere('employee.iqamaExpiryDate <= :windowEnd', { windowEnd })
             .getCount(),
-          manager
-            .createQueryBuilder(LeaveRequest, 'leave')
-            .where('leave.tenantId = :tenantId', { tenantId })
-            .andWhere('leave.status = :status', {
-              status: LeaveStatus.APPROVED,
-            })
-            .andWhere(':today BETWEEN leave.startDate AND leave.endDate', {
-              today,
-            })
-            .getCount(),
+          inBranches(
+            manager
+              .createQueryBuilder(LeaveRequest, 'leave')
+              .innerJoin(Employee, 'employee', 'employee.id = leave.employeeId')
+              .where('leave.tenantId = :tenantId', { tenantId })
+              .andWhere('leave.status = :status', {
+                status: LeaveStatus.APPROVED,
+              })
+              .andWhere(':today BETWEEN leave.startDate AND leave.endDate', {
+                today,
+              }),
+          ).getCount(),
           activeEmployees()
             .andWhere('employee.createdAt >= :windowStart', { windowStart })
             .getCount(),
         ]),
-        withPayroll
+        // المسير للشركة كلها: لا يُعرض ضمن أرقام فرع
+        withPayroll && !branchIds
           ? manager.find(Payroll, {
               where: { tenantId },
               order: { year: 'DESC', month: 'DESC' },
@@ -882,6 +948,10 @@ export class DashboardService {
         name: row.name ?? 'بلا قسم',
         count: row.count,
       })),
+      branches: byBranch.map((row) => ({
+        name: row.name ?? 'بلا فرع',
+        count: row.count,
+      })),
       pending: { leaves, advances, loans, bonuses, deductions },
       alerts: { contractsEnding, residencyExpiring, onLeaveToday, newHires },
       payroll: payrolls
@@ -901,11 +971,26 @@ export class DashboardService {
   private async attendanceToday(
     user: CurrentUserData,
     period: Period,
+    branchIds: string[] | null,
   ): Promise<AttendanceOverview> {
-    const rows = await this.attendance.getDailySummary(period.today, user);
+    // الملخص نفسه يقتصر على فروع المستخدم المقيَّد؛ هنا يُضاف الفرع المختار
+    const [rows, inBranch] = await Promise.all([
+      this.attendance.getDailySummary(period.today, user),
+      branchIds
+        ? this.query<{ id: string }>(
+            `SELECT "id" FROM employees
+              WHERE "tenant_id" = $1 AND "branch_id" = ANY($2::uuid[])`,
+            [user.tenantId, branchIds],
+          ).then((found) => new Set(found.map((row) => row.id)))
+        : null,
+    ]);
     const count = (...statuses: string[]) =>
-      rows.filter((row) => !!row.employeeId && statuses.includes(row.status))
-        .length;
+      rows.filter(
+        (row) =>
+          !!row.employeeId &&
+          statuses.includes(row.status) &&
+          (!inBranch || inBranch.has(row.employeeId)),
+      ).length;
 
     return {
       date: period.today,

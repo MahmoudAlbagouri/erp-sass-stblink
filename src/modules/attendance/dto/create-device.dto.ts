@@ -4,6 +4,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsTimeZone,
+  IsUUID,
   MaxLength,
 } from 'class-validator';
 
@@ -32,4 +33,9 @@ export class CreateDeviceDto {
   @IsOptional()
   @IsTimeZone({ message: 'المنطقة الزمنية غير صالحة' })
   timezone?: string;
+
+  /** الفرع المركَّب فيه الجهاز — يُترك فارغاً للفرع الرئيسي */
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
 }

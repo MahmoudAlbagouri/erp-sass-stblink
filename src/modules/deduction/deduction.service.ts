@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
+import { scopedEmployeeWhere } from '../branches/branch-scope';
 import { Deduction, DeductionStatus } from './entities/deduction.entity';
 import { CreateDeductionDto } from './dto/create-deduction.dto';
 import { UpdateDeductionDto } from './dto/update-deduction.dto';
@@ -47,7 +48,7 @@ export class DeductionsService {
 
   async findAll(tenantId: string): Promise<Deduction[]> {
     return this.deductionRepo.find({
-      where: { tenantId },
+      where: { tenantId, ...scopedEmployeeWhere() },
       relations: ['employee'],
       order: { startDate: 'DESC', createdAt: 'DESC' },
     });

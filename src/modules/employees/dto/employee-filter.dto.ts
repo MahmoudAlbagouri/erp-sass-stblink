@@ -25,6 +25,10 @@ export class EmployeeFilterDto {
   shiftId?: string;
 
   @IsOptional()
+  @IsUUID()
+  branchId?: string;
+
+  @IsOptional()
   @IsBooleanString()
   hasUser?: string;
 

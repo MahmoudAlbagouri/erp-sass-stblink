@@ -8,6 +8,10 @@ export const PERMS = {
   USER_UPDATE: { name: 'update_user', labelAr: 'تعديل بيانات المستخدم' },
   USER_DELETE: { name: 'delete_user', labelAr: 'حذف مستخدم' },
 
+  // ─── Branches (الفروع) ──────────────────────────────
+  BRANCH_VIEW: { name: 'view_branches', labelAr: 'عرض الفروع' },
+  BRANCH_MANAGE: { name: 'manage_branches', labelAr: 'إدارة الفروع' },
+
   // ─── Departments (الأقسام) ────────────────────────── ✅ جديد
   DEPARTMENT_CREATE: {
     name: 'create_department',

@@ -51,6 +51,7 @@ import { PurchasingModule } from './modules/purchasing/purchasing.module';
 import { PosModule } from './modules/pos/pos.module';
 import { SalesModule } from './modules/sales/sales.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { BranchesModule } from './modules/branches/branches.module';
 
 @Module({
   imports: [
@@ -109,6 +110,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     ResignationsModule,
     NotificationsModule,
     DepartmentsModule,
+    BranchesModule,
 
     // ─── الموديولات التجارية ───
     CatalogModule,

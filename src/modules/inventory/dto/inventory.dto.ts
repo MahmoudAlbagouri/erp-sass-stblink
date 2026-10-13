@@ -57,6 +57,11 @@ export class CreateWarehouseDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  /** الفرع الذي يتبعه المخزن — يُترك فارغاً للفرع الرئيسي */
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
 }
 
 export class UpdateWarehouseDto extends PartialType(CreateWarehouseDto) {}

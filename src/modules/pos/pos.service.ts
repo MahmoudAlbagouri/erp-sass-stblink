@@ -9,7 +9,12 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { Not, Repository } from 'typeorm';
+import { In, Not, Repository } from 'typeorm';
+import {
+  assertWarehouseVisible,
+  restrictToScopedWarehouses,
+  scopedWarehouseIds,
+} from '../branches/branch-scope';
 import {
   paginated,
   Paginated,
@@ -110,6 +115,14 @@ export interface PosTenantProfile {
   currency: string;
   currencyDecimals: number;
   timezone: string;
+  /** فرع الجهاز: اسمه وعنوانه وهاتفه يُطبعان على الإيصال */
+  branch: {
+    id: string;
+    name: string;
+    address: string | null;
+    phone: string | null;
+    isMain: boolean;
+  } | null;
 }
 
 /** ما يعود للشاشة عند ربطها: الجهاز + مفتاحه (يُعرض هذه المرة فقط) */
@@ -170,9 +183,10 @@ export class PosService {
   // ══════════════════════════ الأجهزة ══════════════════════════
 
   async findDevices(tenantId: string): Promise<PosDevice[]> {
+    const allowed = scopedWarehouseIds();
     const devices = await this.devices.find({
-      where: { tenantId },
-      relations: ['warehouse'],
+      where: { tenantId, ...(allowed ? { warehouseId: In(allowed) } : {}) },
+      relations: ['warehouse', 'warehouse.branch'],
       order: { name: 'ASC' },
     });
     const open = await this.shifts.find({
@@ -192,6 +206,7 @@ export class PosService {
       relations: ['warehouse'],
     });
     if (!device) throw new NotFoundException('جهاز الكاشير غير موجود');
+    assertWarehouseVisible(device.warehouseId, 'جهاز الكاشير غير موجود');
     return device;
   }
 
@@ -352,7 +367,7 @@ export class PosService {
       ]);
 
     await this.devices.update({ id: deviceId }, { lastSeenAt: serverTime });
-    const tenant = await this.tenantProfile(tenantId);
+    const tenant = await this.tenantProfile(tenantId, device.warehouseId);
     const decimals = tenant.currencyDecimals;
 
     return {
@@ -378,7 +393,19 @@ export class PosService {
     };
   }
 
-  private async tenantProfile(tenantId: string): Promise<PosTenantProfile> {
+  private async tenantProfile(
+    tenantId: string,
+    warehouseId?: string,
+  ): Promise<PosTenantProfile> {
+    const branches: PosTenantProfile['branch'][] = warehouseId
+      ? await this.devices.manager.query(
+          `SELECT b."id", b."name", b."address", b."phone", b."isMain"
+             FROM warehouses w JOIN branches b ON b."id" = w."branchId"
+            WHERE w."id" = $1 AND w."tenantId" = $2`,
+          [warehouseId, tenantId],
+        )
+      : [];
+
     const rows: {
       companyName: string;
       country: string | null;
@@ -398,6 +425,7 @@ export class PosService {
       currency,
       currencyDecimals: getCurrencyDecimals(currency),
       timezone: row?.timezone ?? country.timezone,
+      branch: branches[0] ?? null,
     };
   }
 
@@ -704,6 +732,7 @@ export class PosService {
       .withDeleted() // وردية جهاز حُذف لاحقاً تبقى ظاهرة
       .leftJoinAndSelect('shift.device', 'device')
       .where('shift.tenantId = :tenantId', { tenantId });
+    restrictToScopedWarehouses(qb, 'device.warehouseId');
 
     if (query.deviceId) {
       qb.andWhere('shift.deviceId = :deviceId', { deviceId: query.deviceId });

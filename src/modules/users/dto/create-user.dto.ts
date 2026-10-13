@@ -7,6 +7,7 @@ import {
   IsUUID,
   IsEnum,
   IsBoolean,
+  IsArray,
 } from 'class-validator';
 import { UserStatus } from '../../../common/enums/user.enums';
 
@@ -29,6 +30,12 @@ export class CreateUserDto {
   @IsOptional()
   @IsEnum(UserStatus)
   status?: UserStatus;
+
+  /** الفروع المسموح له بها. فارغة = كل الفروع */
+  @IsOptional()
+  @IsArray()
+  @IsUUID('all', { each: true })
+  branchIds?: string[];
 
   @IsOptional()
   @IsBoolean()

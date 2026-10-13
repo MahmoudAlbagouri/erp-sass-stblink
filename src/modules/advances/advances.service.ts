@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
+import { scopedEmployeeWhere } from '../branches/branch-scope';
 import { Advance, AdvanceStatus } from './entities/advance.entity';
 import { CreateAdvanceDto } from './dto/create-advance.dto';
 import { SalariesService } from '../salaries/salaries.service';
@@ -65,7 +66,7 @@ export class AdvancesService {
   // ✅ تحديث findAll لجلب بيانات الموظف
   async findAll(tenantId: string) {
     return await this.repo.find({
-      where: { tenantId },
+      where: { tenantId, ...scopedEmployeeWhere() },
       relations: ['employee', 'disbursedBy'],
       order: { repaymentDate: 'ASC' },
     });

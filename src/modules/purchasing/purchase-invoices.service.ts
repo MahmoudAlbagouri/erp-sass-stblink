@@ -5,6 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import {
+  assertWarehouseVisible,
+  restrictToScopedWarehouses,
+} from '../branches/branch-scope';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import {
   paginated,
@@ -94,6 +98,7 @@ export class PurchaseInvoicesService {
       .leftJoinAndSelect('invoice.warehouse', 'warehouse')
       .loadRelationCountAndMap('invoice.linesCount', 'invoice.lines')
       .where('invoice.tenantId = :tenantId', { tenantId });
+    restrictToScopedWarehouses(qb, 'invoice.warehouseId');
 
     const search = query.search?.trim();
     if (search) {
@@ -152,6 +157,7 @@ export class PurchaseInvoicesService {
       ],
     });
     if (!invoice) throw new NotFoundException('فاتورة الشراء غير موجودة');
+    assertWarehouseVisible(invoice.warehouseId, 'فاتورة الشراء غير موجودة');
 
     invoice.lines?.sort((a, b) => a.sortOrder - b.sortOrder);
     return invoice;
@@ -172,6 +178,7 @@ export class PurchaseInvoicesService {
       lock: { mode: 'pessimistic_write' },
     });
     if (!invoice) throw new NotFoundException('فاتورة الشراء غير موجودة');
+    assertWarehouseVisible(invoice.warehouseId, 'فاتورة الشراء غير موجودة');
     return invoice;
   }
 

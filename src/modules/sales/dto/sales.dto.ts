@@ -349,6 +349,11 @@ export class CreateCustomerPaymentDto {
   @IsUUID()
   invoiceId?: string;
 
+  /** الفرع القابض لدفعة على الحساب (مع فاتورة يؤخذ من مخزنها) */
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
+
   @Matches(DATE_ONLY, { message: DATE_MESSAGE })
   paymentDate!: string;
 
@@ -387,4 +392,8 @@ export class CustomerPaymentQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(PaymentDirection)
   direction?: PaymentDirection;
+
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
 }

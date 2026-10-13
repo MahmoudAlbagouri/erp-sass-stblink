@@ -310,16 +310,20 @@ describe('Dashboard overview (e2e)', () => {
     await sellSomething();
     const main = (await overview()).branches![0];
     const branch = data<{ id: string }>(
-      await post('/inventory/warehouses', { name: 'فرع الشمال' }),
+      await post('/branches', { name: 'فرع الشمال' }),
     );
+    // للفرع مخزنان: أرقامه مجموعهما
+    for (const name of ['مخزن الشمال', 'مستودع الشمال']) {
+      await post('/inventory/warehouses', { name, branchId: branch.id });
+    }
 
     const all = await overview();
     expect(all.branches!.map((b) => b.id)).toEqual([main.id, branch.id]);
     expect(all.sales!.total).toBe(4.6);
 
     // الفرع الجديد لم يبع شيئاً: أرقامه صفر، والمقارنة تعرض الفرعين
-    const scoped = await overview(`?warehouseId=${branch.id}`);
-    expect(scoped.warehouseId).toBe(branch.id);
+    const scoped = await overview(`?branchId=${branch.id}`);
+    expect(scoped.branchId).toBe(branch.id);
     expect(scoped.sales).toMatchObject({
       total: 0,
       invoices: 0,
@@ -336,12 +340,8 @@ describe('Dashboard overview (e2e)', () => {
       features: ALL_FEATURES,
     });
     expect(
-      (
-        await get(
-          `/dashboard/overview?warehouseId=${main.id}`,
-          other.adminToken,
-        )
-      ).status,
+      (await get(`/dashboard/overview?branchId=${main.id}`, other.adminToken))
+        .status,
     ).toBe(400);
   });
 

@@ -28,6 +28,10 @@ import {
 } from '../contracts/utils/contract-dates.util';
 import { filterTenantAssignablePermissions } from '../permissions/utils/permission-scope.util';
 import { generateEmployeeCode } from './utils/employee-code.util';
+import {
+  resolveBranchId,
+  resolveUserBranches,
+} from '../branches/branches.util';
 
 // ✅ استيراد خدمة الإشعارات
 import { NotificationsService } from '../notifications/notifications.service';
@@ -138,6 +142,8 @@ export class EmployeesOnboardingService {
             status: UserStatus.ACTIVE,
             isSuperAdmin: false,
             isSystemAdmin: false,
+            // من ينشئه مستخدم مقيَّد بفروع يرث فروعه: لا يرى أكثر ممن أنشأه
+            branches: await resolveUserBranches(manager, tenantId),
           });
           user = await manager.save(User, newUser);
           result.user = user;
@@ -164,6 +170,7 @@ export class EmployeesOnboardingService {
           phone: dto.phone,
           jobTitle: dto.jobTitle,
           departmentId: dto.departmentId, // ✅ بدل department النصي
+          branchId: await resolveBranchId(manager, tenantId, dto.branchId),
           shiftId: dto.shiftId,
           status: dto.status ?? 'active',
           employeeCode,

@@ -8,11 +8,14 @@ import {
   UpdateDateColumn,
   DeleteDateColumn,
   OneToOne,
+  ManyToMany,
+  JoinTable,
 } from 'typeorm';
 import { Tenant } from '../../tenants/entities/tenant.entity';
 import { Role } from '../../roles/entities/role.entity';
 import { UserStatus } from '../../../common/enums/user.enums';
 import { Employee } from '../../employees/entities/employee.entity';
+import { Branch } from '../../branches/entities/branch.entity';
 
 @Entity('users')
 export class User {
@@ -70,6 +73,18 @@ export class User {
   @ManyToOne(() => Role, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'role_id' })
   role?: Role;
+
+  /**
+   * الفروع المسموح للمستخدم برؤيتها والعمل فيها. فارغة = كل الفروع.
+   * مدير الشركة (isSuperAdmin) يرى الكل دائماً مهما كان هنا.
+   */
+  @ManyToMany(() => Branch)
+  @JoinTable({
+    name: 'user_branches',
+    joinColumn: { name: 'user_id', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'branch_id', referencedColumnName: 'id' },
+  })
+  branches?: Branch[];
 
   @CreateDateColumn()
   created_at!: Date;

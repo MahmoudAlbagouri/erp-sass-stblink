@@ -4,18 +4,25 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Employee } from './entities/employee.entity';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 import { User } from '../users/entities/user.entity';
 import { generateEmployeeCode } from './utils/employee-code.util';
+import {
+  assertBranchVisible,
+  restrictToScopedBranches,
+  scopedBranchIds,
+} from '../branches/branch-scope';
+import { resolveBranchId } from '../branches/branches.util';
 
 export interface EmployeeFilterOptions {
   status?: string;
   nationalityType?: string;
   departmentId?: string;
   shiftId?: string;
+  branchId?: string;
   hasUser?: boolean;
   hasContract?: boolean;
   iqamaExpiringSoon?: boolean;
@@ -57,6 +64,12 @@ export class EmployeesService {
         throw new NotFoundException('المستخدم غير موجود أو لا ينتمي لشركتك');
     }
 
+    const branchId = await resolveBranchId(
+      this.repo.manager,
+      tenantId,
+      dto.branchId,
+    );
+
     const MAX_RETRIES = 3;
     let lastError: unknown;
 
@@ -70,6 +83,7 @@ export class EmployeesService {
 
       const employee = this.repo.create({
         ...dto,
+        branchId,
         employeeCode,
         user: user ?? undefined,
         tenantId,
@@ -97,9 +111,10 @@ export class EmployeesService {
   }
 
   async findAll(tenantId: string): Promise<Employee[]> {
+    const allowed = scopedBranchIds();
     return this.repo.find({
-      where: { tenantId },
-      relations: ['user', 'educations', 'department', 'contract'],
+      where: { tenantId, ...(allowed ? { branchId: In(allowed) } : {}) },
+      relations: ['user', 'educations', 'department', 'contract', 'branch'],
       order: { createdAt: 'DESC' },
     });
   }
@@ -123,6 +138,7 @@ export class EmployeesService {
         'salaries',
         'shift',
         'department', // ✅
+        'branch',
       ],
       order: {
         createdAt: 'DESC',
@@ -132,6 +148,7 @@ export class EmployeesService {
     });
 
     if (!employee) throw new NotFoundException('الموظف غير موجود');
+    assertBranchVisible(employee.branchId, 'الموظف غير موجود');
     return employee;
   }
 
@@ -149,7 +166,15 @@ export class EmployeesService {
       .leftJoinAndSelect('employee.contract', 'contract')
       .leftJoinAndSelect('employee.shift', 'shift')
       .leftJoinAndSelect('employee.educations', 'educations')
+      .leftJoinAndSelect('employee.branch', 'branch')
       .where('employee.tenantId = :tenantId', { tenantId });
+    restrictToScopedBranches(qb, 'employee.branchId');
+
+    if (filters.branchId) {
+      qb.andWhere('employee.branchId = :branchId', {
+        branchId: filters.branchId,
+      });
+    }
 
     if (filters.status) {
       qb.andWhere('employee.status = :status', { status: filters.status });
@@ -211,7 +236,11 @@ export class EmployeesService {
     });
 
     if (!employee) throw new NotFoundException('الموظف غير موجود');
+    assertBranchVisible(employee.branchId, 'الموظف غير موجود');
 
+    if (dto.branchId && dto.branchId !== employee.branchId) {
+      await resolveBranchId(this.repo.manager, tenantId, dto.branchId);
+    }
     if (dto.nationalId && dto.nationalId !== employee.nationalId) {
       await this.checkNationalIdUniqueness(dto.nationalId, tenantId, id);
     }

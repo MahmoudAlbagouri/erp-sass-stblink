@@ -26,6 +26,10 @@ import {
 } from './entities/stocktake.entity';
 import { assertNoDuplicateProducts, StockService } from './stock.service';
 import { WarehousesService } from './warehouses.service';
+import {
+  assertWarehouseVisible,
+  restrictToScopedWarehouses,
+} from '../branches/branch-scope';
 
 const REFERENCE_TYPE = 'stocktake';
 const NUMBER_PREFIX = 'ST-';
@@ -57,6 +61,7 @@ export class StocktakesService {
       .leftJoinAndSelect('stocktake.warehouse', 'warehouse')
       .loadRelationCountAndMap('stocktake.linesCount', 'stocktake.lines')
       .where('stocktake.tenantId = :tenantId', { tenantId });
+    restrictToScopedWarehouses(qb, 'stocktake.warehouseId');
 
     if (query.status) {
       qb.andWhere('stocktake.status = :status', { status: query.status });
@@ -88,6 +93,7 @@ export class StocktakesService {
       ],
     });
     if (!stocktake) throw new NotFoundException('الجرد غير موجود');
+    assertWarehouseVisible(stocktake.warehouseId, 'الجرد غير موجود');
 
     // المسودة تعرض رصيد النظام الحالي بجانب المعدود ليظهر الفرق قبل الاعتماد
     if (stocktake.status === StocktakeStatus.DRAFT && stocktake.lines) {
