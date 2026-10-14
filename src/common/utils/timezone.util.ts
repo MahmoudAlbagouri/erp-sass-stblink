@@ -28,6 +28,25 @@ export async function tenantTimezoneOf(
     : getCountry(row?.country).timezone;
 }
 
+/** "اليوم" للشركة بتقويمها المحلي — بدل CURRENT_DATE (توقيت قاعدة البيانات) */
+export interface TenantCalendar {
+  zone: string;
+  /** اليوم (YYYY-MM-DD) بتوقيت الشركة */
+  today: string;
+  /** أول الشهر الحالي (YYYY-MM-01) بتوقيت الشركة */
+  monthStart: string;
+}
+
+export async function tenantCalendarOf(
+  manager: EntityManager,
+  tenantId: string,
+  now: Date = new Date(),
+): Promise<TenantCalendar> {
+  const zone = await tenantTimezoneOf(manager, tenantId);
+  const today = dayKeyInZone(now, zone);
+  return { zone, today, monthStart: `${today.slice(0, 8)}01` };
+}
+
 /**
  * وقت محلي بلا منطقة ("2026-10-13 08:05:00" كما تعرضه ساعة جهاز البصمة) إلى
  * لحظته الحقيقية. يعيد null لنص غير صالح.

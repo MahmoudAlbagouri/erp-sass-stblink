@@ -18,6 +18,7 @@ import {
   sumMoney,
 } from '../../common/utils/document-totals.util';
 import { moneyDecimalsOf } from '../../common/utils/money.util';
+import { tenantTimezoneOf } from '../../common/utils/timezone.util';
 import {
   assertWarehouseVisible,
   restrictToScopedWarehouses,
@@ -246,10 +247,12 @@ export class SalesReturnsService {
       }),
       await moneyDecimalsOf(this.dataSource.manager, tenantId),
     );
+    const zone = await tenantTimezoneOf(this.dataSource.manager, tenantId);
 
     const id = await this.dataSource.transaction(async (manager) => {
       const returnId = await this.persist(manager, invoice, lines, {
-        returnDate: dateOnly(input.issuedAt),
+        // يوم المرتجع بتوقيت الشركة، لا بساعة السيرفر
+        returnDate: dateOnly(input.issuedAt, zone),
         reason: input.reason,
         userId,
         uuid: input.uuid,
@@ -445,7 +448,10 @@ export class SalesReturnsService {
           invoiceId: invoice.id,
           salesReturnId: id,
           direction: PaymentDirection.OUT,
-          paymentDate: dateOnly(issuedAt),
+          paymentDate: dateOnly(
+            issuedAt,
+            await tenantTimezoneOf(manager, tenantId),
+          ),
           amount: refund,
           method: dto.refund.method,
           reference: dto.refund.reference,

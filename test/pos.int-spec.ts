@@ -42,6 +42,8 @@ import { SalesReturnsService } from '../src/modules/sales/sales-returns.service'
 import { SalesReturn } from '../src/modules/sales/entities/sales-return.entity';
 import { SalesSettingsService } from '../src/modules/sales/sales-settings.service';
 import { Tenant } from '../src/modules/tenants/entities/tenant.entity';
+import { dayKeyInZone } from '../src/common/utils/timezone.util';
+import { PosDocumentDates1791912700000 } from '../src/database/migrations/1791912700000-PosDocumentDates';
 import { createTestDataSource, truncateAllTables } from './utils/test-database';
 
 describe('pos module', () => {
@@ -745,6 +747,101 @@ describe('pos module', () => {
           tenantA,
         ),
       ).rejects.toThrow('الرصيد غير كافٍ');
+    });
+
+    it('dates a sale by the company clock, not the server clock', async () => {
+      const shiftId = randomUUID();
+      // 01:30 فجر 12 أكتوبر بالرياض = 22:30 يوم 11 بتوقيت UTC
+      const late = saleOp(shiftId, 1, 2, {
+        issuedAt: '2026-10-11T22:30:00.000Z',
+      });
+
+      await sync([openOp(shiftId), late]);
+
+      const [invoice] = (await invoices.findAll(tenantA, {})).data;
+      expect(invoice.invoiceDate).toBe('2026-10-12');
+      expect(invoice.dueDate).toBe('2026-10-12');
+      const [payment] = await dataSource
+        .getRepository(CustomerPayment)
+        .find({ where: { invoiceId: invoice.id } });
+      expect(payment.paymentDate).toBe('2026-10-12');
+      // فلتر قائمة الفواتير بالتاريخ يجدها في يومها
+      expect(
+        (
+          await invoices.findAll(tenantA, {
+            from: '2026-10-12',
+            to: '2026-10-12',
+          })
+        ).total,
+      ).toBe(1);
+    });
+
+    it("counts today's sales by the company calendar", async () => {
+      // منطقة تسبق UTC بـ 14 ساعة: يومها يختلف عن يوم UTC معظم اليوم
+      const zone = 'Pacific/Kiritimati';
+      await dataSource
+        .getRepository(Tenant)
+        .update({ id: tenantA }, { timezone: zone });
+      const shiftId = randomUUID();
+      const now = new Date();
+
+      await sync([
+        openOp(shiftId),
+        saleOp(shiftId, 1, 2, { issuedAt: now.toISOString() }),
+      ]);
+
+      const [invoice] = (await invoices.findAll(tenantA, {})).data;
+      expect(invoice.invoiceDate).toBe(dayKeyInZone(now, zone));
+      const summary = await invoices.summary(tenantA);
+      expect(summary.todaySales).toBe(4.6);
+      expect(summary.monthSales).toBe(4.6);
+    });
+
+    it('re-dates earlier kiosk documents with the data-fix migration', async () => {
+      const shiftId = randomUUID();
+      await sync([
+        openOp(shiftId),
+        saleOp(shiftId, 1, 2, { issuedAt: '2026-10-11T22:30:00.000Z' }),
+        returnOp(shiftId, 1, 1, 2.3, { issuedAt: '2026-10-11T23:00:00.000Z' }),
+      ]);
+      // كما كانت تُسجَّل قبل الإصلاح: بيوم UTC
+      const [invoice] = (await invoices.findAll(tenantA, {})).data;
+      await dataSource.query(
+        `UPDATE sales_invoices SET "invoiceDate" = '2026-10-11', "dueDate" = '2026-10-11' WHERE id = $1`,
+        [invoice.id],
+      );
+      await dataSource.query(
+        `UPDATE sales_returns SET "returnDate" = '2026-10-11' WHERE "invoiceId" = $1`,
+        [invoice.id],
+      );
+      await dataSource.query(
+        `UPDATE customer_payments SET "paymentDate" = '2026-10-11' WHERE "invoiceId" = $1`,
+        [invoice.id],
+      );
+
+      const runner = dataSource.createQueryRunner();
+      try {
+        await new PosDocumentDates1791912700000().up(runner);
+      } finally {
+        await runner.release();
+      }
+
+      const fixed = await invoices.findOne(invoice.id, tenantA);
+      expect(fixed).toMatchObject({
+        invoiceDate: '2026-10-12',
+        dueDate: '2026-10-12',
+      });
+      const [salesReturn] = await dataSource
+        .getRepository(SalesReturn)
+        .find({ where: { invoiceId: invoice.id } });
+      expect(salesReturn.returnDate).toBe('2026-10-12');
+      const payments = await dataSource
+        .getRepository(CustomerPayment)
+        .find({ where: { invoiceId: invoice.id } });
+      expect(payments.map((p) => p.paymentDate)).toEqual([
+        '2026-10-12',
+        '2026-10-12',
+      ]);
     });
 
     it('flags a wrong tax rate or an unapproved price below minimum', async () => {

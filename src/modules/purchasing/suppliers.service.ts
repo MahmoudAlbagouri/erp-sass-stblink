@@ -21,6 +21,7 @@ import {
 } from './dto/purchasing.dto';
 import { Supplier } from './entities/supplier.entity';
 import { sumMoney } from '../../common/utils/document-totals.util';
+import { tenantCalendarOf } from '../../common/utils/timezone.util';
 
 const CODE_PREFIX = 'SUP-';
 
@@ -245,20 +246,25 @@ export class SuppliersService {
         WHERE "supplier"."tenantId" = $1 AND "supplier"."deletedAt" IS NULL`,
       [tenantId],
     );
+    // "اليوم" و"الشهر" بتقويم الشركة لا بتوقيت قاعدة البيانات
+    const { today, monthStart } = await tenantCalendarOf(
+      this.suppliers.manager,
+      tenantId,
+    );
     const [invoices] = await this.suppliers.query<
       { overdue: string; month: string; drafts: number }[]
     >(
       `SELECT
          COALESCE(SUM("total" - "returnedAmount" - "paidAmount") FILTER (
-           WHERE "status" = 'posted' AND "dueDate" < CURRENT_DATE
+           WHERE "status" = 'posted' AND "dueDate" < $2::date
              AND "total" - "returnedAmount" - "paidAmount" > 0), 0) AS "overdue",
          COALESCE(SUM("total" - "returnedAmount") FILTER (
            WHERE "status" = 'posted'
-             AND "invoiceDate" >= date_trunc('month', CURRENT_DATE)), 0) AS "month",
+             AND "invoiceDate" BETWEEN $3::date AND $2::date), 0) AS "month",
          (COUNT(*) FILTER (WHERE "status" = 'draft'))::int AS "drafts"
        FROM purchase_invoices
        WHERE "tenantId" = $1 AND "deletedAt" IS NULL`,
-      [tenantId],
+      [tenantId, today, monthStart],
     );
 
     return {

@@ -1,6 +1,7 @@
 // src/modules/sales/utils/payment-recorder.ts
 import { EntityManager } from 'typeorm';
 import { nextDocumentNumber } from '../../../common/utils/document-number.util';
+import { dayKeyInZone } from '../../../common/utils/timezone.util';
 import { currentBranchScope } from '../../branches/branch-scope';
 import { ensureMainBranch } from '../../branches/branches.util';
 import {
@@ -97,10 +98,11 @@ async function branchOf(
   );
 }
 
-/** تاريخ اليوم (YYYY-MM-DD) لوقت معيّن، بتوقيت السيرفر */
-export function dateOnly(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+/**
+ * تاريخ المستند (YYYY-MM-DD) للحظة معيّنة بتوقيت الشركة — لا السيرفر: بيع
+ * الساعة 1:30 فجراً بالرياض يوم 15 تاريخه 15 ولو كانت ساعة السيرفر (UTC) ما
+ * زالت في 14. المنطقة من tenantTimezoneOf.
+ */
+export function dateOnly(date: Date, zone: string): string {
+  return dayKeyInZone(date, zone);
 }

@@ -927,7 +927,12 @@ describe('sales module', () => {
       expect(
         statement.entries
           .map((e) => [e.type, e.debit, e.credit])
-          .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+          // بالنوع ثم المبلغ: ترتيب القبضين بالتاريخ يتبع يوم تشغيل الاختبار
+          .sort(
+            (a, b) =>
+              String(a[0]).localeCompare(String(b[0])) ||
+              Number(a[2]) - Number(b[2]),
+          ),
       ).toEqual([
         ['invoice', 23, 0],
         ['payment', 0, 23],

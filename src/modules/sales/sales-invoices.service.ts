@@ -19,6 +19,11 @@ import {
 } from '../../common/utils/document-number.util';
 import { computeLine, sumMoney } from '../../common/utils/document-totals.util';
 import {
+  startOfDayInZone,
+  tenantCalendarOf,
+  tenantTimezoneOf,
+} from '../../common/utils/timezone.util';
+import {
   MAX_MONEY_DECIMALS,
   moneyDecimalsOf,
   roundMoney,
@@ -245,7 +250,11 @@ export class SalesInvoicesService {
         'invoice.total - invoice.returnedAmount - invoice.paidAmount > 0',
       );
       if (query.payment === 'overdue') {
-        qb.andWhere('invoice.dueDate < CURRENT_DATE');
+        const { today } = await tenantCalendarOf(
+          this.dataSource.manager,
+          tenantId,
+        );
+        qb.andWhere('invoice.dueDate < :today', { today });
       }
     }
     if (query.from) {
@@ -313,11 +322,17 @@ export class SalesInvoicesService {
 
   /** عدد الفواتير الصادرة هذا الشهر — يستخدمه حد الخطة (max_invoices) */
   async countIssuedThisMonth(tenantId: string): Promise<number> {
+    // بلحظة الإصدار لا بتاريخ الفاتورة (تأريخها للخلف لا يتجاوز الحد)، وبداية
+    // الشهر بتقويم الشركة
+    const { zone, monthStart } = await tenantCalendarOf(
+      this.dataSource.manager,
+      tenantId,
+    );
     const [row] = await this.invoices.query<{ count: number }[]>(
       `SELECT COUNT(*)::int AS "count" FROM sales_invoices
         WHERE "tenantId" = $1 AND "status" = 'issued'
-          AND "issuedAt" >= date_trunc('month', now())`,
-      [tenantId],
+          AND "issuedAt" >= $2`,
+      [tenantId, startOfDayInZone(monthStart, zone)],
     );
     return row.count;
   }
@@ -372,10 +387,18 @@ export class SalesInvoicesService {
     return result;
   }
 
+  /**
+   * أرقام صفحة المبيعات. "اليوم" و"الشهر" بتقويم الشركة وبتاريخ الفاتورة
+   * (invoiceDate، التاريخ المحاسبي) — نفس تعريف الصفحة الرئيسية.
+   */
   async summary(tenantId: string): Promise<SalesSummary> {
     // المستخدم المقيَّد بفروع يرى أرقام فروعه (ذمم العملاء تبقى للشركة كلها:
     // العميل ليس تابعاً لفرع)
     const allowed = scopedWarehouseIds();
+    const { today, monthStart } = await tenantCalendarOf(
+      this.dataSource.manager,
+      tenantId,
+    );
     const [row] = await this.invoices.query<
       {
         today: string;
@@ -387,21 +410,21 @@ export class SalesInvoicesService {
     >(
       `SELECT
          COALESCE(SUM("total" - "returnedAmount") FILTER (
-           WHERE "status" = 'issued' AND "invoiceDate" = CURRENT_DATE), 0) AS "today",
+           WHERE "status" = 'issued' AND "invoiceDate" = $2::date), 0) AS "today",
          COALESCE(SUM("total" - "returnedAmount") FILTER (
            WHERE "status" = 'issued'
-             AND "invoiceDate" >= date_trunc('month', CURRENT_DATE)), 0) AS "month",
+             AND "invoiceDate" BETWEEN $3::date AND $2::date), 0) AS "month",
          COALESCE(SUM("subtotal" - "costTotal") FILTER (
            WHERE "status" = 'issued'
-             AND "invoiceDate" >= date_trunc('month', CURRENT_DATE)), 0) AS "profit",
+             AND "invoiceDate" BETWEEN $3::date AND $2::date), 0) AS "profit",
          COALESCE(SUM("total" - "returnedAmount" - "paidAmount") FILTER (
-           WHERE "status" = 'issued' AND "dueDate" < CURRENT_DATE
+           WHERE "status" = 'issued' AND "dueDate" < $2::date
              AND "total" - "returnedAmount" - "paidAmount" > 0), 0) AS "overdue",
          (COUNT(*) FILTER (WHERE "status" = 'draft'))::int AS "drafts"
        FROM sales_invoices
        WHERE "tenantId" = $1 AND "deletedAt" IS NULL
-         ${allowed ? 'AND "warehouseId" = ANY($2::uuid[])' : ''}`,
-      allowed ? [tenantId, allowed] : [tenantId],
+         AND ($4::uuid[] IS NULL OR "warehouseId" = ANY($4::uuid[]))`,
+      [tenantId, today, monthStart, allowed],
     );
 
     return {
@@ -661,6 +684,11 @@ export class SalesInvoicesService {
       );
     }
     const seller = await this.settings.get(tenantId);
+    // تاريخ الفاتورة = يوم البيع بتوقيت الشركة، لا بساعة السيرفر
+    const saleDay = dateOnly(
+      sale.issuedAt,
+      await tenantTimezoneOf(this.dataSource.manager, tenantId),
+    );
 
     const { id, overdrawn } = await this.dataSource.transaction(
       async (manager) => {
@@ -671,10 +699,8 @@ export class SalesInvoicesService {
             customerId: customer?.id ?? null,
             invoiceType: invoiceTypeFor(customer),
             warehouseId: sale.warehouseId,
-            invoiceDate: dateOnly(sale.issuedAt),
-            dueDate: onAccount
-              ? defaultDueDate(dateOnly(sale.issuedAt), customer)
-              : dateOnly(sale.issuedAt),
+            invoiceDate: saleDay,
+            dueDate: onAccount ? defaultDueDate(saleDay, customer) : saleDay,
             pricesIncludeTax: sale.pricesIncludeTax,
             createdById: userId ?? null,
             ...totals,
@@ -919,13 +945,16 @@ export class SalesInvoicesService {
       },
     );
 
-    // ─── المقبوض عند الإصدار ───
+    // ─── المقبوض عند الإصدار (بتاريخ يوم الإصدار بتوقيت الشركة) ───
+    const paymentDate = tenders.length
+      ? dateOnly(issuedAt, await tenantTimezoneOf(manager, tenantId))
+      : '';
     for (const tender of tenders) {
       await recordPayment(manager, tenantId, {
         customerId: invoice.customerId,
         invoiceId: id,
         direction: PaymentDirection.IN,
-        paymentDate: dateOnly(issuedAt),
+        paymentDate,
         amount: tender.amount,
         method: tender.method,
         reference: tender.reference,

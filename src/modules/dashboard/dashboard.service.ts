@@ -434,7 +434,10 @@ export class DashboardService {
               AND ($2::uuid[] IS NULL OR ${col('warehouseId')} = ANY($2::uuid[]))`;
     };
     const scope = [tenantId, warehouseIds];
-    const inPeriod = [...scope, period.start, period.end];
+    // الإجماليات بتاريخ الفاتورة (التاريخ المحاسبي) — نفس صفحة المبيعات وقائمة
+    // الفواتير وكشف الحساب. التوزيع حسب الساعة وحده بلحظة الإصدار
+    const inPeriod = [...scope, period.from, period.to];
+    const atMoment = [...scope, period.start, period.end];
 
     const [
       byDay,
@@ -451,7 +454,7 @@ export class DashboardService {
       recent,
       shifts,
     ] = await Promise.all([
-      // الفترتان معاً، مجمّعتين بيوم الشركة المحلي
+      // الفترتان معاً، مجمّعتين بتاريخ الفاتورة
       this.query<{
         day: string;
         total: number;
@@ -459,16 +462,17 @@ export class DashboardService {
         subtotal: number;
         profit: number;
       }>(
-        `SELECT (("issuedAt" AT TIME ZONE $5)::date)::text AS "day",
+        `SELECT "invoiceDate"::text AS "day",
                 COALESCE(SUM("total"), 0)::float AS "total",
                 COUNT(*)::int AS "invoices",
                 COALESCE(SUM("subtotal"), 0)::float AS "subtotal",
                 COALESCE(SUM("subtotal" - "costTotal"), 0)::float AS "profit"
            FROM sales_invoices
-          WHERE ${issued()} AND "issuedAt" >= $3 AND "issuedAt" < $4
+          WHERE ${issued()} AND "invoiceDate" BETWEEN $3 AND $4
           GROUP BY 1`,
-        [...scope, period.previousStart, period.end, period.zone],
+        [...scope, period.previousFrom, period.to],
       ),
+      // ساعة البيع الفعلية بتوقيت الشركة (لتاريخ الفاتورة لا ساعة)
       this.query<{ hour: number; total: number; invoices: number }>(
         `SELECT EXTRACT(HOUR FROM "issuedAt" AT TIME ZONE $5)::int AS "hour",
                 SUM("total")::float AS "total",
@@ -476,7 +480,7 @@ export class DashboardService {
            FROM sales_invoices
           WHERE ${issued()} AND "issuedAt" >= $3 AND "issuedAt" < $4
           GROUP BY 1`,
-        [...inPeriod, period.zone],
+        [...atMoment, period.zone],
       ),
       this.query<NamedAmount>(
         `SELECT COALESCE(category."name", 'بلا تصنيف') AS "name",
@@ -486,7 +490,7 @@ export class DashboardService {
            LEFT JOIN products product ON product."id" = line."productId"
            LEFT JOIN product_categories category ON category."id" = product."categoryId"
           WHERE ${issued('invoice')}
-            AND invoice."issuedAt" >= $3 AND invoice."issuedAt" < $4
+            AND invoice."invoiceDate" BETWEEN $3 AND $4
           GROUP BY 1
           ORDER BY 2 DESC`,
         inPeriod,
@@ -494,7 +498,7 @@ export class DashboardService {
       this.query<{ total: number }>(
         `SELECT COALESCE(SUM("total"), 0)::float AS "total"
            FROM sales_returns
-          WHERE ${issued()} AND "issuedAt" >= $3 AND "issuedAt" < $4`,
+          WHERE ${issued()} AND "returnDate" BETWEEN $3 AND $4`,
         inPeriod,
       ),
       this.query<{ amount: number }>(
@@ -523,7 +527,7 @@ export class DashboardService {
            FROM sales_invoice_lines line
            JOIN sales_invoices invoice ON invoice."id" = line."invoiceId"
           WHERE ${issued('invoice')}
-            AND invoice."issuedAt" >= $3 AND invoice."issuedAt" < $4
+            AND invoice."invoiceDate" BETWEEN $3 AND $4
           GROUP BY line."productId"
           ORDER BY 3 DESC
           LIMIT ${TOP_PRODUCTS}`,
@@ -536,7 +540,7 @@ export class DashboardService {
            FROM sales_invoices invoice
            JOIN customers customer ON customer."id" = invoice."customerId"
           WHERE ${issued('invoice')}
-            AND invoice."issuedAt" >= $3 AND invoice."issuedAt" < $4
+            AND invoice."invoiceDate" BETWEEN $3 AND $4
           GROUP BY customer."id", customer."name"
           ORDER BY 2 DESC
           LIMIT ${TOP_LIST}`,
@@ -572,13 +576,13 @@ export class DashboardService {
            LEFT JOIN sales_invoices invoice
                   ON invoice."warehouseId" = warehouse."id"
                  AND invoice."status" = 'issued' AND invoice."deletedAt" IS NULL
-                 AND invoice."issuedAt" >= $2 AND invoice."issuedAt" < $3
+                 AND invoice."invoiceDate" BETWEEN $2 AND $3
           WHERE branch."tenantId" = $1 AND branch."deletedAt" IS NULL
             AND ($4::uuid[] IS NULL OR branch."id" = ANY($4::uuid[]))
           GROUP BY branch."id", branch."name"
          HAVING branch."isActive" = true OR COUNT(invoice."id") > 0
           ORDER BY 3 DESC, 2 ASC`,
-        [tenantId, period.start, period.end, scopedBranchIds()],
+        [tenantId, period.from, period.to, scopedBranchIds()],
       ),
       withPos
         ? this.query<NamedAmount & { invoices: number }>(
@@ -588,7 +592,7 @@ export class DashboardService {
                FROM sales_invoices invoice
                JOIN pos_shifts shift ON shift."id" = invoice."shiftId"
               WHERE ${issued('invoice')}
-                AND invoice."issuedAt" >= $3 AND invoice."issuedAt" < $4
+                AND invoice."invoiceDate" BETWEEN $3 AND $4
               GROUP BY 1
               ORDER BY 2 DESC
               LIMIT ${TOP_LIST}`,

@@ -36,6 +36,7 @@ import {
 import { SuppliersService } from './suppliers.service';
 import { computeLine, sumMoney } from '../../common/utils/document-totals.util';
 import { moneyDecimalsOf } from '../../common/utils/money.util';
+import { tenantCalendarOf } from '../../common/utils/timezone.util';
 
 export const PURCHASE_INVOICE_REFERENCE = 'purchase_invoice';
 const NUMBER_PREFIX = 'PI-';
@@ -123,7 +124,11 @@ export class PurchaseInvoicesService {
         'invoice.total - invoice.returnedAmount - invoice.paidAmount > 0',
       );
       if (query.payment === 'overdue') {
-        qb.andWhere('invoice.dueDate < CURRENT_DATE');
+        const { today } = await tenantCalendarOf(
+          this.invoices.manager,
+          tenantId,
+        );
+        qb.andWhere('invoice.dueDate < :today', { today });
       }
     }
     if (query.from) {
