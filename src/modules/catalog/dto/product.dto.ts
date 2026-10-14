@@ -107,6 +107,11 @@ export class CreateProductDto {
   @IsBoolean()
   isWeighted?: boolean;
 
+  /** سعر مفتوح: يُكتب على شاشة الكاشير عند البيع */
+  @IsOptional()
+  @IsBoolean()
+  openPrice?: boolean;
+
   @IsOptional()
   @IsString()
   @MaxLength(2000)

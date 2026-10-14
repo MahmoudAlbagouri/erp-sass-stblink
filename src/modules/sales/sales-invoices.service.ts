@@ -82,6 +82,8 @@ type ComputedLine = Pick<
   | 'factor'
   | 'quantity'
   | 'unitPrice'
+  | 'listPrice'
+  | 'priceReason'
   | 'discount'
   | 'taxRate'
   | 'taxCategory'
@@ -114,6 +116,9 @@ export interface PosSaleInput {
     subtotal: number;
     taxAmount: number;
     total: number;
+    /** السعر الأصلي حين غيّر الكاشير السعر في هذه الفاتورة */
+    listPrice?: number;
+    priceReason?: string;
   }[];
   payments: TenderDto[];
 }
@@ -151,6 +156,11 @@ export interface PosLineCheck {
   productTaxRate: number;
   /** صافي سعر الوحدة بعد الخصم أقل من أقل سعر مسموح للصنف */
   belowMinPrice: boolean;
+  /** ما بيعت به الوحدة، وسعرها في الكتالوج بأساس الفاتورة */
+  unitPrice: number;
+  catalogPrice: number;
+  /** السعر غير سعر الكتالوج والسطر لا يحمل تعديل سعر مسجّلاً */
+  unmarkedPrice: boolean;
 }
 
 export interface PosSaleRecord {
@@ -760,6 +770,8 @@ export class SalesInvoicesService {
       const unitId = input.unitId ?? product.baseUnitId;
       let factor = 1;
       let unitName = product.baseUnit?.name ?? '';
+      /** سعر وحدة البيع في الكتالوج (بأساس الصنف: شامل الضريبة أو قبلها) */
+      let catalogPrice = product.salePrice;
       if (unitId !== product.baseUnitId) {
         const productUnit = product.units?.find((u) => u.unitId === unitId);
         if (!productUnit) {
@@ -769,6 +781,10 @@ export class SalesInvoicesService {
         }
         factor = productUnit.factor;
         unitName = productUnit.unit?.name ?? '';
+        // نفس ما ينزل للجهاز (toPosProduct)
+        catalogPrice =
+          productUnit.salePrice ??
+          roundMoney(product.salePrice * productUnit.factor, decimals);
       }
 
       // نعيد الحساب للتحقق فقط؛ المعتمد ما طبعه الجهاز على الإيصال
@@ -801,6 +817,18 @@ export class SalesInvoicesService {
       const netUnitPrice = expected.baseQuantity
         ? input.subtotal / expected.baseQuantity
         : 0;
+      // سعر الكتالوج بأساس الفاتورة: شاشة الكاشير تبيع شاملاً الضريبة دائماً
+      const expectedPrice = new Decimal(catalogPrice)
+        .mul(
+          product.priceIncludesTax === sale.pricesIncludeTax
+            ? 1
+            : sale.pricesIncludeTax
+              ? 1 + productTaxRate / 100
+              : 1 / (1 + productTaxRate / 100),
+        )
+        .toDecimalPlaces(4)
+        .toNumber();
+      const priceChanged = input.listPrice !== undefined;
       checks.push({
         productId: product.id,
         categoryId: product.categoryId ?? null,
@@ -810,6 +838,13 @@ export class SalesInvoicesService {
         belowMinPrice:
           minNetPrice !== null &&
           netUnitPrice + 0.5 / 10 ** decimals < minNetPrice,
+        // سعر غير سعر الصنف وليس مسجّلاً كتعديل (ولا سعراً مفتوحاً)
+        unitPrice: input.unitPrice,
+        catalogPrice: expectedPrice,
+        unmarkedPrice:
+          !priceChanged &&
+          !product.openPrice &&
+          Math.abs(input.unitPrice - expectedPrice) > 0.5 / 10 ** decimals,
       });
 
       return {
@@ -823,6 +858,8 @@ export class SalesInvoicesService {
         factor,
         quantity: input.quantity,
         unitPrice: input.unitPrice,
+        listPrice: priceChanged ? input.listPrice! : null,
+        priceReason: priceChanged ? (input.priceReason ?? null) : null,
         discount: input.discount,
         taxRate: input.taxRate,
         taxCategory: product.taxRate?.category ?? TaxCategory.STANDARD,

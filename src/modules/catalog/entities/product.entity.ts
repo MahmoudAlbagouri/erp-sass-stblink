@@ -94,6 +94,13 @@ export class Product extends TenantOwnedEntity {
   @Column({ default: false })
   isWeighted!: boolean;
 
+  /**
+   * سعر مفتوح: لا سعر ثابت (خدمة، خضار بالقيمة)، شاشة الكاشير تطلب السعر عند
+   * إضافته للسلة. salePrice يبقى اقتراحاً يظهر في الخانة.
+   */
+  @Column({ default: false })
+  openPrice!: boolean;
+
   @Column({ type: 'text', nullable: true })
   description?: string | null;
 

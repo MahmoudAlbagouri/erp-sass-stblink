@@ -17,6 +17,8 @@ export interface PosCashierForDevice {
   canReturn: boolean;
   /** يوافق برقمه السري على ما يتجاوز صلاحية الكاشير */
   isSupervisor: boolean;
+  /** يغيّر سعر صنف في الفاتورة بلا مشرف (في حدود خصمه) */
+  canChangePrice: boolean;
   /** أقصى خصم يدوي % (null = بلا حد) */
   maxDiscountPercent: number | null;
   pinSalt: string;
@@ -72,6 +74,7 @@ export class PosCashiersService {
       name: c.name,
       canReturn: c.canReturn,
       isSupervisor: c.isSupervisor,
+      canChangePrice: c.canChangePrice,
       maxDiscountPercent: c.maxDiscountPercent ?? null,
       pinSalt: c.pinSalt,
       pinHash: c.pinHash,
@@ -92,6 +95,7 @@ export class PosCashiersService {
         name,
         canReturn: dto.canReturn ?? false,
         isSupervisor: dto.isSupervisor ?? false,
+        canChangePrice: dto.canChangePrice ?? true,
         maxDiscountPercent: dto.maxDiscountPercent ?? null,
         isActive: dto.isActive ?? true,
         ...hashPin(dto.pin),
@@ -115,6 +119,9 @@ export class PosCashiersService {
     }
     if (dto.canReturn !== undefined) cashier.canReturn = dto.canReturn;
     if (dto.isSupervisor !== undefined) cashier.isSupervisor = dto.isSupervisor;
+    if (dto.canChangePrice !== undefined) {
+      cashier.canChangePrice = dto.canChangePrice;
+    }
     // null صريحة = إزالة الحد
     if (dto.maxDiscountPercent !== undefined) {
       cashier.maxDiscountPercent = dto.maxDiscountPercent;

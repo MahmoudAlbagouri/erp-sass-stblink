@@ -75,6 +75,11 @@ export class PosApprovalsDto {
 
   @IsBoolean()
   manualDrawer!: boolean;
+
+  /** تغيير سعر صنف في الفاتورة (غائب = لا يحتاج موافقة، للشاشات القديمة) */
+  @IsOptional()
+  @IsBoolean()
+  priceChange?: boolean;
 }
 
 export class PosOptionsDto {

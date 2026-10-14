@@ -873,9 +873,9 @@ describe('pos module', () => {
           lines: [line(1.5, 15)],
           payments: [{ method: 'cash', amount: 1.5 }],
         }),
-        // نفس السعر بموافقة مشرف: لا مخالفة
+        // نفس السعر بموافقة مشرف وتعديل سعر مسجّل: لا مخالفة
         saleOp(shiftId, 3, 1, {
-          lines: [line(1.5, 15)],
+          lines: [{ ...line(1.5, 15), listPrice: 2.3, priceReason: 'تالف' }],
           payments: [{ method: 'cash', amount: 1.5 }],
           approvedBy: 'المشرف',
         }),
@@ -896,6 +896,137 @@ describe('pos module', () => {
         expect.stringMatching(/POS1-000001 .*ضريبة 0% بدل 15%/),
         expect.stringMatching(/POS1-000002 .*تحت أقل سعر/),
       ]);
+    });
+
+    it('keeps the list price of a line repriced in one invoice only', async () => {
+      const shiftId = randomUUID();
+      // رفع السعر من 2.30 إلى 2.50 لهذه الفاتورة (سعر الكتالوج قديم)
+      const { results } = await sync([
+        openOp(shiftId),
+        saleOp(shiftId, 1, 1, {
+          lines: [
+            {
+              productId: water.id,
+              quantity: 1,
+              unitPrice: 2.5,
+              discount: 0,
+              taxRate: 15,
+              subtotal: 2.17,
+              taxAmount: 0.33,
+              total: 2.5,
+              listPrice: 2.3,
+              priceReason: 'سعر غير محدّث',
+            },
+          ],
+          payments: [{ method: 'cash', amount: 2.5 }],
+        }),
+      ]);
+
+      expect(results.map((r) => r.status)).toEqual(['ok', 'ok']);
+      const [invoice] = (await invoices.findAll(tenantA, {})).data;
+      const full = await invoices.findOne(invoice.id, tenantA);
+      expect(full.lines?.[0]).toMatchObject({
+        unitPrice: 2.5,
+        listPrice: 2.3,
+        priceReason: 'سعر غير محدّث',
+      });
+      // سعر الصنف نفسه لم يتغيّر
+      expect((await products.findOne(water.id, tenantA)).salePrice).toBe(2.3);
+      // تعديل مسجّل: ليس مخالفة
+      expect(
+        await dataSource
+          .getRepository(PosAuditLog)
+          .count({ where: { action: 'sale_anomaly' } }),
+      ).toBe(0);
+    });
+
+    it('flags a price that differs from the catalog without a recorded change', async () => {
+      const shiftId = randomUUID();
+      const { results } = await sync([
+        openOp(shiftId),
+        saleOp(shiftId, 1, 1, {
+          lines: [
+            {
+              productId: water.id,
+              quantity: 1,
+              unitPrice: 2.5,
+              discount: 0,
+              taxRate: 15,
+              subtotal: 2.17,
+              taxAmount: 0.33,
+              total: 2.5,
+            },
+          ],
+          payments: [{ method: 'cash', amount: 2.5 }],
+        }),
+      ]);
+
+      expect(results.map((r) => r.status)).toEqual(['ok', 'ok']);
+      const [flag] = await dataSource
+        .getRepository(PosAuditLog)
+        .find({ where: { action: 'sale_anomaly' } });
+      expect(flag.details).toContain('بسعر 2.5 بدل 2.3 بلا تعديل سعر مسجّل');
+    });
+
+    it('accepts any price for an open-price product', async () => {
+      const service = await products.create(
+        {
+          name: 'خدمة تركيب',
+          baseUnitId: piece.id,
+          salePrice: 0,
+          openPrice: true,
+          type: 'service' as never,
+        },
+        tenantA,
+      );
+      const shiftId = randomUUID();
+      const { results } = await sync([
+        openOp(shiftId),
+        saleOp(shiftId, 1, 1, {
+          lines: [
+            {
+              productId: service.id,
+              quantity: 1,
+              unitPrice: 75,
+              discount: 0,
+              taxRate: 15,
+              subtotal: 65.22,
+              taxAmount: 9.78,
+              total: 75,
+            },
+          ],
+          payments: [{ method: 'cash', amount: 75 }],
+        }),
+      ]);
+
+      expect(results.map((r) => r.status)).toEqual(['ok', 'ok']);
+      expect(
+        await dataSource
+          .getRepository(PosAuditLog)
+          .count({ where: { action: 'sale_anomaly' } }),
+      ).toBe(0);
+      const bootstrap = await pos.bootstrap(device.id, screen, tenantA);
+      expect(
+        bootstrap.products.find((p) => p.id === service.id)?.openPrice,
+      ).toBe(true);
+    });
+
+    it('sends each cashier price-change permission to the device', async () => {
+      await cashiers.create({ name: 'سالم', pin: '1234' }, tenantA);
+      await cashiers.create(
+        { name: 'منى', pin: '5678', canChangePrice: false },
+        tenantA,
+      );
+
+      const { cashiers: list, posOptions } = await pos.bootstrap(
+        device.id,
+        screen,
+        tenantA,
+      );
+      expect(
+        Object.fromEntries(list.map((c) => [c.name, c.canChangePrice])),
+      ).toEqual({ سالم: true, منى: false });
+      expect(posOptions.approvals.priceChange).toBe(false);
     });
 
     it('shares one hash chain with back-office invoices', async () => {

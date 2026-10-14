@@ -262,6 +262,17 @@ export class SalesInvoiceLine {
   @Column(quantity)
   unitPrice!: number;
 
+  /**
+   * السعر الأصلي حين غيّر الكاشير سعر الصنف في هذه الفاتورة وحدها (null = بيع
+   * بسعره). unitPrice ما بيع به فعلاً.
+   */
+  @Column({ ...quantity, nullable: true })
+  listPrice?: number | null;
+
+  /** سبب تغيير السعر */
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  priceReason?: string | null;
+
   @Column(money)
   discount!: number;
 

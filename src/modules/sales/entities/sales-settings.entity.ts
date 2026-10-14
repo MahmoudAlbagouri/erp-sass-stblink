@@ -73,6 +73,11 @@ export interface PosOptions {
     cashOut: boolean;
     /** فتح الدرج بلا بيع */
     manualDrawer: boolean;
+    /**
+     * تغيير سعر صنف في الفاتورة. بدونها يغيّره الكاشير (إن ملك صلاحيته) في حدود
+     * خصمه؛ التخفيض تحت أقل سعر أو فوق حد الخصم يحتاج مشرفاً دائماً.
+     */
+    priceChange: boolean;
   };
 }
 
@@ -84,7 +89,12 @@ export const DEFAULT_POS_OPTIONS: PosOptions = {
     valueType: 'weight',
     valueDecimals: 3,
   },
-  approvals: { void: false, cashOut: false, manualDrawer: false },
+  approvals: {
+    void: false,
+    cashOut: false,
+    manualDrawer: false,
+    priceChange: false,
+  },
 };
 
 /** الإعدادات المحفوظة فوق الافتراضية (شركة لم تحفظ شيئاً تأخذ الافتراضي) */

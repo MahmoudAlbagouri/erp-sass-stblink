@@ -86,6 +86,8 @@ export interface PosProduct {
   minSalePrice: number | null;
   allowDiscount: boolean;
   isWeighted: boolean;
+  /** سعر مفتوح: الشاشة تطلب السعر عند إضافته */
+  openPrice: boolean;
   /** false = يُزال من الجهاز (حُذف أو أُوقف) */
   available: boolean;
   barcodes: { barcode: string; unitId: string | null }[];
@@ -789,8 +791,11 @@ export class PosService {
       );
 
     const belowMin = op.approvedBy ? [] : checks.filter((c) => c.belowMinPrice);
-    if (belowMin.length > 0) {
-      // عرض الإدارة قد ينزل تحت أقل سعر بقرارها: لا يُعدّ مخالفة
+    // سعر غير سعر الصنف ولم تسجّله الشاشة تعديلاً: شاشة معدّلة، أو سعر تغيّر في
+    // الكتالوج ولم يصل الجهاز بعد
+    const unmarked = checks.filter((c) => c.unmarkedPrice);
+    if (belowMin.length > 0 || unmarked.length > 0) {
+      // عرض الإدارة يغيّر السعر بقرارها: لا يُعدّ مخالفة
       const promotions = (
         await this.extras.findPromotionsForDevice(device.tenantId, occurredAt)
       ).filter(
@@ -808,6 +813,19 @@ export class PosService {
         );
         if (!promoted) {
           issues.push(`${check.productName}: سعر تحت أقل سعر بلا موافقة مشرف`);
+        }
+      }
+      for (const check of unmarked) {
+        // السعر الخاص وحده يغيّر سعر الوحدة؛ بقية العروض خصم على السطر
+        const specialPrice = promotions.some(
+          (p) =>
+            p.type === PromotionType.SPECIAL_PRICE &&
+            p.productId === check.productId,
+        );
+        if (!specialPrice) {
+          issues.push(
+            `${check.productName}: بيع بسعر ${check.unitPrice} بدل ${check.catalogPrice} بلا تعديل سعر مسجّل`,
+          );
         }
       }
     }
@@ -1148,6 +1166,7 @@ function toPosProduct(product: Product, decimals: number): PosProduct {
     minSalePrice: product.minSalePrice ?? null,
     allowDiscount: product.allowDiscount,
     isWeighted: product.isWeighted,
+    openPrice: product.openPrice,
     available: !product.deletedAt && product.isActive,
     barcodes: (product.barcodes ?? []).map((b) => ({
       barcode: b.barcode,

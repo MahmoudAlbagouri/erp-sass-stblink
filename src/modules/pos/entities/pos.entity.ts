@@ -130,6 +130,13 @@ export class PosCashier extends TenantOwnedEntity {
   isSupervisor!: boolean;
 
   /**
+   * يغيّر سعر صنف في الفاتورة بنفسه (في حدود خصمه). بدونها يحتاج كل تغيير
+   * موافقة مشرف.
+   */
+  @Column({ default: true })
+  canChangePrice!: boolean;
+
+  /**
    * أقصى خصم يدوي يمنحه على الفاتورة (% من قيمتها). null = بلا حد. تجاوزه
    * يحتاج موافقة مشرف. عروض الإدارة لا تُحسب منه.
    */

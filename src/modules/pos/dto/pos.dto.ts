@@ -86,6 +86,11 @@ export class CreatePosCashierDto {
   @IsBoolean()
   isSupervisor?: boolean;
 
+  /** يغيّر سعر صنف في الفاتورة بلا مشرف (الافتراضي: نعم، في حدود خصمه) */
+  @IsOptional()
+  @IsBoolean()
+  canChangePrice?: boolean;
+
   /** أقصى خصم يدوي % على الفاتورة. null = بلا حد */
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
@@ -117,6 +122,10 @@ export class UpdatePosCashierDto {
   @IsOptional()
   @IsBoolean()
   isSupervisor?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  canChangePrice?: boolean;
 
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
@@ -211,6 +220,21 @@ export class PosSaleLineOp {
   @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0)
   total!: number;
+
+  /**
+   * سعر الوحدة الأصلي حين غيّر الكاشير السعر في هذه الفاتورة (غائب = لم يُغيَّر).
+   * unitPrice هو ما بيع به فعلاً.
+   */
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 4 })
+  @Min(0)
+  listPrice?: number;
+
+  /** سبب تغيير السعر (إلزامي في الشاشة عند التخفيض) */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  priceReason?: string;
 }
 
 export class PosSaleOp {

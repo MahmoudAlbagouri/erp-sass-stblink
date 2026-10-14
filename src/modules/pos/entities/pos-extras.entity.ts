@@ -79,6 +79,7 @@ export const POS_AUDIT_ACTIONS = [
   'cash_out',
   'discount',
   'price_below_min',
+  'price_changed',
   'credit_over_limit',
   'approval_denied',
 ] as const;

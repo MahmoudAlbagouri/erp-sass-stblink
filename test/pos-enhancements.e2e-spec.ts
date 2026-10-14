@@ -243,7 +243,19 @@ describe('POS enhancements (e2e)', () => {
     expect(
       (await patch('/sales/settings', { posOptions: options })).status,
     ).toBe(200);
-    expect((await bootstrap()).posOptions).toEqual(options);
+    // إعدادات شاشة أقدم بلا priceChange: لا تحتاج موافقة على تغيير السعر
+    expect((await bootstrap()).posOptions).toEqual({
+      ...options,
+      approvals: { ...options.approvals, priceChange: false },
+    });
+    const priceApproval = {
+      ...options,
+      approvals: { ...options.approvals, priceChange: true },
+    };
+    expect(
+      (await patch('/sales/settings', { posOptions: priceApproval })).status,
+    ).toBe(200);
+    expect((await bootstrap()).posOptions).toEqual(priceApproval);
 
     expect(
       (
