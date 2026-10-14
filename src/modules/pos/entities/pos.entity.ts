@@ -158,6 +158,11 @@ export enum PosShiftStatus {
 @Entity('pos_shifts')
 @Index(['tenantId', 'deviceId', 'status'])
 @Index(['tenantId', 'openedAt'])
+// وردية مفتوحة واحدة لكل جهاز: طلبا مزامنة متزامنان لا يفتحان اثنتين
+@Index('UQ_pos_shifts_open_device', ['deviceId'], {
+  unique: true,
+  where: `"status" = 'open'`,
+})
 export class PosShift {
   @PrimaryColumn('uuid')
   id!: string;
@@ -253,6 +258,17 @@ export class PosShift {
 
   @Column({ type: 'varchar', length: 500, nullable: true })
   note?: string | null;
+
+  /**
+   * عمليات (بيع، مرتجع، حركة درج) وصلت بعد تقفيل الوردية — رُفضت أولاً ثم
+   * أُعيدت. كل واحدة تعيد حساب أرقام الوردية؛ المعدود عند التقفيل لا يتغيّر.
+   */
+  @Column({ type: 'int', default: 0 })
+  lateOperations!: number;
+
+  /** آخر إعادة حساب بعد التقفيل (null = الأرقام كما حُسبت عند التقفيل) */
+  @Column({ type: 'timestamptz', nullable: true })
+  recalculatedAt?: Date | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;

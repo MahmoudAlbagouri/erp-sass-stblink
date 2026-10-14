@@ -277,35 +277,48 @@ export class SalesReturnsService {
     return { id, duplicate: false };
   }
 
-  /** مرتجعات وردية كاشير وما رُدّ من درجها */
-  async shiftRefunds(tenantId: string, shiftId: string): Promise<ShiftRefunds> {
-    const [totals] = await this.returns.query<
-      { count: number; total: string }[]
+  /** مرتجعات ورديات كاشير وما رُدّ من أدراجها (استعلامان لكل الورديات) */
+  async shiftRefunds(
+    tenantId: string,
+    shiftIds: string[],
+  ): Promise<Map<string, ShiftRefunds>> {
+    const result = new Map<string, ShiftRefunds>();
+    if (shiftIds.length === 0) return result;
+
+    const totals = await this.returns.query<
+      { shiftId: string; count: number; total: string }[]
     >(
-      `SELECT COUNT(*)::int AS "count", COALESCE(SUM("total"), 0) AS "total"
+      `SELECT "shiftId", COUNT(*)::int AS "count", COALESCE(SUM("total"), 0) AS "total"
          FROM sales_returns
-        WHERE "tenantId" = $1 AND "shiftId" = $2 AND "status" = 'issued'`,
-      [tenantId, shiftId],
+        WHERE "tenantId" = $1 AND "shiftId" = ANY($2::uuid[]) AND "status" = 'issued'
+        GROUP BY "shiftId"`,
+      [tenantId, shiftIds],
     );
     const methods = await this.returns.query<
-      { method: string; amount: string }[]
+      { shiftId: string; method: string; amount: string }[]
     >(
-      `SELECT p."method", SUM(p."amount") AS "amount"
+      `SELECT r."shiftId", p."method", SUM(p."amount") AS "amount"
          FROM customer_payments p
          JOIN sales_returns r ON r."id" = p."salesReturnId"
-        WHERE r."tenantId" = $1 AND r."shiftId" = $2
+        WHERE r."tenantId" = $1 AND r."shiftId" = ANY($2::uuid[])
           AND p."status" = 'posted' AND p."direction" = 'out'
-        GROUP BY p."method"`,
-      [tenantId, shiftId],
+        GROUP BY r."shiftId", p."method"`,
+      [tenantId, shiftIds],
     );
 
-    return {
-      returnsCount: totals.count,
-      returnsTotal: Number(totals.total),
-      byMethod: Object.fromEntries(
-        methods.map((m) => [m.method, Number(m.amount)]),
-      ),
-    };
+    for (const shiftId of shiftIds) {
+      const row = totals.find((t) => t.shiftId === shiftId);
+      result.set(shiftId, {
+        returnsCount: row?.count ?? 0,
+        returnsTotal: Number(row?.total ?? 0),
+        byMethod: Object.fromEntries(
+          methods
+            .filter((m) => m.shiftId === shiftId)
+            .map((m) => [m.method, Number(m.amount)]),
+        ),
+      });
+    }
+    return result;
   }
 
   /**

@@ -82,7 +82,23 @@ export const POS_AUDIT_ACTIONS = [
   'credit_over_limit',
   'approval_denied',
 ] as const;
-export type PosAuditAction = (typeof POS_AUDIT_ACTIONS)[number];
+
+/**
+ * ما يسجّله السيرفر بنفسه عند رفع عمليات الجهاز — لا يقبله من الجهاز.
+ *   stock_overdrawn   بيع نزل بالرصيد تحت الصفر في مخزن لا يسمح بذلك
+ *   sale_anomaly      ضريبة تخالف نسبة الصنف، أو سعر تحت الحد بلا موافقة مشرف
+ *   late_after_close  عملية وصلت بعد تقفيل ورديتها فأُعيد حساب الوردية
+ */
+export const POS_SERVER_AUDIT_ACTIONS = [
+  'stock_overdrawn',
+  'sale_anomaly',
+  'late_after_close',
+] as const;
+export type PosServerAuditAction = (typeof POS_SERVER_AUDIT_ACTIONS)[number];
+
+export type PosAuditAction =
+  | (typeof POS_AUDIT_ACTIONS)[number]
+  | PosServerAuditAction;
 
 /**
  * سجل تدقيق شاشة الكاشير: ما لا يترك أثراً في الفواتير (حذف سطر، إفراغ سلة،

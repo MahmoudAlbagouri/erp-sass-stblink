@@ -131,6 +131,36 @@ interface FinalizeOptions {
   number?: string;
   deviceId?: string;
   shiftId?: string;
+  /** بيع وقع فعلاً (كاشير): يُسجَّل ولو نزل الرصيد تحت الصفر */
+  allowNegativeStock?: boolean;
+}
+
+/** سطر فاتورة كاشير مقابل بيانات صنفه في السيرفر (للإبلاغ، لا للرفض) */
+export interface PosLineCheck {
+  productId: string;
+  categoryId: string | null;
+  productName: string;
+  /** النسبة التي طبّقها الجهاز */
+  taxRate: number;
+  /** نسبة الصنف في السيرفر الآن */
+  productTaxRate: number;
+  /** صافي سعر الوحدة بعد الخصم أقل من أقل سعر مسموح للصنف */
+  belowMinPrice: boolean;
+}
+
+export interface PosSaleRecord {
+  invoice: SalesInvoice;
+  duplicate: boolean;
+  overdrawn: OverdrawnLine[];
+  checks: PosLineCheck[];
+}
+
+/** صنف نزل رصيده تحت الصفر بفاتورة كاشير في مخزن لا يسمح بذلك */
+export interface OverdrawnLine {
+  productId: string;
+  productName: string;
+  /** الرصيد بعد البيع (بوحدة الأساس) */
+  quantity: number;
 }
 
 interface Totals {
@@ -292,39 +322,54 @@ export class SalesInvoicesService {
     return row.count;
   }
 
-  /** مبيعات وردية كاشير ومقبوضاتها حسب طريقة الدفع — لتقفيل الدرج */
-  async shiftTotals(tenantId: string, shiftId: string): Promise<ShiftTotals> {
-    const [sales] = await this.invoices.query<
-      { count: number; total: string }[]
+  /**
+   * مبيعات ورديات كاشير ومقبوضاتها حسب طريقة الدفع — لتقفيل الدرج. استعلامان
+   * لكل الورديات معاً (وردية بلا مبيعات تعود أصفاراً).
+   */
+  async shiftTotals(
+    tenantId: string,
+    shiftIds: string[],
+  ): Promise<Map<string, ShiftTotals>> {
+    const result = new Map<string, ShiftTotals>();
+    if (shiftIds.length === 0) return result;
+
+    const sales = await this.invoices.query<
+      { shiftId: string; count: number; total: string }[]
     >(
-      `SELECT COUNT(*)::int AS "count", COALESCE(SUM("total"), 0) AS "total"
+      `SELECT "shiftId", COUNT(*)::int AS "count", COALESCE(SUM("total"), 0) AS "total"
          FROM sales_invoices
-        WHERE "tenantId" = $1 AND "shiftId" = $2 AND "status" = 'issued'`,
-      [tenantId, shiftId],
+        WHERE "tenantId" = $1 AND "shiftId" = ANY($2::uuid[]) AND "status" = 'issued'
+        GROUP BY "shiftId"`,
+      [tenantId, shiftIds],
     );
     const methods = await this.invoices.query<
-      { method: string; amount: string }[]
+      { shiftId: string; method: string; amount: string }[]
     >(
-      `SELECT p."method", SUM(p."amount") AS "amount"
+      `SELECT p."shiftId", p."method", SUM(p."amount") AS "amount"
          FROM customer_payments p
-        WHERE p."tenantId" = $1 AND p."shiftId" = $2
+        WHERE p."tenantId" = $1 AND p."shiftId" = ANY($2::uuid[])
           AND p."status" = 'posted' AND p."direction" = 'in'
-        GROUP BY p."method"`,
-      [tenantId, shiftId],
+        GROUP BY p."shiftId", p."method"`,
+      [tenantId, shiftIds],
     );
 
-    const salesTotal = Number(sales.total);
-    return {
-      invoicesCount: sales.count,
-      salesTotal,
-      byMethod: Object.fromEntries(
-        methods.map((m) => [m.method, Number(m.amount)]),
-      ),
-      creditTotal: Math.max(
-        sumMoney([salesTotal, ...methods.map((m) => -Number(m.amount))]),
-        0,
-      ),
-    };
+    for (const shiftId of shiftIds) {
+      const row = sales.find((s) => s.shiftId === shiftId);
+      const paid = methods.filter((m) => m.shiftId === shiftId);
+      const salesTotal = Number(row?.total ?? 0);
+      result.set(shiftId, {
+        invoicesCount: row?.count ?? 0,
+        salesTotal,
+        byMethod: Object.fromEntries(
+          paid.map((m) => [m.method, Number(m.amount)]),
+        ),
+        creditTotal: Math.max(
+          sumMoney([salesTotal, ...paid.map((m) => -Number(m.amount))]),
+          0,
+        ),
+      });
+    }
+    return result;
   }
 
   async summary(tenantId: string): Promise<SalesSummary> {
@@ -580,7 +625,7 @@ export class SalesInvoicesService {
     sale: PosSaleInput,
     tenantId: string,
     userId?: string,
-  ): Promise<{ invoice: SalesInvoice; duplicate: boolean }> {
+  ): Promise<PosSaleRecord> {
     const existing = await this.invoices.findOne({
       where: { tenantId, uuid: sale.uuid },
     });
@@ -588,6 +633,8 @@ export class SalesInvoicesService {
       return {
         invoice: await this.findOne(existing.id, tenantId),
         duplicate: true,
+        overdrawn: [],
+        checks: [],
       };
     }
 
@@ -595,7 +642,7 @@ export class SalesInvoicesService {
       ? await this.customers.findOne(sale.customerId, tenantId)
       : null;
     const decimals = await moneyDecimalsOf(this.dataSource.manager, tenantId);
-    const lines = await this.posLines(sale, tenantId, decimals);
+    const { lines, checks } = await this.posLines(sale, tenantId, decimals);
     const totals = totalsOf(lines);
 
     // البيع تمّ على الجهاز والإيصال طُبع: هنا يُتحقق من الاتساق فقط. الباقي
@@ -615,46 +662,55 @@ export class SalesInvoicesService {
     }
     const seller = await this.settings.get(tenantId);
 
-    const id = await this.dataSource.transaction(async (manager) => {
-      const invoice = await manager.save(
-        manager.create(SalesInvoice, {
-          tenantId,
-          uuid: sale.uuid,
-          customerId: customer?.id ?? null,
-          invoiceType: invoiceTypeFor(customer),
-          warehouseId: sale.warehouseId,
-          invoiceDate: dateOnly(sale.issuedAt),
-          dueDate: onAccount
-            ? defaultDueDate(dateOnly(sale.issuedAt), customer)
-            : dateOnly(sale.issuedAt),
-          pricesIncludeTax: sale.pricesIncludeTax,
-          createdById: userId ?? null,
-          ...totals,
-        }),
-      );
-      await this.replaceLines(manager, invoice.id, tenantId, lines);
+    const { id, overdrawn } = await this.dataSource.transaction(
+      async (manager) => {
+        const invoice = await manager.save(
+          manager.create(SalesInvoice, {
+            tenantId,
+            uuid: sale.uuid,
+            customerId: customer?.id ?? null,
+            invoiceType: invoiceTypeFor(customer),
+            warehouseId: sale.warehouseId,
+            invoiceDate: dateOnly(sale.issuedAt),
+            dueDate: onAccount
+              ? defaultDueDate(dateOnly(sale.issuedAt), customer)
+              : dateOnly(sale.issuedAt),
+            pricesIncludeTax: sale.pricesIncludeTax,
+            createdById: userId ?? null,
+            ...totals,
+          }),
+        );
+        await this.replaceLines(manager, invoice.id, tenantId, lines);
 
-      await this.finalize(
-        manager,
-        invoice,
-        await manager.find(SalesInvoiceLine, {
-          where: { invoiceId: invoice.id },
-          order: { sortOrder: 'ASC' },
-        }),
-        {
-          issuedAt: sale.issuedAt,
-          tenders: sale.payments,
-          seller,
-          userId,
-          number: sale.number,
-          deviceId: sale.deviceId,
-          shiftId: sale.shiftId,
-        },
-      );
-      return invoice.id;
-    });
+        const overdrawn = await this.finalize(
+          manager,
+          invoice,
+          await manager.find(SalesInvoiceLine, {
+            where: { invoiceId: invoice.id },
+            order: { sortOrder: 'ASC' },
+          }),
+          {
+            issuedAt: sale.issuedAt,
+            tenders: sale.payments,
+            seller,
+            userId,
+            number: sale.number,
+            deviceId: sale.deviceId,
+            shiftId: sale.shiftId,
+            // البضاعة خرجت مع العميل: رصيد الشاشة كان قديماً، لا يُرفض البيع
+            allowNegativeStock: true,
+          },
+        );
+        return { id: invoice.id, overdrawn };
+      },
+    );
 
-    return { invoice: await this.findOne(id, tenantId), duplicate: false };
+    return {
+      invoice: await this.findOne(id, tenantId),
+      duplicate: false,
+      overdrawn,
+      checks,
+    };
   }
 
   /** أسطر فاتورة الكاشير: بيانات الصنف من السيرفر، والمبالغ كما طُبعت */
@@ -662,8 +718,9 @@ export class SalesInvoicesService {
     sale: PosSaleInput,
     tenantId: string,
     decimals: number,
-  ): Promise<ComputedLine[]> {
+  ): Promise<{ lines: ComputedLine[]; checks: PosLineCheck[] }> {
     const tolerance = amountTolerance(decimals);
+    const checks: PosLineCheck[] = [];
     const productIds = [...new Set(sale.lines.map((l) => l.productId))];
     const found = await this.products.findSoldByIds(productIds, tenantId);
     if (found.length !== productIds.length) {
@@ -671,7 +728,7 @@ export class SalesInvoicesService {
     }
     const products = new Map(found.map((p) => [p.id, p]));
 
-    return sale.lines.map((input, index) => {
+    const lines = sale.lines.map((input, index) => {
       const product = products.get(input.productId)!;
 
       const unitId = input.unitId ?? product.baseUnitId;
@@ -707,6 +764,28 @@ export class SalesInvoicesService {
         );
       }
 
+      // ما يخالف بيانات الصنف لا يُرفض (البيع تمّ) لكن يُبلَّغ عنه للمراجعة
+      const productTaxRate = product.taxRate?.rate ?? 0;
+      let minNetPrice: number | null = null;
+      if (product.minSalePrice !== null && product.minSalePrice !== undefined) {
+        minNetPrice = product.priceIncludesTax
+          ? product.minSalePrice / (1 + productTaxRate / 100)
+          : product.minSalePrice;
+      }
+      const netUnitPrice = expected.baseQuantity
+        ? input.subtotal / expected.baseQuantity
+        : 0;
+      checks.push({
+        productId: product.id,
+        categoryId: product.categoryId ?? null,
+        productName: product.name,
+        taxRate: input.taxRate,
+        productTaxRate,
+        belowMinPrice:
+          minNetPrice !== null &&
+          netUnitPrice + 0.5 / 10 ** decimals < minNetPrice,
+      });
+
       return {
         sortOrder: index,
         productId: product.id,
@@ -727,6 +806,7 @@ export class SalesInvoicesService {
         baseQuantity: expected.baseQuantity,
       };
     });
+    return { lines, checks };
   }
 
   // ══════════════════════════ داخلي ══════════════════════════
@@ -741,7 +821,7 @@ export class SalesInvoicesService {
     invoice: SalesInvoice,
     lines: SalesInvoiceLine[],
     options: FinalizeOptions,
-  ): Promise<void> {
+  ): Promise<OverdrawnLine[]> {
     const { issuedAt, tenders, seller, userId } = options;
     const { id, tenantId } = invoice;
 
@@ -761,8 +841,17 @@ export class SalesInvoicesService {
         referenceId: id,
         userId,
         occurredAt: issuedAt,
+        allowNegative: options.allowNegativeStock,
       },
     );
+    const overdrawn = stocked
+      .map((line, index) => ({ line, result: movements[index] }))
+      .filter(({ result }) => result.overdrawn)
+      .map(({ line, result }) => ({
+        productId: line.productId,
+        productName: line.productName,
+        quantity: result.quantity,
+      }));
 
     let costTotal = new Decimal(0);
     for (const [index, line] of stocked.entries()) {
@@ -844,6 +933,7 @@ export class SalesInvoicesService {
         shiftId: options.shiftId,
       });
     }
+    return overdrawn;
   }
 
   /** يتحقق من الأصناف والوحدات وقواعد التسعير ويحسب مبالغ كل سطر */

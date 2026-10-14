@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { randomUUID } from 'crypto';
 import { Repository } from 'typeorm';
 import {
   paginated,
@@ -26,6 +27,7 @@ import {
   PosAuditLog,
   PosCashMovement,
   PosPromotion,
+  PosServerAuditAction,
   PromotionType,
 } from './entities/pos-extras.entity';
 import { PosDevice, PosShift } from './entities/pos.entity';
@@ -97,27 +99,70 @@ export class PosExtrasService {
     return false;
   }
 
-  /** ما أُودع في درج الوردية وما سُحب منه بلا بيع */
+  /** ما أُودع في أدراج الورديات وما سُحب منها بلا بيع (استعلام واحد) */
   async shiftCashMoves(
     tenantId: string,
-    shiftId: string,
-  ): Promise<ShiftCashMoves> {
+    shiftIds: string[],
+  ): Promise<Map<string, ShiftCashMoves>> {
+    const result = new Map<string, ShiftCashMoves>();
+    if (shiftIds.length === 0) return result;
+
     const rows = await this.movements
       .createQueryBuilder('move')
-      .select('move.type', 'type')
+      .select('move.shiftId', 'shiftId')
+      .addSelect('move.type', 'type')
       .addSelect('SUM(move.amount)', 'amount')
       .where('move.tenantId = :tenantId', { tenantId })
-      .andWhere('move.shiftId = :shiftId', { shiftId })
-      .groupBy('move.type')
-      .getRawMany<{ type: CashMovementType; amount: string }>();
-    const of = (type: CashMovementType) =>
-      sumMoney(
-        rows.filter((r) => r.type === type).map((r) => Number(r.amount)),
-      );
-    return {
-      cashIn: of(CashMovementType.IN),
-      cashOut: of(CashMovementType.OUT),
-    };
+      .andWhere('move.shiftId IN (:...shiftIds)', { shiftIds })
+      .groupBy('move.shiftId')
+      .addGroupBy('move.type')
+      .getRawMany<{
+        shiftId: string;
+        type: CashMovementType;
+        amount: string;
+      }>();
+
+    for (const shiftId of shiftIds) {
+      const of = (type: CashMovementType) =>
+        sumMoney(
+          rows
+            .filter((r) => r.shiftId === shiftId && r.type === type)
+            .map((r) => Number(r.amount)),
+        );
+      result.set(shiftId, {
+        cashIn: of(CashMovementType.IN),
+        cashOut: of(CashMovementType.OUT),
+      });
+    }
+    return result;
+  }
+
+  /**
+   * حدث يسجّله السيرفر نفسه عند رفع عمليات الجهاز (بيع نزل بالرصيد تحت
+   * الصفر، مبالغ تخالف بيانات الصنف، عملية وصلت بعد تقفيل ورديتها).
+   */
+  async recordServerAudit(
+    device: PosDevice,
+    shift: PosShift | null,
+    entry: {
+      action: PosServerAuditAction;
+      details: string;
+      amount?: number | null;
+      occurredAt?: Date;
+    },
+  ): Promise<void> {
+    await this.audit.insert({
+      id: randomUUID(),
+      tenantId: device.tenantId,
+      deviceId: device.id,
+      shiftId: shift?.id ?? null,
+      action: entry.action,
+      cashierName: shift?.cashierName ?? null,
+      approvedBy: null,
+      amount: entry.amount ?? null,
+      details: entry.details.slice(0, 500),
+      occurredAt: entry.occurredAt ?? new Date(),
+    });
   }
 
   async findCashMovements(

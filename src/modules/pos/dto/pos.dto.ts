@@ -29,6 +29,7 @@ import { PosShiftStatus } from '../entities/pos.entity';
 import {
   CashMovementType,
   POS_AUDIT_ACTIONS,
+  POS_SERVER_AUDIT_ACTIONS,
   PromotionType,
 } from '../entities/pos-extras.entity';
 import type { PosAuditAction } from '../entities/pos-extras.entity';
@@ -249,6 +250,15 @@ export class PosSaleOp {
   @ValidateNested({ each: true })
   @Type(() => TenderDto)
   payments!: TenderDto[];
+
+  /**
+   * المشرف الذي وافق برقمه السري على تجاوز في الفاتورة (سعر تحت الحد، خصم فوق
+   * حد الكاشير). بدونه يُبلَّغ عن السعر تحت الحد كمخالفة.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  approvedBy?: string;
 }
 
 export class PosReturnLineOp {
@@ -341,8 +351,9 @@ export class PosAuditOp {
   @IsUUID()
   id!: string;
 
+  /** ما يسجّله السيرفر بنفسه (POS_SERVER_AUDIT_ACTIONS) لا يُقبل من الجهاز */
   @IsIn(POS_AUDIT_ACTIONS)
-  action!: PosAuditAction;
+  action!: (typeof POS_AUDIT_ACTIONS)[number];
 
   @IsDateString()
   occurredAt!: string;
@@ -554,7 +565,7 @@ export class PosAuditQueryDto extends PaginationQueryDto {
   shiftId?: string;
 
   @IsOptional()
-  @IsIn(POS_AUDIT_ACTIONS)
+  @IsIn([...POS_AUDIT_ACTIONS, ...POS_SERVER_AUDIT_ACTIONS])
   action?: PosAuditAction;
 
   /** من تاريخ / إلى تاريخ (شاملان) */

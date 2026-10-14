@@ -662,6 +662,145 @@ describe('pos module', () => {
       ).toBe(next);
     });
 
+    it('opens one shift even when two uploads race', async () => {
+      const [a, b] = await Promise.all([
+        sync([openOp(randomUUID())]),
+        sync([openOp(randomUUID())]),
+      ]);
+
+      const statuses = [...a.results, ...b.results].map((r) => r.status);
+      expect(statuses.sort()).toEqual(['error', 'ok']);
+      expect(
+        await dataSource.getRepository(PosShift).count({
+          where: { deviceId: device.id, status: PosShiftStatus.OPEN },
+        }),
+      ).toBe(1);
+    });
+
+    it('recalculates a closed shift when a late sale arrives', async () => {
+      const shiftId = randomUUID();
+      const late = saleOp(shiftId, 2, 2, { uuid: 'not-a-uuid' }); // يُرفض أولاً
+
+      const first = await sync([
+        openOp(shiftId, 100),
+        saleOp(shiftId, 1, 2), // 4.60
+        late,
+        closeOp(shiftId, 109.2), // عدّ الدرج وفيه الفاتورتان: 100 + 4.60 + 4.60
+      ]);
+      expect(first.results.map((r) => r.status)).toEqual([
+        'ok',
+        'ok',
+        'error',
+        'ok',
+      ]);
+      let [shift] = (await pos.findShifts(tenantA, {})).data;
+      expect(shift).toMatchObject({ expectedCash: 104.6, cashDifference: 4.6 });
+
+      // أُصلحت الفاتورة وأُعيد رفعها بعد التقفيل
+      const fixed = saleOp(shiftId, 2, 2);
+      expect((await sync([fixed])).results[0].status).toBe('ok');
+
+      [shift] = (await pos.findShifts(tenantA, {})).data;
+      expect(shift).toMatchObject({
+        status: PosShiftStatus.CLOSED,
+        invoicesCount: 2,
+        salesTotal: 9.2,
+        expectedCash: 109.2,
+        closingCash: 109.2,
+        cashDifference: 0,
+        lateOperations: 1,
+      });
+      expect(shift.recalculatedAt).toBeInstanceOf(Date);
+      const audit = await dataSource
+        .getRepository(PosAuditLog)
+        .findOneByOrFail({ action: 'late_after_close' });
+      expect(audit).toMatchObject({ shiftId, amount: 0 });
+    });
+
+    it('records a sale that overdraws a warehouse that forbids negatives', async () => {
+      await dataSource
+        .getRepository(Warehouse)
+        .update({ id: branch.id }, { allowNegativeStock: false });
+      const shiftId = randomUUID();
+
+      const { results } = await sync([openOp(shiftId), saleOp(shiftId, 1, 3)]);
+
+      // البضاعة خرجت والإيصال طُبع: يُسجَّل البيع ويُبلَّغ عن الرصيد
+      expect(results.map((r) => r.status)).toEqual(['ok', 'ok']);
+      expect(await quantityIn(branch)).toBe(-3);
+      const audit = await dataSource
+        .getRepository(PosAuditLog)
+        .findOneByOrFail({ action: 'stock_overdrawn' });
+      expect(audit.details).toContain('POS1-000001');
+      expect(audit.details).toContain('-3');
+
+      // لوحة التحكم ما زالت ممنوعة من السالب في هذا المخزن
+      await expect(
+        stock.adjust(
+          {
+            warehouseId: branch.id,
+            type: 'adjustment' as never,
+            lines: [{ productId: water.id, quantity: -1 }],
+          },
+          tenantA,
+        ),
+      ).rejects.toThrow('الرصيد غير كافٍ');
+    });
+
+    it('flags a wrong tax rate or an unapproved price below minimum', async () => {
+      const shiftId = randomUUID();
+      const line = (unitPrice: number, taxRate: number) => {
+        const total = unitPrice;
+        const subtotal = Math.round((total / (1 + taxRate / 100)) * 100) / 100;
+        return {
+          productId: water.id,
+          quantity: 1,
+          unitPrice,
+          discount: 0,
+          taxRate,
+          subtotal,
+          taxAmount: Math.round((total - subtotal) * 100) / 100,
+          total,
+        };
+      };
+
+      const { results } = await sync([
+        openOp(shiftId),
+        // ضريبة 0% بدل 15%
+        saleOp(shiftId, 1, 1, {
+          lines: [line(2.3, 0)],
+          payments: [{ method: 'cash', amount: 2.3 }],
+        }),
+        // 1.50 تحت أقل سعر (2.00) بلا موافقة
+        saleOp(shiftId, 2, 1, {
+          lines: [line(1.5, 15)],
+          payments: [{ method: 'cash', amount: 1.5 }],
+        }),
+        // نفس السعر بموافقة مشرف: لا مخالفة
+        saleOp(shiftId, 3, 1, {
+          lines: [line(1.5, 15)],
+          payments: [{ method: 'cash', amount: 1.5 }],
+          approvedBy: 'المشرف',
+        }),
+        saleOp(shiftId, 4, 1), // سليمة
+      ]);
+
+      expect(results.map((r) => r.status)).toEqual([
+        'ok',
+        'ok',
+        'ok',
+        'ok',
+        'ok',
+      ]);
+      const flagged = await dataSource
+        .getRepository(PosAuditLog)
+        .find({ where: { action: 'sale_anomaly' }, order: { details: 'ASC' } });
+      expect(flagged.map((f) => f.details)).toEqual([
+        expect.stringMatching(/POS1-000001 .*ضريبة 0% بدل 15%/),
+        expect.stringMatching(/POS1-000002 .*تحت أقل سعر/),
+      ]);
+    });
+
     it('shares one hash chain with back-office invoices', async () => {
       const shiftId = randomUUID();
       await sync([openOp(shiftId), saleOp(shiftId, 1, 1)]);

@@ -60,12 +60,21 @@ export interface StockContext {
   referenceId?: string;
   userId?: string;
   occurredAt?: Date;
+  /**
+   * يتجاوز منع الرصيد السالب في المخزن: لبيع وقع فعلاً ولا يمكن رفضه (فاتورة
+   * كاشير طُبعت بلا إنترنت). الرصيد السالب يظهر في تنبيهات المخزون.
+   */
+  allowNegative?: boolean;
 }
 
 export interface StockResult {
   /** null إذا لم يكن هناك فرق (جرد مطابق للرصيد) */
   movement: StockMovement | null;
   previousQuantity: number;
+  /** الرصيد بعد الحركة */
+  quantity: number;
+  /** نزل الرصيد تحت الصفر في مخزن لا يسمح بذلك (بفضل allowNegative) */
+  overdrawn: boolean;
   /** تكلفة الوحدة المسجّلة على الحركة */
   unitCost: number;
 }
@@ -492,6 +501,8 @@ export class StockService {
       return {
         movement: null,
         previousQuantity: current.toNumber(),
+        quantity: current.toNumber(),
+        overdrawn: false,
         unitCost: avgCost.toNumber(),
       };
     }
@@ -526,7 +537,9 @@ export class StockService {
     }
 
     const balance = current.plus(delta);
-    if (delta.lt(0) && balance.lt(0) && !warehouse.allowNegativeStock) {
+    const overdrawn =
+      delta.lt(0) && balance.lt(0) && !warehouse.allowNegativeStock;
+    if (overdrawn && !context.allowNegative) {
       throw new BadRequestException(
         `الرصيد غير كافٍ للصنف "${product.name}" في "${warehouse.name}": المتاح ${current.toNumber()}`,
       );
@@ -558,7 +571,13 @@ export class StockService {
       }),
     );
 
-    return { movement, previousQuantity: current.toNumber(), unitCost };
+    return {
+      movement,
+      previousQuantity: current.toNumber(),
+      quantity: balance.toDecimalPlaces(SCALE).toNumber(),
+      overdrawn,
+      unitCost,
+    };
   }
 
   /**

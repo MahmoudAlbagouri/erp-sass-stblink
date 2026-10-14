@@ -30,7 +30,11 @@ import { WarehousesService } from '../inventory/warehouses.service';
 import { CustomersService } from '../sales/customers.service';
 import { Customer } from '../sales/entities/customer.entity';
 import { SalesSettings } from '../sales/entities/sales-settings.entity';
-import { SalesInvoicesService } from '../sales/sales-invoices.service';
+import {
+  OverdrawnLine,
+  PosLineCheck,
+  SalesInvoicesService,
+} from '../sales/sales-invoices.service';
 import { SalesReturnsService } from '../sales/sales-returns.service';
 import { SalesSettingsService } from '../sales/sales-settings.service';
 import {
@@ -48,6 +52,7 @@ import {
   UpdatePosDeviceDto,
 } from './dto/pos.dto';
 import { PosDevice, PosShift, PosShiftStatus } from './entities/pos.entity';
+import { PromotionType } from './entities/pos-extras.entity';
 import {
   cashierCouldReturn,
   PosCashierForDevice,
@@ -185,6 +190,32 @@ interface Actor {
   canReturn?: boolean;
 }
 
+/** أرقام الوردية المحسوبة من مستنداتها (دون المعدود وفرقه) */
+type ShiftFigures = Pick<
+  PosShift,
+  | 'invoicesCount'
+  | 'salesTotal'
+  | 'cashTotal'
+  | 'cardTotal'
+  | 'returnsCount'
+  | 'returnsTotal'
+  | 'cashRefunds'
+  | 'creditTotal'
+  | 'cashIn'
+  | 'cashOut'
+  | 'expectedCash'
+>;
+
+/** محاولات ربط الجهاز حين يسبقنا متصفح آخر بين القراءة والكتابة */
+const MAX_BIND_ATTEMPTS = 3;
+
+const LATE_OPERATION_LABELS: Partial<Record<PosOperationDto['type'], string>> =
+  {
+    sale: 'فاتورة',
+    return: 'مرتجع',
+    'cash.move': 'حركة درج',
+  };
+
 @Injectable()
 export class PosService {
   constructor(
@@ -300,6 +331,7 @@ export class PosService {
     tenantId: string,
     /** هل يملك المستخدم الرابط صلاحية المرتجع؟ (لورديات بلا كاشير محدد) */
     returnsAllowed = false,
+    attempt = 1,
   ): Promise<BoundPosDevice> {
     const device = await this.activeDevice(id, tenantId);
 
@@ -317,7 +349,20 @@ export class PosService {
         .where('id = :id AND "installationId" IS NULL', { id })
         .execute();
       if (!bound.affected) {
-        return this.bindDevice(id, installationId, tenantId, returnsAllowed);
+        // سبقنا متصفح آخر (أو فُكّ الربط وأُعيد بينهما): نقرأ الحال من جديد
+        // مرات محدودة، فلا تدور الدالة بلا نهاية مع ربط وفك متتاليين
+        if (attempt >= MAX_BIND_ATTEMPTS) {
+          throw new ConflictException(
+            `تعذّر ربط الجهاز "${device.name}" الآن — حاول مرة أخرى`,
+          );
+        }
+        return this.bindDevice(
+          id,
+          installationId,
+          tenantId,
+          returnsAllowed,
+          attempt + 1,
+        );
       }
     }
     // الشاشة انتقلت لهذا الجهاز: جهازها السابق يصير حراً لشاشة أخرى
@@ -530,6 +575,8 @@ export class PosService {
   ): Promise<PosOperationResult> {
     try {
       let duplicate = false;
+      /** وردية العملية إن كانت تغيّر أرقام الدرج (بيع، مرتجع، حركة نقدية) */
+      let affectedShiftId: string | null = null;
       switch (operation.type) {
         case 'shift.open':
           duplicate = await this.openShift(
@@ -538,20 +585,18 @@ export class PosService {
             actor,
           );
           break;
-        case 'sale':
-          duplicate = await this.recordSale(
-            await validated(PosSaleOp, operation.payload),
-            device,
-            actor,
-          );
+        case 'sale': {
+          const op = await validated(PosSaleOp, operation.payload);
+          duplicate = await this.recordSale(op, device, actor);
+          affectedShiftId = op.shiftId;
           break;
-        case 'return':
-          duplicate = await this.recordReturn(
-            await validated(PosReturnOp, operation.payload),
-            device,
-            actor,
-          );
+        }
+        case 'return': {
+          const op = await validated(PosReturnOp, operation.payload);
+          duplicate = await this.recordReturn(op, device, actor);
+          affectedShiftId = op.shiftId;
           break;
+        }
         case 'customer.create': {
           const op = await validated(PosCustomerOp, operation.payload);
           duplicate = await this.customers.createFromPos(
@@ -568,6 +613,7 @@ export class PosService {
             await this.shiftOf(op.shiftId, device),
             device,
           );
+          affectedShiftId = op.shiftId;
           break;
         }
         case 'audit': {
@@ -585,6 +631,9 @@ export class PosService {
             device,
           );
           break;
+      }
+      if (!duplicate && affectedShiftId) {
+        await this.recalculateIfClosed(affectedShiftId, device, operation.type);
       }
       return { id: operation.id, status: duplicate ? 'duplicate' : 'ok' };
     } catch (error) {
@@ -634,8 +683,8 @@ export class PosService {
       ? await this.cashiers.findForOperation(op.cashierId, device.tenantId)
       : null;
 
-    await this.shifts.save(
-      this.shifts.create({
+    try {
+      await this.shifts.insert({
         id: op.id,
         tenantId: device.tenantId,
         deviceId: device.id,
@@ -645,8 +694,20 @@ export class PosService {
         openedAt: new Date(op.openedAt),
         openingCash: op.openingCash,
         expectedCash: op.openingCash,
-      }),
-    );
+      });
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+      // طلب مزامنة آخر سبقنا بين الفحص والإدخال (الفهرس الفريد حسمها):
+      // نفس الوردية ← رفع مكرر، وردية غيرها ← على الجهاز وردية مفتوحة
+      const raced = await this.shifts.findOne({ where: { id: op.id } });
+      if (raced) {
+        assertShiftOfDevice(raced, device);
+        return true;
+      }
+      throw new ConflictException(
+        'على الجهاز وردية أخرى مفتوحة — يجب تقفيلها أولاً',
+      );
+    }
     return false;
   }
 
@@ -666,7 +727,7 @@ export class PosService {
     if (!shift) throw new NotFoundException('وردية الفاتورة غير مسجّلة');
     assertShiftOfDevice(shift, device);
 
-    const { duplicate } = await this.invoices.recordPosSale(
+    const { duplicate, overdrawn, checks } = await this.invoices.recordPosSale(
       {
         uuid: op.uuid,
         number: op.number,
@@ -692,7 +753,72 @@ export class PosService {
       .setParameter('counter', Number(counterText))
       .execute();
 
+    if (!duplicate) {
+      await this.reportSaleIssues(op, device, shift, overdrawn, checks);
+    }
     return duplicate;
+  }
+
+  /**
+   * البيع سُجّل كما طُبع؛ ما يستحق المراجعة يذهب لسجل التدقيق: رصيد نزل تحت
+   * الصفر، ضريبة تخالف نسبة الصنف، أو سعر تحت الحد بلا عرض ولا موافقة مشرف.
+   */
+  private async reportSaleIssues(
+    op: PosSaleOp,
+    device: PosDevice,
+    shift: PosShift,
+    overdrawn: OverdrawnLine[],
+    checks: PosLineCheck[],
+  ): Promise<void> {
+    const occurredAt = new Date(op.issuedAt);
+
+    if (overdrawn.length > 0) {
+      await this.extras.recordServerAudit(device, shift, {
+        action: 'stock_overdrawn',
+        occurredAt,
+        details: `${op.number} — ${overdrawn
+          .map((line) => `${line.productName}: الرصيد ${line.quantity}`)
+          .join('، ')}`,
+      });
+    }
+
+    const issues = checks
+      .filter((c) => Math.abs(c.taxRate - c.productTaxRate) > 0.001)
+      .map(
+        (c) => `${c.productName}: ضريبة ${c.taxRate}% بدل ${c.productTaxRate}%`,
+      );
+
+    const belowMin = op.approvedBy ? [] : checks.filter((c) => c.belowMinPrice);
+    if (belowMin.length > 0) {
+      // عرض الإدارة قد ينزل تحت أقل سعر بقرارها: لا يُعدّ مخالفة
+      const promotions = (
+        await this.extras.findPromotionsForDevice(device.tenantId, occurredAt)
+      ).filter(
+        (p) =>
+          (!p.startsAt || new Date(p.startsAt) <= occurredAt) &&
+          (!p.customerId || p.customerId === op.customerId),
+      );
+      for (const check of belowMin) {
+        const promoted = promotions.some(
+          (p) =>
+            p.productId === check.productId ||
+            (p.type === PromotionType.PERCENT_OFF &&
+              !p.productId &&
+              (!p.categoryId || p.categoryId === check.categoryId)),
+        );
+        if (!promoted) {
+          issues.push(`${check.productName}: سعر تحت أقل سعر بلا موافقة مشرف`);
+        }
+      }
+    }
+
+    if (issues.length > 0) {
+      await this.extras.recordServerAudit(device, shift, {
+        action: 'sale_anomaly',
+        occurredAt,
+        details: `${op.number} — ${issues.join('، ')}`,
+      });
+    }
   }
 
   /** @returns true إذا كان المرتجع مسجّلاً من قبل (رفع مكرر) */
@@ -783,42 +909,103 @@ export class PosService {
     assertShiftOfDevice(shift, device);
     if (shift.status === PosShiftStatus.CLOSED) return true;
 
-    const totals = await this.invoices.shiftTotals(device.tenantId, shift.id);
-    const refunds = await this.returns.shiftRefunds(device.tenantId, shift.id);
-    const moves = await this.extras.shiftCashMoves(device.tenantId, shift.id);
-    const cashTotal = totals.byMethod.cash ?? 0;
-    const cashRefunds = refunds.byMethod.cash ?? 0;
-    const expectedCash = sumMoney([
-      shift.openingCash,
-      cashTotal,
-      -cashRefunds,
-      moves.cashIn,
-      -moves.cashOut,
-    ]);
-
+    const figures = (await this.shiftFigures(device.tenantId, [shift])).get(
+      shift.id,
+    )!;
     await this.shifts.update(
       { id: shift.id },
       {
+        ...figures,
         status: PosShiftStatus.CLOSED,
         closedAt: new Date(op.closedAt),
         closingCash: op.closingCash,
         note: op.note ?? null,
-        invoicesCount: totals.invoicesCount,
-        salesTotal: totals.salesTotal,
-        cashTotal,
-        cardTotal: totals.byMethod.card ?? 0,
-        returnsCount: refunds.returnsCount,
-        returnsTotal: refunds.returnsTotal,
-        cashRefunds,
-        creditTotal: totals.creditTotal,
-        cashIn: moves.cashIn,
-        cashOut: moves.cashOut,
         drawerOpens: op.drawerOpens ?? 0,
-        expectedCash,
-        cashDifference: sumMoney([op.closingCash, -expectedCash]),
+        cashDifference: sumMoney([op.closingCash, -figures.expectedCash]),
       },
     );
     return false;
+  }
+
+  /**
+   * عملية رُفضت ثم أُعيدت بعد تقفيل ورديتها (الطابور يكمل بعد الفشل، فالتقفيل
+   * قد يسبقها): تُقبل — البيع وقع والنقد في الدرج — وتُعاد أرقام الوردية
+   * ليظهر الفرق الحقيقي بين المعدود والمفترض، لا عجزاً وهمياً.
+   */
+  private async recalculateIfClosed(
+    shiftId: string,
+    device: PosDevice,
+    operationType: PosOperationDto['type'],
+  ): Promise<void> {
+    const shift = await this.shifts.findOne({ where: { id: shiftId } });
+    if (!shift || shift.status !== PosShiftStatus.CLOSED) return;
+
+    const figures = (await this.shiftFigures(shift.tenantId, [shift])).get(
+      shift.id,
+    )!;
+    const cashDifference = sumMoney([
+      shift.closingCash ?? 0,
+      -figures.expectedCash,
+    ]);
+    await this.shifts.update(
+      { id: shift.id },
+      {
+        ...figures,
+        cashDifference,
+        lateOperations: () => '"lateOperations" + 1',
+        recalculatedAt: new Date(),
+      },
+    );
+    await this.extras.recordServerAudit(device, shift, {
+      action: 'late_after_close',
+      amount: cashDifference,
+      details: `${LATE_OPERATION_LABELS[operationType] ?? operationType} وصلت بعد تقفيل الوردية — الفرق صار ${cashDifference} (كان ${shift.cashDifference})`,
+    });
+  }
+
+  /**
+   * أرقام الورديات من مستنداتها: المبيعات والمقبوض، المرتجعات والمردود،
+   * حركات الدرج، والمفترض في الدرج. ستة استعلامات لكل الورديات معاً.
+   */
+  private async shiftFigures(
+    tenantId: string,
+    shifts: PosShift[],
+  ): Promise<Map<string, ShiftFigures>> {
+    const ids = shifts.map((s) => s.id);
+    const [totals, refunds, moves] = await Promise.all([
+      this.invoices.shiftTotals(tenantId, ids),
+      this.returns.shiftRefunds(tenantId, ids),
+      this.extras.shiftCashMoves(tenantId, ids),
+    ]);
+
+    const result = new Map<string, ShiftFigures>();
+    for (const shift of shifts) {
+      const sales = totals.get(shift.id)!;
+      const back = refunds.get(shift.id)!;
+      const drawer = moves.get(shift.id)!;
+      const cashTotal = sales.byMethod.cash ?? 0;
+      const cashRefunds = back.byMethod.cash ?? 0;
+      result.set(shift.id, {
+        invoicesCount: sales.invoicesCount,
+        salesTotal: sales.salesTotal,
+        cashTotal,
+        cardTotal: sales.byMethod.card ?? 0,
+        returnsCount: back.returnsCount,
+        returnsTotal: back.returnsTotal,
+        cashRefunds,
+        creditTotal: sales.creditTotal,
+        cashIn: drawer.cashIn,
+        cashOut: drawer.cashOut,
+        expectedCash: sumMoney([
+          shift.openingCash,
+          cashTotal,
+          -cashRefunds,
+          drawer.cashIn,
+          -drawer.cashOut,
+        ]),
+      });
+    }
+    return result;
   }
 
   // ══════════════════════════ الورديات (للوحة التحكم) ══════════════════════════
@@ -850,36 +1037,14 @@ export class PosService {
       .take(limit)
       .getManyAndCount();
 
-    // الوردية المفتوحة: أرقامها حتى اللحظة (المقفّلة محفوظة عند التقفيل)
-    for (const shift of data) {
-      if (shift.status === PosShiftStatus.OPEN) {
-        await this.fillLiveTotals(shift);
-      }
+    // الورديات المفتوحة: أرقامها حتى اللحظة، كلها في استعلامات مجمّعة
+    // (المقفّلة محفوظة عند التقفيل)
+    const open = data.filter((s) => s.status === PosShiftStatus.OPEN);
+    if (open.length > 0) {
+      const figures = await this.shiftFigures(tenantId, open);
+      for (const shift of open) Object.assign(shift, figures.get(shift.id));
     }
     return paginated(data, total, page, limit);
-  }
-
-  private async fillLiveTotals(shift: PosShift): Promise<void> {
-    const totals = await this.invoices.shiftTotals(shift.tenantId, shift.id);
-    shift.invoicesCount = totals.invoicesCount;
-    shift.salesTotal = totals.salesTotal;
-    shift.cashTotal = totals.byMethod.cash ?? 0;
-    shift.cardTotal = totals.byMethod.card ?? 0;
-    const refunds = await this.returns.shiftRefunds(shift.tenantId, shift.id);
-    shift.returnsCount = refunds.returnsCount;
-    shift.returnsTotal = refunds.returnsTotal;
-    shift.cashRefunds = refunds.byMethod.cash ?? 0;
-    shift.creditTotal = totals.creditTotal;
-    const moves = await this.extras.shiftCashMoves(shift.tenantId, shift.id);
-    shift.cashIn = moves.cashIn;
-    shift.cashOut = moves.cashOut;
-    shift.expectedCash = sumMoney([
-      shift.openingCash,
-      shift.cashTotal,
-      -shift.cashRefunds,
-      shift.cashIn,
-      -shift.cashOut,
-    ]);
   }
 
   // ══════════════════════════ داخلي ══════════════════════════
@@ -953,6 +1118,11 @@ async function validated<T extends object>(
     throw new BadRequestException(message);
   }
   return instance;
+}
+
+/** خطأ فهرس فريد من PostgreSQL */
+function isUniqueViolation(error: unknown): boolean {
+  return (error as { code?: string } | null)?.code === '23505';
 }
 
 /** وردية شركة أخرى أو جهاز آخر تُعامل كغير موجودة */
