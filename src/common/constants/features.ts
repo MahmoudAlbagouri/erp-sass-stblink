@@ -73,6 +73,10 @@ export const FEATURES = {
     name: 'pos_module',
     labelAr: 'نقاط البيع (الكاشير) أونلاين وأوفلاين',
   },
+  DELIVERY_MODULE: {
+    name: 'delivery_module',
+    labelAr: 'التوصيل والشحن (طيارين وشركات شحن وتسوياتهم)',
+  },
 
   // ─── ميزات إضافية (Add-ons) ──────────────────────────
   REPORTS_EXPORT: {

@@ -461,6 +461,7 @@ export class SalesInvoicesService {
     dto: CreateSalesInvoiceDto,
     tenantId: string,
     userId?: string,
+    options: DeliveryAccess = {},
   ): Promise<SalesInvoice> {
     // نفس الـ uuid أُرسل من قبل (إعادة محاولة بعد انقطاع): نعيد الفاتورة نفسها
     if (dto.uuid) {
@@ -498,6 +499,7 @@ export class SalesInvoicesService {
           pricesIncludeTax,
           note: dto.note ?? null,
           createdById: userId ?? null,
+          isDelivery: options.delivery ?? false,
           ...totalsOf(lines),
         }),
       );
@@ -515,6 +517,7 @@ export class SalesInvoicesService {
   ): Promise<SalesInvoice> {
     const current = await this.findOne(id, tenantId);
     assertStatus(current, SalesInvoiceStatus.DRAFT, 'تعديل');
+    assertNotDelivery(current);
 
     const customerId =
       dto.customerId === undefined ? current.customerId : dto.customerId;
@@ -569,9 +572,14 @@ export class SalesInvoicesService {
   }
 
   /** إلغاء مسودة فقط. الصادرة لا تُلغى — تُصحَّح بمرتجع بيع */
-  async cancel(id: string, tenantId: string): Promise<SalesInvoice> {
+  async cancel(
+    id: string,
+    tenantId: string,
+    options: DeliveryAccess = {},
+  ): Promise<SalesInvoice> {
     await this.dataSource.transaction(async (manager) => {
       const invoice = await this.lock(manager, id, tenantId);
+      if (!options.delivery) assertNotDelivery(invoice);
       if (invoice.status === SalesInvoiceStatus.ISSUED) {
         throw new BadRequestException(
           'الفاتورة الصادرة لا تُلغى — سجّل مرتجع بيع (إشعار دائن) لتصحيحها',
@@ -601,9 +609,28 @@ export class SalesInvoicesService {
     tenantId: string,
     userId?: string,
   ): Promise<SalesInvoice> {
-    // ─── تحقق قبل المعاملة (قراءات لا تحتاج قفلاً) ───
+    await this.dataSource.transaction((manager) =>
+      this.issueWithin(manager, id, dto, tenantId, userId),
+    );
+    return this.findOne(id, tenantId);
+  }
+
+  /**
+   * الإصدار داخل معاملة المستدعي: موديول يربط الإصدار بتغيير حالته (أوردر
+   * توصيل يخرج مع الطيار) فيقعان معاً أو لا يقع أيهما.
+   */
+  async issueWithin(
+    manager: EntityManager,
+    id: string,
+    dto: IssueSalesInvoiceDto,
+    tenantId: string,
+    userId?: string,
+    options: DeliveryAccess = {},
+  ): Promise<void> {
+    // ─── تحقق قبل القفل (قراءات لا تحتاج قفلاً) ───
     const draft = await this.findOne(id, tenantId);
     assertStatus(draft, SalesInvoiceStatus.DRAFT, 'إصدار');
+    if (!options.delivery) assertNotDelivery(draft);
 
     const tenders = dto.payments ?? [];
     const tendered = sumMoney(tenders.map((t) => t.amount));
@@ -643,23 +670,19 @@ export class SalesInvoicesService {
       );
     }
 
-    await this.dataSource.transaction(async (manager) => {
-      const invoice = await this.lock(manager, id, tenantId);
-      assertStatus(invoice, SalesInvoiceStatus.DRAFT, 'إصدار');
+    const invoice = await this.lock(manager, id, tenantId);
+    assertStatus(invoice, SalesInvoiceStatus.DRAFT, 'إصدار');
 
-      const lines = await manager.find(SalesInvoiceLine, {
-        where: { invoiceId: id },
-        order: { sortOrder: 'ASC' },
-      });
-      await this.finalize(manager, invoice, lines, {
-        issuedAt: new Date(),
-        tenders,
-        seller,
-        userId,
-      });
+    const lines = await manager.find(SalesInvoiceLine, {
+      where: { invoiceId: id },
+      order: { sortOrder: 'ASC' },
     });
-
-    return this.findOne(id, tenantId);
+    await this.finalize(manager, invoice, lines, {
+      issuedAt: new Date(),
+      tenders,
+      seller,
+      userId,
+    });
   }
 
   // ══════════════════════════ نقاط البيع ══════════════════════════
@@ -1209,6 +1232,19 @@ const STATUS_LABEL: Record<SalesInvoiceStatus, string> = {
   [SalesInvoiceStatus.ISSUED]: 'صادرة',
   [SalesInvoiceStatus.CANCELLED]: 'ملغاة',
 };
+
+/** للاستدعاء من موديول التوصيل وحده: يسمح بالعمل على مسودة أوردر توصيل */
+export interface DeliveryAccess {
+  delivery?: boolean;
+}
+
+function assertNotDelivery(invoice: SalesInvoice): void {
+  if (invoice.isDelivery) {
+    throw new BadRequestException(
+      'فاتورة أوردر توصيل: تُدار من شاشة التوصيل (خروج الأوردر يصدرها، وإلغاؤه يلغيها)',
+    );
+  }
+}
 
 function assertStatus(
   invoice: SalesInvoice,

@@ -24,7 +24,11 @@ import {
 } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination.dto';
 import { TenderDto } from '../../sales/dto/sales.dto';
-import { SalesPaymentMethod } from '../../sales/entities/customer-payment.entity';
+import {
+  PAYMENT_METHOD_MESSAGE,
+  PUBLIC_PAYMENT_METHODS,
+  SalesPaymentMethod,
+} from '../../sales/entities/customer-payment.entity';
 import { PosShiftStatus } from '../entities/pos.entity';
 import {
   CashMovementType,
@@ -321,7 +325,7 @@ export class PosReturnOp {
   @Type(() => PosReturnLineOp)
   lines!: PosReturnLineOp[];
 
-  @IsEnum(SalesPaymentMethod)
+  @IsIn(PUBLIC_PAYMENT_METHODS, { message: PAYMENT_METHOD_MESSAGE })
   refundMethod!: SalesPaymentMethod;
 
   /** ما سلّمه الكاشير للعميل */

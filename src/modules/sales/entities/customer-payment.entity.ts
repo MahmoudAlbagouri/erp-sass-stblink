@@ -10,7 +10,21 @@ export enum SalesPaymentMethod {
   CARD = 'card',
   BANK_TRANSFER = 'bank_transfer',
   CHEQUE = 'cheque',
+  /**
+   * تحصيل عند التسليم عبر جهة توصيل (طيار أو شركة شحن): العميل لم يعد مديناً،
+   * والمبلغ على الجهة حتى تسويتها. يسجّله موديول التوصيل وحده — لا يُقبل من
+   * فواتير لوحة التحكم ولا المقبوضات ولا الكاشير (PUBLIC_PAYMENT_METHODS).
+   */
+  COURIER = 'courier',
 }
+
+export const PAYMENT_METHOD_MESSAGE =
+  'طريقة الدفع غير صحيحة (التحصيل عبر جهة التوصيل يُسجَّل من أوردرات التوصيل)';
+
+/** طرق الدفع المقبولة من المستخدم مباشرة (كل الطرق عدا تحصيل جهة التوصيل) */
+export const PUBLIC_PAYMENT_METHODS = Object.values(SalesPaymentMethod).filter(
+  (method) => method !== SalesPaymentMethod.COURIER,
+);
 
 export enum PaymentDirection {
   /** قبض من العميل */

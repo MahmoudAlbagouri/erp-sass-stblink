@@ -64,6 +64,11 @@
 
 - يعتمد على `catalog` و`inventory` و`branches`.
 - `pos` يسجّل مبيعاته ومرتجعاته عبر `recordPosSale` و`recordPosReturn` هنا.
+- `delivery` ينشئ فواتير أوردرات التوصيل (`isDelivery`): لا تُعدَّل ولا تصدر ولا
+  تُلغى من هنا، ويصدرها داخل معاملته (`issueWithin`) ويُرجعها كاملة
+  (`returnInFull`). طريقة الدفع `courier` (تحصيل عبر جهة التوصيل) يسجّلها وحده —
+  نماذج القبض والردّ تقبل `PUBLIC_PAYMENT_METHODS` فقط. انظر
+  [delivery.md](delivery.md).
 - `utils/payment-recorder.ts` دالة مشتركة لكتابة أي حركة نقدية مع عميل.
 
 ## صفحات الواجهة

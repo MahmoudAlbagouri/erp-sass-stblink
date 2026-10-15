@@ -280,6 +280,56 @@ export class SalesReturnsService {
     return { id, duplicate: false };
   }
 
+  /**
+   * مرتجع كامل لما بقي من الفاتورة، يُنشأ ويصدر داخل معاملة المستدعي (أوردر
+   * توصيل لم يُسلَّم: تعود بضاعته كلها ويُردّ ما سُجّل عليه بنفس طريقته).
+   */
+  async returnInFull(
+    manager: EntityManager,
+    invoiceId: string,
+    fields: {
+      returnDate: string;
+      reason?: string | null;
+      refund?: IssueSalesReturnDto['refund'];
+    },
+    tenantId: string,
+    userId?: string,
+  ): Promise<string> {
+    const invoice = await this.invoices.findOne(invoiceId, tenantId);
+    const lines = buildLines(
+      invoice,
+      (invoice.lines ?? [])
+        .map((line) => ({
+          invoiceLineId: line.id,
+          quantity: new Decimal(line.quantity)
+            .minus(line.returnedQuantity)
+            .toNumber(),
+        }))
+        .filter((line) => line.quantity > 0),
+      await moneyDecimalsOf(manager, tenantId),
+    );
+    if (!lines.length) {
+      throw new BadRequestException('الفاتورة مُرجعة بالكامل من قبل');
+    }
+
+    const returnId = await this.persist(manager, invoice, lines, {
+      returnDate: fields.returnDate,
+      reason: fields.reason,
+      userId,
+    });
+    await this.issueWithin(
+      manager,
+      returnId,
+      fields.refund && fields.refund.amount > 0
+        ? { refund: fields.refund }
+        : {},
+      tenantId,
+      userId,
+      { snapRefund: true },
+    );
+    return returnId;
+  }
+
   /** مرتجعات ورديات كاشير وما رُدّ من أدراجها (استعلامان لكل الورديات) */
   async shiftRefunds(
     tenantId: string,

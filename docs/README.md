@@ -150,7 +150,7 @@ scripts/docs-catalog.cjs  مولّد الكتالوج
 
 المجموعات: **النظام** (auth، tenants، plans، subscriptions، users، roles،
 permissions، branches، dashboard، profile، notifications، media، files) ·
-**التجاري** (catalog، inventory، purchasing، sales، pos، quotation) ·
+**التجاري** (catalog، inventory، purchasing، sales، pos، delivery، quotation) ·
 **الموارد البشرية** (employees، departments، shifts، contracts، salaries، payroll،
 advances، loans، bonuses، deduction، leaves، resignations، eos، settlements،
 attendance).
@@ -168,6 +168,7 @@ attendance).
 | [العقود (`contracts`)](modules/contracts.md) | عقد الموظف: نوعه، مدته، وأيام إجازته السنوية. | 7 | 1 |
 | [الصفحة الرئيسية (`dashboard`)](modules/dashboard.md) | أرقام وتحليلات الصفحة الرئيسية كلها في طلب واحد. | 1 | 0 |
 | [الخصومات (`deduction`)](modules/deduction.md) | خصم من راتب الموظف، دفعة واحدة أو أقساطاً. | 8 | 1 |
+| [التوصيل والشحن (`delivery`)](modules/delivery.md) | أوردرات توصيل تخرج مع طيار المحل أو شركة شحن، وتسوية ما حصّلته كل جهة. | 21 | 4 |
 | [الأقسام (`departments`)](modules/departments.md) | أقسام الشركة التي يتوزع عليها الموظفون. | 5 | 1 |
 | [الموظفون (`employees`)](modules/employees.md) | ملف الموظف وكل ما يتفرع عنه، وتهيئة موظف جديد دفعة واحدة. | 10 | 2 |
 | [نهاية الخدمة (`eos`)](modules/eos.md) | حساب مكافأة نهاية الخدمة وتسجيلها. | 5 | 1 |
@@ -194,7 +195,7 @@ attendance).
 | [الشركات (`tenants`)](modules/tenants.md) | الشركة (المستأجر): بياناتها، دولتها، عملتها، ومنطقتها الزمنية. | 8 | 1 |
 | [المستخدمون (`users`)](modules/users.md) | حسابات الدخول: دور كل مستخدم، حالته، والفروع المسموح له بها. | 6 | 1 |
 
-المجموع: 34 موديولاً، 297 مساراً، 65 جدولاً.
+المجموع: 35 موديولاً، 318 مساراً، 69 جدولاً.
 
 <!-- AUTO:END -->
 

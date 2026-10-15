@@ -25,7 +25,9 @@ import {
 import { PaginationQueryDto } from '../../../common/dto/pagination.dto';
 import {
   CustomerPaymentStatus,
+  PAYMENT_METHOD_MESSAGE,
   PaymentDirection,
+  PUBLIC_PAYMENT_METHODS,
   SalesPaymentMethod,
 } from '../entities/customer-payment.entity';
 import { SalesInvoiceStatus } from '../entities/sales-invoice.entity';
@@ -295,7 +297,7 @@ export class CreateSalesInvoiceDto {
 export class UpdateSalesInvoiceDto extends PartialType(CreateSalesInvoiceDto) {}
 
 export class TenderDto {
-  @IsEnum(SalesPaymentMethod)
+  @IsIn(PUBLIC_PAYMENT_METHODS, { message: PAYMENT_METHOD_MESSAGE })
   method!: SalesPaymentMethod;
 
   @IsNumber({ maxDecimalPlaces: 3 })
@@ -430,7 +432,7 @@ export class CreateCustomerPaymentDto {
   amount!: number;
 
   @IsOptional()
-  @IsEnum(SalesPaymentMethod)
+  @IsIn(PUBLIC_PAYMENT_METHODS, { message: PAYMENT_METHOD_MESSAGE })
   method?: SalesPaymentMethod;
 
   @IsOptional()

@@ -424,6 +424,24 @@ export const PERMS = {
     labelAr: 'إضافة وتعديل أجهزة الكاشير',
   },
 
+  // ─── التوصيل والشحن ─────────────────────────────────
+  DELIVERY_VIEW: {
+    name: 'view_delivery',
+    labelAr: 'عرض أوردرات التوصيل والطيارين والتسويات',
+  },
+  DELIVERY_MANAGE: {
+    name: 'manage_delivery',
+    labelAr: 'إنشاء أوردرات التوصيل وإسنادها وتحديث حالتها',
+  },
+  DELIVERY_AGENTS_MANAGE: {
+    name: 'manage_delivery_agents',
+    labelAr: 'إدارة الطيارين وشركات الشحن ومناطق التوصيل',
+  },
+  DELIVERY_SETTLE: {
+    name: 'settle_delivery',
+    labelAr: 'تسوية حساب الطيارين وشركات الشحن',
+  },
+
   // ── System (system admins only) ─────────────────────
   SYSTEM_STATS: {
     name: 'system:view_platform_stats',

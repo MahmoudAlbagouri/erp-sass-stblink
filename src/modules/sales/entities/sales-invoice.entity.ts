@@ -173,6 +173,13 @@ export class SalesInvoice extends TenantOwnedEntity {
   @Column({ type: 'uuid', nullable: true })
   shiftId?: string | null;
 
+  /**
+   * فاتورة أوردر توصيل: مسودتها تُعدَّل وتصدر وتُلغى من شاشة التوصيل وحدها
+   * (إصدارها = خروج الأوردر مع الطيار)، لا من شاشة المبيعات.
+   */
+  @Column({ default: false })
+  isDelivery!: boolean;
+
   @OneToMany(() => SalesInvoiceLine, (line) => line.invoice)
   lines?: SalesInvoiceLine[];
 
