@@ -64,6 +64,21 @@ export class DeliveryAgent extends TenantOwnedEntity {
   @Column({ type: 'varchar', length: 300, nullable: true })
   note?: string | null;
 
+  /**
+   * بصمة مفتاح رابط الطيار (شاشة الجوال). المفتاح نفسه يُعرض مرة عند إصداره
+   * ولا يُحفظ؛ إصدار رابط جديد يُبطل القديم. null = لا رابط.
+   */
+  @Column({ type: 'varchar', length: 64, nullable: true, select: false })
+  accessKeyHash?: string | null;
+
+  /** متى صدر رابط الطيار الحالي (null = لا رابط) */
+  @Column({ type: 'timestamptz', nullable: true })
+  accessIssuedAt?: Date | null;
+
+  /** آخر مرة فتح الطيار شاشته */
+  @Column({ type: 'timestamptz', nullable: true })
+  lastSeenAt?: Date | null;
+
   /** ليس عموداً: ما معها الآن من مال المحل (أوردرات مسلّمة لم تُسوَّ) */
   heldAmount?: number;
   /** ليس عموداً: أوردرات معها في الطريق */
@@ -104,6 +119,13 @@ export enum DeliveryOrderStatus {
   FAILED = 'failed',
   /** أُلغي قبل خروجه: أُلغيت مسودة فاتورته */
   CANCELLED = 'cancelled',
+}
+
+export enum DeliveryOrderSource {
+  /** من لوحة التوصيل: فاتورته مسودة حتى يخرج */
+  DASHBOARD = 'dashboard',
+  /** من شاشة الكاشير: فاتورته صدرت وطُبعت عند البيع (ربما بلا إنترنت) */
+  POS = 'pos',
 }
 
 export enum DeliveryPaymentMode {
@@ -222,6 +244,18 @@ export class DeliveryOrder extends TenantOwnedEntity {
   /** التسوية التي دخل فيها (null = لم يُسوَّ بعد) */
   @Column({ type: 'uuid', nullable: true })
   settlementId?: string | null;
+
+  /** من أين أُنشئ: لوحة التوصيل أو شاشة الكاشير */
+  @Column({
+    type: 'varchar',
+    length: 20,
+    default: DeliveryOrderSource.DASHBOARD,
+  })
+  source!: DeliveryOrderSource;
+
+  /** جهاز الكاشير الذي باعه (للأوردر من الكاشير) */
+  @Column({ type: 'uuid', nullable: true })
+  deviceId?: string | null;
 
   @Column({ type: 'uuid', nullable: true })
   createdById?: string | null;

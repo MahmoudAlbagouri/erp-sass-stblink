@@ -50,6 +50,9 @@ async function bootstrap() {
       'X-Pos-Device',
       'X-Pos-Key',
       'X-Pos-Installation',
+      // هوية شاشة الطيار (DriverGuard)
+      'X-Driver-Agent',
+      'X-Driver-Key',
     ],
     credentials: true,
   });

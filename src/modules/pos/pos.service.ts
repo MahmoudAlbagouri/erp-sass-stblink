@@ -20,7 +20,9 @@ import {
   Paginated,
   resolvePagination,
 } from '../../common/dto/pagination.dto';
+import { FEATURES } from '../../common/constants/features';
 import { sumMoney } from '../../common/utils/document-totals.util';
+import { SalesPaymentMethod } from '../sales/entities/customer-payment.entity';
 import { roundMoney } from '../../common/utils/money.util';
 import { CatalogSettingsService } from '../catalog/catalog-settings.service';
 import { ProductCategory } from '../catalog/entities/product-category.entity';
@@ -36,6 +38,9 @@ import {
   SalesInvoicesService,
 } from '../sales/sales-invoices.service';
 import { SalesReturnsService } from '../sales/sales-returns.service';
+import { DeliveryService } from '../delivery/delivery.service';
+import type { PosDeliveryOptions } from '../delivery/delivery.service';
+import { SubscriptionManagerService } from '../subscriptions/subscription-manager.service';
 import { SalesSettingsService } from '../sales/sales-settings.service';
 import {
   CloseShiftOp,
@@ -136,6 +141,8 @@ export interface PosBootstrap {
   promotions: PosPromotionForDevice[];
   /** باركود الميزان وما يحتاج موافقة مشرف */
   posOptions: PosOptions;
+  /** البيع "توصيل": الجهات والمناطق وصنف الرسوم. null = الباقة بلا توصيل */
+  delivery: PosDeliveryOptions | null;
 }
 
 export interface PosTenantProfile {
@@ -240,6 +247,8 @@ export class PosService {
     private readonly returns: SalesReturnsService,
     private readonly cashiers: PosCashiersService,
     private readonly extras: PosExtrasService,
+    private readonly delivery: DeliveryService,
+    private readonly subscriptions: SubscriptionManagerService,
   ) {}
 
   // ══════════════════════════ الأجهزة ══════════════════════════
@@ -430,6 +439,13 @@ export class PosService {
     const deviceId = device.id;
     const sinceDate = since ? new Date(since) : undefined;
 
+    // قبل الأصناف: صنف "رسوم التوصيل" يُنشأ أول مرة فينزل معها
+    const delivery = (await this.subscriptions
+      .hasFeature(tenantId, FEATURES.DELIVERY_MODULE.name)
+      .catch(() => false))
+      ? await this.delivery.posOptions(tenantId)
+      : null;
+
     const [
       settings,
       categories,
@@ -486,6 +502,7 @@ export class PosService {
       customerBalances,
       promotions,
       posOptions: resolvePosOptions(settings.posOptions),
+      delivery,
     };
   }
 
@@ -746,23 +763,32 @@ export class PosService {
     const shift = await this.shifts.findOne({ where: { id: op.shiftId } });
     if (!shift) throw new NotFoundException('وردية الفاتورة غير مسجّلة');
     assertShiftOfDevice(shift, device);
-
-    const { duplicate, overdrawn, checks } = await this.invoices.recordPosSale(
-      {
-        uuid: op.uuid,
-        number: op.number,
-        issuedAt: new Date(op.issuedAt),
-        deviceId: device.id,
-        shiftId: shift.id,
-        warehouseId: device.warehouseId,
-        customerId: op.customerId ?? null,
-        pricesIncludeTax: op.pricesIncludeTax,
-        lines: op.lines,
-        payments: op.payments,
-      },
-      device.tenantId,
-      actor.id,
+    const courier = op.payments.some(
+      (p) => p.method === SalesPaymentMethod.COURIER,
     );
+    if (courier && !op.delivery) {
+      throw new BadRequestException(
+        'التحصيل عبر التوصيل لفاتورة توصيل فقط (ببيانات المستلم)',
+      );
+    }
+
+    const { invoice, duplicate, overdrawn, checks } =
+      await this.invoices.recordPosSale(
+        {
+          uuid: op.uuid,
+          number: op.number,
+          issuedAt: new Date(op.issuedAt),
+          deviceId: device.id,
+          shiftId: shift.id,
+          warehouseId: device.warehouseId,
+          customerId: op.customerId ?? null,
+          pricesIncludeTax: op.pricesIncludeTax,
+          lines: op.lines,
+          payments: op.payments,
+        },
+        device.tenantId,
+        actor.id,
+      );
 
     // أعلى عدّاد وصل: منه يكمل الجهاز لو أُعيدت تهيئته
     await this.devices
@@ -775,6 +801,20 @@ export class PosService {
 
     if (!duplicate) {
       await this.reportSaleIssues(op, device, shift, overdrawn, checks);
+    }
+    // بعد الفاتورة لا معها: رفع مكرر (أو فشل سابق بعد تسجيلها) يكمل الأوردر
+    if (op.delivery) {
+      await this.delivery.recordFromPos(
+        {
+          invoice,
+          delivery: op.delivery,
+          payments: op.payments,
+          issuedAt: new Date(op.issuedAt),
+          deviceId: device.id,
+          userId: actor.id,
+        },
+        device.tenantId,
+      );
     }
     return duplicate;
   }

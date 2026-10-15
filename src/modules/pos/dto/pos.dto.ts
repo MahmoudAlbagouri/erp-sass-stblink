@@ -23,7 +23,6 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination.dto';
-import { TenderDto } from '../../sales/dto/sales.dto';
 import {
   PAYMENT_METHOD_MESSAGE,
   PUBLIC_PAYMENT_METHODS,
@@ -241,6 +240,76 @@ export class PosSaleLineOp {
   priceReason?: string;
 }
 
+/**
+ * دفعة على فاتورة الكاشير. تقبل "courier" (تحصيل عبر التوصيل) — لفاتورة
+ * توصيل فقط، يتحقق منه PosService.
+ */
+export class PosTenderDto {
+  @IsEnum(SalesPaymentMethod, { message: 'طريقة الدفع غير صحيحة' })
+  method!: SalesPaymentMethod;
+
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0.01, { message: 'المبلغ يجب أن يكون أكبر من صفر' })
+  amount!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  reference?: string;
+}
+
+/** بيانات التوصيل لفاتورة باعها الكاشير "توصيل" */
+export class PosDeliveryOp {
+  @IsString()
+  @IsNotEmpty({ message: 'اسم المستلم مطلوب' })
+  @MaxLength(150)
+  recipientName!: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'جوال المستلم مطلوب' })
+  @MaxLength(30)
+  phone!: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'عنوان التوصيل مطلوب' })
+  @MaxLength(500)
+  address!: string;
+
+  @IsOptional()
+  @IsUUID()
+  zoneId?: string | null;
+
+  /** رسوم التوصيل (سطرها في الفاتورة بصنف رسوم التوصيل) */
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0)
+  deliveryFee?: number;
+
+  @IsOptional()
+  @IsUUID()
+  agentId?: string | null;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0)
+  agentFee?: number;
+
+  /** خرج مع الطيار فور البيع */
+  @IsOptional()
+  @IsBoolean()
+  dispatchNow?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  trackingNumber?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  note?: string | null;
+}
+
 export class PosSaleOp {
   /** معرّف الفاتورة على الجهاز — يمنع تكرارها عند إعادة الرفع */
   @IsUUID()
@@ -276,8 +345,14 @@ export class PosSaleOp {
   @IsArray()
   @ArrayMaxSize(5)
   @ValidateNested({ each: true })
-  @Type(() => TenderDto)
-  payments!: TenderDto[];
+  @Type(() => PosTenderDto)
+  payments!: PosTenderDto[];
+
+  /** فاتورة "توصيل": يُنشأ لها أوردر توصيل عند رفعها */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PosDeliveryOp)
+  delivery?: PosDeliveryOp;
 
   /**
    * المشرف الذي وافق برقمه السري على تجاوز في الفاتورة (سعر تحت الحد، خصم فوق

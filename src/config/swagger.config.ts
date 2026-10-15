@@ -15,6 +15,10 @@ import { QUOTA_EXTENSION } from '../common/decorators/check-quota.decorator';
 import { PERMISSIONS_EXTENSION } from '../common/decorators/permissions.decorator';
 import { FEATURE_EXTENSION } from '../common/decorators/requires-feature.decorator';
 import {
+  DRIVER_AGENT_HEADER,
+  DRIVER_KEY_HEADER,
+} from '../modules/delivery/delivery.constants';
+import {
   POS_DEVICE_HEADER,
   POS_INSTALLATION_HEADER,
   POS_KEY_HEADER,
@@ -68,6 +72,10 @@ export const API_TAGS = {
   DELIVERY: [
     'التوصيل والشحن',
     'أوردرات التوصيل، الطيارون وشركات الشحن، المناطق، والتسويات',
+  ],
+  DELIVERY_DRIVER: [
+    'شاشة الطيار',
+    'ما تستدعيه شاشة الطيار على جواله برابطه، بلا جلسة مستخدم',
   ],
   POS_DEVICE: [
     'شاشة الكاشير',
@@ -127,6 +135,8 @@ const BEARER = 'bearer';
 const POS_DEVICE = 'pos-device';
 const POS_KEY = 'pos-key';
 const POS_INSTALLATION = 'pos-installation';
+const DRIVER_AGENT = 'driver-agent';
+const DRIVER_KEY = 'driver-key';
 
 /** مسارات بلا جلسة مستخدم: يُزال عنها قفل التوكن في Swagger */
 const PUBLIC_PATHS = [
@@ -138,6 +148,7 @@ const PUBLIC_PATHS = [
 ];
 const ADMS_PREFIX = '/iclock';
 const POS_DEVICE_PREFIX = '/pos/device';
+const DRIVER_PREFIX = '/delivery/driver';
 
 interface AccessLabel {
   name: string;
@@ -196,6 +207,8 @@ function enrich(document: OpenAPIObject): OpenAPIObject {
         operation.security = [
           { [POS_DEVICE]: [], [POS_KEY]: [], [POS_INSTALLATION]: [] },
         ];
+      } else if (path.startsWith(DRIVER_PREFIX)) {
+        operation.security = [{ [DRIVER_AGENT]: [], [DRIVER_KEY]: [] }];
       } else if (path.startsWith(ADMS_PREFIX) || PUBLIC_PATHS.includes(path)) {
         operation.security = [];
       }
@@ -229,6 +242,14 @@ export function setupSwagger(app: INestApplication): void {
     .addApiKey(
       { type: 'apiKey', in: 'header', name: POS_INSTALLATION_HEADER },
       POS_INSTALLATION,
+    )
+    .addApiKey(
+      { type: 'apiKey', in: 'header', name: DRIVER_AGENT_HEADER },
+      DRIVER_AGENT,
+    )
+    .addApiKey(
+      { type: 'apiKey', in: 'header', name: DRIVER_KEY_HEADER },
+      DRIVER_KEY,
     );
   for (const [name, description] of Object.values(API_TAGS)) {
     builder.addTag(name, description);

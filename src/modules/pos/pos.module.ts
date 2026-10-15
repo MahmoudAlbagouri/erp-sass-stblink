@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { QuotaResolverFor } from '../../common/decorators/quota-resolver.decorator';
 import { CatalogModule } from '../catalog/catalog.module';
+import { DeliveryModule } from '../delivery/delivery.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { SalesModule } from '../sales/sales.module';
 import { QuotaResolver } from '../subscriptions/interfaces/quota-resolver.interface';
@@ -54,6 +55,7 @@ export class PosDevicesQuotaResolver implements QuotaResolver {
     InventoryModule, // WarehousesService
     SalesModule, // SalesInvoicesService, CustomersService, SalesSettingsService
     SubscriptionsModule, // SubscriptionGuard
+    DeliveryModule, // البيع "توصيل" من الكاشير
   ],
   controllers: [PosController, PosDeviceController],
   providers: [

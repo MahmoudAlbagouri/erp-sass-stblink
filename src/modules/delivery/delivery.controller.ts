@@ -143,8 +143,9 @@ export class DeliveryController {
   cancel(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentTenantId() tenantId: string,
+    @CurrentUser() user: CurrentUserData,
   ) {
-    return this.delivery.cancel(id, tenantId);
+    return this.delivery.cancel(id, tenantId, user.id);
   }
 
   // ─── الطيارون وشركات الشحن ───────────────────────────────────
@@ -197,6 +198,30 @@ export class DeliveryController {
     @CurrentTenantId() tenantId: string,
   ) {
     return this.delivery.removeAgent(id, tenantId);
+  }
+
+  /**
+   * رابط شاشة الطيار على جواله. المفتاح يظهر في الرد مرة واحدة؛ إصدار رابط
+   * جديد يُبطل القديم.
+   */
+  @Post('agents/:id/driver-access')
+  @HttpCode(HttpStatus.OK)
+  @Permissions(PERMS.DELIVERY_AGENTS_MANAGE)
+  issueDriverAccess(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.delivery.issueDriverAccess(id, tenantId);
+  }
+
+  /** إيقاف رابط الطيار: شاشته تتوقف فوراً */
+  @Delete('agents/:id/driver-access')
+  @Permissions(PERMS.DELIVERY_AGENTS_MANAGE)
+  revokeDriverAccess(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.delivery.revokeDriverAccess(id, tenantId);
   }
 
   // ─── المناطق ────────────────────────────────────────────────

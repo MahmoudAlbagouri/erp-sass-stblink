@@ -31,7 +31,10 @@ import { Unit } from '../catalog/entities/unit.entity';
 import { CatalogSettingsService } from '../catalog/catalog-settings.service';
 import { ProductsService } from '../catalog/products.service';
 import { SalesPaymentMethod } from '../sales/entities/customer-payment.entity';
-import { SalesInvoice } from '../sales/entities/sales-invoice.entity';
+import {
+  SalesInvoice,
+  SalesInvoiceStatus,
+} from '../sales/entities/sales-invoice.entity';
 import { SalesInvoicesService } from '../sales/sales-invoices.service';
 import { SalesReturnsService } from '../sales/sales-returns.service';
 import { dateOnly } from '../sales/utils/payment-recorder';
@@ -50,7 +53,14 @@ import {
   UpdateDeliveryZoneDto,
 } from './dto/delivery.dto';
 import {
+  deviceKeyMatches,
+  generateDeviceKey,
+  hashDeviceKey,
+} from '../pos/utils/pos-crypto.util';
+import {
   DeliveryAgent,
+  DeliveryAgentType,
+  DeliveryOrderSource,
   DeliveryOrder,
   DeliveryOrderStatus,
   DeliveryPaymentMode,
@@ -87,6 +97,57 @@ const STATUS_LABEL: Record<DeliveryOrderStatus, string> = {
   [DeliveryOrderStatus.FAILED]: 'لم يُسلَّم',
   [DeliveryOrderStatus.CANCELLED]: 'ملغي',
 };
+
+/** ما ينزل لشاشة الكاشير لتبيع توصيل بلا إنترنت */
+export interface PosDeliveryOptions {
+  /** صنف "رسوم التوصيل": سطر في الفاتورة */
+  feeProductId: string;
+  agents: Pick<
+    DeliveryAgent,
+    'id' | 'type' | 'name' | 'defaultFee' | 'codFeePercent'
+  >[];
+  zones: {
+    id: string;
+    name: string;
+    fee: number;
+    estimatedMinutes: number | null;
+  }[];
+}
+
+/** بيانات التوصيل التي يرفعها الكاشير مع الفاتورة */
+export interface PosDeliveryInput {
+  recipientName: string;
+  phone: string;
+  address: string;
+  zoneId?: string | null;
+  deliveryFee?: number;
+  agentId?: string | null;
+  agentFee?: number;
+  /** خرج مع الطيار فور البيع */
+  dispatchNow?: boolean;
+  trackingNumber?: string | null;
+  note?: string | null;
+}
+
+export interface PosDeliveryRecord {
+  invoice: SalesInvoice;
+  delivery: PosDeliveryInput;
+  payments: { method: SalesPaymentMethod; amount: number }[];
+  issuedAt: Date;
+  deviceId: string;
+  userId?: string;
+}
+
+export interface DriverBoard {
+  agent: {
+    id: string;
+    name: string;
+    heldAmount: number;
+    unsettledCount: number;
+  };
+  company: string;
+  orders: DeliveryOrder[];
+}
 
 export interface DeliverySummary {
   /** عدد الأوردرات في كل حالة (المنتهية: اليوم فقط) */
@@ -629,6 +690,15 @@ export class DeliveryService {
       const invoice = await manager.findOneOrFail(SalesInvoice, {
         where: { id: order.invoiceId, tenantId },
       });
+      // أوردر الكاشير: فاتورته صدرت وطُبعت عند البيع — الخروج تغيير حالة فقط
+      if (invoice.status === SalesInvoiceStatus.ISSUED) {
+        await manager.update(
+          DeliveryOrder,
+          { id, tenantId },
+          { status: DeliveryOrderStatus.OUT, dispatchedAt: new Date() },
+        );
+        return;
+      }
 
       await this.invoices.issueWithin(
         manager,
@@ -692,39 +762,17 @@ export class DeliveryService {
     tenantId: string,
     userId?: string,
   ): Promise<DeliveryOrder> {
-    const timezone = await tenantTimezoneOf(this.dataSource.manager, tenantId);
     await this.dataSource.transaction(async (manager) => {
       const order = await this.lockOrder(manager, id, tenantId);
       assertOrderStatus(order, [DeliveryOrderStatus.OUT], 'تسجيل عدم تسليم');
-      const invoice = await this.invoices.lock(
-        manager,
-        order.invoiceId,
-        tenantId,
-      );
       const now = new Date();
-
-      const returnId = await this.returns.returnInFull(
+      const returnId = await this.reverseInvoice(
         manager,
-        invoice.id,
-        {
-          returnDate: dateOnly(now, timezone),
-          reason: `أوردر توصيل ${order.number} لم يُسلَّم: ${dto.reason}`,
-          refund:
-            invoice.paidAmount > 0
-              ? {
-                  method:
-                    order.paymentMode === DeliveryPaymentMode.COD
-                      ? SalesPaymentMethod.COURIER
-                      : (order.prepaidMethod as SalesPaymentMethod),
-                  amount: invoice.paidAmount,
-                  reference: order.trackingNumber ?? order.number,
-                }
-              : undefined,
-        },
+        order,
+        `أوردر توصيل ${order.number} لم يُسلَّم: ${dto.reason}`,
         tenantId,
         userId,
       );
-
       await manager.update(
         DeliveryOrder,
         { id, tenantId },
@@ -740,14 +788,91 @@ export class DeliveryService {
     return this.findOrder(id, tenantId);
   }
 
-  /** إلغاء قبل الخروج: تُلغى مسودة الفاتورة (لا بضاعة خرجت ولا مال) */
-  async cancel(id: string, tenantId: string): Promise<DeliveryOrder> {
+  /**
+   * مرتجع كامل لفاتورة صادرة: تعود البضاعة للمخزن، ويُعكس ما سُجّل عليها بنفس
+   * طريقته (تحصيل الجهة، أو ردّ المدفوع مقدماً للعميل).
+   */
+  private async reverseInvoice(
+    manager: EntityManager,
+    order: DeliveryOrder,
+    reason: string,
+    tenantId: string,
+    userId?: string,
+  ): Promise<string> {
+    const timezone = await tenantTimezoneOf(manager, tenantId);
+    const invoice = await this.invoices.lock(
+      manager,
+      order.invoiceId,
+      tenantId,
+    );
+    return this.returns.returnInFull(
+      manager,
+      invoice.id,
+      {
+        returnDate: dateOnly(new Date(), timezone),
+        reason,
+        refund:
+          invoice.paidAmount > 0
+            ? {
+                method:
+                  order.paymentMode === DeliveryPaymentMode.COD
+                    ? SalesPaymentMethod.COURIER
+                    : (order.prepaidMethod as SalesPaymentMethod),
+                amount: invoice.paidAmount,
+                reference: order.trackingNumber ?? order.number,
+              }
+            : undefined,
+      },
+      tenantId,
+      userId,
+    );
+  }
+
+  /**
+   * إلغاء قبل الخروج. أوردر لوحة التوصيل: تُلغى مسودة فاتورته. أوردر الكاشير
+   * (فاتورته صدرت عند البيع): مرتجع كامل يعيد البضاعة ويعكس المسجَّل.
+   */
+  async cancel(
+    id: string,
+    tenantId: string,
+    userId?: string,
+  ): Promise<DeliveryOrder> {
     const order = await this.findOrder(id, tenantId);
     assertOrderStatus(
       order,
       [DeliveryOrderStatus.NEW, DeliveryOrderStatus.ASSIGNED],
       'إلغاء',
     );
+
+    if (order.invoice?.status === SalesInvoiceStatus.ISSUED) {
+      await this.dataSource.transaction(async (manager) => {
+        const locked = await this.lockOrder(manager, id, tenantId);
+        assertOrderStatus(
+          locked,
+          [DeliveryOrderStatus.NEW, DeliveryOrderStatus.ASSIGNED],
+          'إلغاء',
+        );
+        const returnId = await this.reverseInvoice(
+          manager,
+          locked,
+          `إلغاء أوردر التوصيل ${locked.number}`,
+          tenantId,
+          userId,
+        );
+        await manager.update(
+          DeliveryOrder,
+          { id, tenantId },
+          {
+            status: DeliveryOrderStatus.CANCELLED,
+            cancelledAt: new Date(),
+            returnId,
+            codAmount: 0,
+          },
+        );
+      });
+      return this.findOrder(id, tenantId);
+    }
+
     // الإلغاء المشروط: من سبق بتغيير الحالة (خروج متزامن) يفوز
     const result = await this.orders.update(
       { id, tenantId, status: order.status },
@@ -890,6 +1015,244 @@ export class DeliveryService {
     });
 
     return this.findSettlement(id, tenantId);
+  }
+
+  // ══════════════════════════ شاشة الكاشير ══════════════════════════
+
+  /**
+   * ما تحتاجه شاشة الكاشير لتبيع "توصيل" بلا إنترنت: صنف رسوم التوصيل
+   * والطيارون والشركات النشطة والمناطق.
+   */
+  async posOptions(tenantId: string): Promise<PosDeliveryOptions> {
+    const [feeProduct, agents, zones] = await Promise.all([
+      this.deliveryFeeProduct(tenantId),
+      this.agents.find({
+        where: { tenantId, isActive: true },
+        order: { name: 'ASC' },
+      }),
+      this.zones.find({
+        where: { tenantId, isActive: true },
+        order: { name: 'ASC' },
+      }),
+    ]);
+    return {
+      feeProductId: feeProduct.id,
+      agents: agents.map((a) => ({
+        id: a.id,
+        type: a.type,
+        name: a.name,
+        defaultFee: a.defaultFee,
+        codFeePercent: a.codFeePercent,
+      })),
+      zones: zones.map((z) => ({
+        id: z.id,
+        name: z.name,
+        fee: z.fee,
+        estimatedMinutes: z.estimatedMinutes ?? null,
+      })),
+    };
+  }
+
+  /**
+   * أوردر لفاتورة باعها الكاشير "توصيل" (صدرت وطُبعت، ربما بلا إنترنت). البيع
+   * وقع فعلاً، فهنا نسجّل ولا نفاوض: جهة أو منطقة لم تعد موجودة تُترك فارغة
+   * بدل رفض الأوردر. رفع الفاتورة نفسها مرتين لا يكرر الأوردر.
+   *
+   * التحصيل عند الاستلام = ما سُجّل على الفاتورة بطريقة courier.
+   */
+  async recordFromPos(
+    input: PosDeliveryRecord,
+    tenantId: string,
+  ): Promise<{ order: DeliveryOrder; duplicate: boolean }> {
+    const existing = await this.orders.findOne({
+      where: { tenantId, invoiceId: input.invoice.id },
+    });
+    if (existing) return { order: existing, duplicate: true };
+
+    const { delivery, invoice } = input;
+    const [zone, agent] = await Promise.all([
+      delivery.zoneId
+        ? this.zones.findOne({ where: { id: delivery.zoneId, tenantId } })
+        : null,
+      delivery.agentId
+        ? this.agents.findOne({ where: { id: delivery.agentId, tenantId } })
+        : null,
+    ]);
+
+    const codAmount = sumMoney(
+      input.payments
+        .filter((p) => p.method === SalesPaymentMethod.COURIER)
+        .map((p) => p.amount),
+    );
+    const prepaid = input.payments.find(
+      (p) => p.method !== SalesPaymentMethod.COURIER,
+    );
+    const at = input.issuedAt;
+    const dispatched = !!agent && !!delivery.dispatchNow;
+
+    try {
+      const order = await this.dataSource.transaction(async (manager) => {
+        const number = await nextDocumentNumber(
+          manager,
+          'delivery_orders',
+          ORDER_PREFIX,
+          tenantId,
+        );
+        return manager.save(
+          manager.create(DeliveryOrder, {
+            tenantId,
+            number,
+            invoiceId: invoice.id,
+            warehouseId: invoice.warehouseId,
+            customerId: invoice.customerId ?? null,
+            recipientName: delivery.recipientName.trim(),
+            phone: delivery.phone.trim(),
+            address: delivery.address.trim(),
+            zoneId: zone?.id ?? null,
+            agentId: agent?.id ?? null,
+            status: dispatched
+              ? DeliveryOrderStatus.OUT
+              : agent
+                ? DeliveryOrderStatus.ASSIGNED
+                : DeliveryOrderStatus.NEW,
+            paymentMode:
+              codAmount > 0
+                ? DeliveryPaymentMode.COD
+                : DeliveryPaymentMode.PREPAID,
+            prepaidMethod:
+              codAmount > 0
+                ? null
+                : (prepaid?.method ?? SalesPaymentMethod.CASH),
+            codAmount,
+            deliveryFee: delivery.deliveryFee ?? 0,
+            agentFee: agent
+              ? (delivery.agentFee ??
+                (await suggestedAgentFee(manager, agent, codAmount, tenantId)))
+              : 0,
+            trackingNumber: delivery.trackingNumber?.trim() || null,
+            note: delivery.note ?? null,
+            assignedAt: agent ? at : null,
+            dispatchedAt: dispatched ? at : null,
+            source: DeliveryOrderSource.POS,
+            deviceId: input.deviceId,
+            createdById: input.userId ?? null,
+          }),
+        );
+      });
+      return { order, duplicate: false };
+    } catch (error) {
+      // رفعان متزامنان لنفس الفاتورة: الفهرس الفريد على invoiceId حسمها
+      const raced = await this.orders.findOne({
+        where: { tenantId, invoiceId: invoice.id },
+      });
+      if (raced) return { order: raced, duplicate: true };
+      throw error;
+    }
+  }
+
+  // ══════════════════════════ شاشة الطيار ══════════════════════════
+
+  /**
+   * رابط شاشة الطيار على جواله: مفتاح عشوائي يُعرض مرة واحدة الآن ولا تُحفظ
+   * إلا بصمته. رابط جديد يُبطل القديم (جوال ضاع أو طيار ترك العمل).
+   */
+  async issueDriverAccess(
+    id: string,
+    tenantId: string,
+  ): Promise<{ agentId: string; key: string }> {
+    const agent = await this.findAgent(id, tenantId);
+    if (agent.type !== DeliveryAgentType.DRIVER) {
+      throw new BadRequestException(
+        'شاشة الجوال للطيارين — شركة الشحن تُتابع من لوحة التوصيل',
+      );
+    }
+    const key = generateDeviceKey();
+    await this.agents.update(
+      { id, tenantId },
+      { accessKeyHash: hashDeviceKey(key), accessIssuedAt: new Date() },
+    );
+    return { agentId: id, key };
+  }
+
+  /** إيقاف رابط الطيار: شاشته تتوقف فوراً */
+  async revokeDriverAccess(id: string, tenantId: string): Promise<void> {
+    await this.findAgent(id, tenantId);
+    await this.agents.update(
+      { id, tenantId },
+      { accessKeyHash: null, accessIssuedAt: null },
+    );
+  }
+
+  /** يتحقق من مفتاح الطيار. null = رابط غير صالح أو أُبطل */
+  async authenticateDriver(
+    agentId: string,
+    key: string,
+  ): Promise<DeliveryAgent | null> {
+    const agent = await this.agents
+      .createQueryBuilder('agent')
+      .addSelect('agent.accessKeyHash')
+      .where('agent.id = :agentId', { agentId })
+      .getOne();
+    if (
+      !agent?.accessKeyHash ||
+      agent.type !== DeliveryAgentType.DRIVER ||
+      !deviceKeyMatches(key, agent.accessKeyHash)
+    ) {
+      return null;
+    }
+    delete agent.accessKeyHash;
+    await this.agents.update({ id: agent.id }, { lastSeenAt: new Date() });
+    return agent;
+  }
+
+  /** شاشة الطيار: أوردراته المفتوحة، وما أنهاه اليوم، وما معه من مال */
+  async driverBoard(agent: DeliveryAgent): Promise<DriverBoard> {
+    const { tenantId } = agent;
+    const zone = await tenantTimezoneOf(this.dataSource.manager, tenantId);
+    const today = startOfDayInZone(dateOnly(new Date(), zone), zone)!;
+
+    const orders = await this.orderQuery(tenantId)
+      .leftJoinAndSelect('invoice.lines', 'line')
+      .andWhere('o.agentId = :agentId', { agentId: agent.id })
+      .andWhere(
+        `(o.status IN (:...open) OR (o.status IN (:...finished)
+          AND COALESCE(o.deliveredAt, o.failedAt) >= :today))`,
+        {
+          open: [DeliveryOrderStatus.ASSIGNED, DeliveryOrderStatus.OUT],
+          finished: FINISHED_STATUSES,
+          today,
+        },
+      )
+      .orderBy('o.createdAt', 'ASC')
+      .addOrderBy('line.sortOrder', 'ASC')
+      .getMany();
+
+    const [company] = await this.dataSource.query<{ name: string }[]>(
+      `SELECT "companyName" AS "name" FROM tenants WHERE "id" = $1`,
+      [tenantId],
+    );
+    const stats = (await this.agentStats(tenantId, agent.id)).get(agent.id);
+    return {
+      agent: {
+        id: agent.id,
+        name: agent.name,
+        heldAmount: stats?.held ?? 0,
+        unsettledCount: stats?.unsettled ?? 0,
+      },
+      company: company?.name ?? '',
+      orders,
+    };
+  }
+
+  /** الطيار يتصرف في أوردراته وحده */
+  async assertDriverOrder(
+    agent: DeliveryAgent,
+    orderId: string,
+  ): Promise<void> {
+    const owns = await this.orders.exists({
+      where: { id: orderId, tenantId: agent.tenantId, agentId: agent.id },
+    });
+    if (!owns) throw new NotFoundException(ORDER_NOT_FOUND);
   }
 
   // ══════════════════════════ مساعدات ══════════════════════════

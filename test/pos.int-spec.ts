@@ -1,3 +1,4 @@
+import type { DeliveryService } from '../src/modules/delivery/delivery.service';
 import { randomUUID } from 'crypto';
 import { DataSource } from 'typeorm';
 import { CatalogSettingsService } from '../src/modules/catalog/catalog-settings.service';
@@ -230,6 +231,9 @@ describe('pos module', () => {
         dataSource.getRepository(PosAuditLog),
         dataSource.getRepository(PosPromotion),
       ),
+      // التوصيل خارج هذا الاختبار: الباقة بلا توصيل
+      {} as DeliveryService,
+      { hasFeature: () => Promise.resolve(false) } as never,
     );
   });
 

@@ -6,6 +6,8 @@ import { SalesModule } from '../sales/sales.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { DeliveryController } from './delivery.controller';
 import { DeliveryService } from './delivery.service';
+import { DriverController } from './driver.controller';
+import { DriverGuard } from './driver.guard';
 import {
   DeliveryAgent,
   DeliveryOrder,
@@ -33,7 +35,9 @@ import {
     SalesModule, // SalesInvoicesService, SalesReturnsService
     SubscriptionsModule, // SubscriptionGuard
   ],
-  controllers: [DeliveryController],
-  providers: [DeliveryService],
+  // DriverController أولاً: مساره ‎/delivery/driver بهوية الطيار لا بجلسة مستخدم
+  controllers: [DriverController, DeliveryController],
+  providers: [DeliveryService, DriverGuard],
+  exports: [DeliveryService], // شاشة الكاشير تسجّل أوردرات التوصيل
 })
 export class DeliveryModule {}
