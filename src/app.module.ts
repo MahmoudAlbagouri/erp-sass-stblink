@@ -27,6 +27,7 @@ import { i18nConfig } from './config/i18n.config';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { UploadInterceptor } from './common/interceptors/upload.interceptor';
 import { I18nExceptionFilter } from './common/filters/i18n-exception.filter';
+import { TenantContextInterceptor } from './common/context/tenant-context';
 import { LeavesModule } from './modules/leaves/leaves.module';
 import { AdvancesModule } from './modules/advances/advances.module';
 import { LoansModule } from './modules/loans/loans.module';
@@ -132,6 +133,11 @@ import { BranchesModule } from './modules/branches/branches.module';
     {
       provide: APP_INTERCEPTOR,
       useClass: UploadInterceptor,
+    },
+    // شركة صاحب الطلب في سياقه: منها هوية تقارير PDF (الشعار والاسم)
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: TenantContextInterceptor,
     },
   ],
 })

@@ -19,6 +19,7 @@ import {
 } from '../../common/constants/countries';
 import { normalizePhone } from '../../common/utils/phone.util';
 import type { TenantLocale } from '../../common/types/auth.types';
+import type { TenantBranding } from './tenant-logo';
 
 @Injectable()
 export class TenantsService {
@@ -93,6 +94,23 @@ export class TenantsService {
     }
 
     return this.tenantRepository.save(tenant);
+  }
+
+  /** اسم الشركة وشعارها كما يُطبعان على الفواتير والتقارير */
+  async branding(id: string): Promise<TenantBranding> {
+    const tenant = await this.tenantRepository.findOne({
+      where: { id },
+      select: { id: true, companyName: true, logo_url: true },
+    });
+    if (!tenant) throw new NotFoundException('الشركة غير موجودة');
+    return { companyName: tenant.companyName, logo: tenant.logo_url ?? null };
+  }
+
+  /** يرفع شعار الشركة أو يغيّره (null = يحذفه) */
+  async setLogo(id: string, logo: string | null): Promise<TenantBranding> {
+    await this.findOne(id);
+    await this.tenantRepository.update({ id }, { logo_url: logo });
+    return this.branding(id);
   }
 
   /** إعدادات دولة الشركة التي يحملها التوكن (عملة العرض، المنطقة الزمنية) */

@@ -18,8 +18,12 @@ export class Tenant {
   @Column({ unique: true })
   companyName!: string;
 
-  @Column({ nullable: true })
-  logo_url?: string;
+  /**
+   * شعار الشركة صورةً مصغّرة (Data URL) — يُطبع على الفواتير والتقارير. انظر
+   * tenant-logo.ts. null = بلا شعار.
+   */
+  @Column({ type: 'varchar', nullable: true })
+  logo_url?: string | null;
 
   @Column({ nullable: true })
   domain?: string;

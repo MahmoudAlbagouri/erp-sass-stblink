@@ -12,6 +12,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { seedSystemOwner } from './database/seeds/system-owner.seed';
 import { DataSource } from 'typeorm';
 import * as bodyParser from 'body-parser';
+import { LOGO_ROUTE } from './modules/tenants/tenant-logo';
 import {
   isSwaggerEnabled,
   setupSwagger,
@@ -27,6 +28,9 @@ async function bootstrap() {
 
   // ✅ ZKTeco بيبعت text/plain - لازم يكون قبل الـ JSON parser
   app.use('/iclock', bodyParser.text({ type: '*/*', limit: '10mb' }));
+
+  // شعار الشركة صورةً مصغّرة في جسم الطلب: حد أكبر من الافتراضي (100KB)
+  app.use(LOGO_ROUTE, bodyParser.json({ limit: '512kb' }));
 
   // ✅ باقي الـ parsers للمسارات العادية
   app.use(bodyParser.json());

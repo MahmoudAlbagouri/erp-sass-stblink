@@ -294,6 +294,12 @@ export class SalesInvoicesService {
     assertWarehouseVisible(invoice.warehouseId, 'فاتورة البيع غير موجودة');
 
     invoice.lines?.sort((a, b) => a.sortOrder - b.sortOrder);
+    // ما على العميل الآن: يُطبع على الفاتورة (إجمالي الآجل عليه)
+    if (invoice.customer) {
+      invoice.customer.balance =
+        (await this.customers.balanceOf(invoice.customer.id, tenantId)) ??
+        undefined;
+    }
     return invoice;
   }
 

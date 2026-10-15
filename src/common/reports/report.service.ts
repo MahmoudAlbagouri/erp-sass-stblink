@@ -6,7 +6,9 @@ import * as puppeteer from 'puppeteer';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { DataSource } from 'typeorm';
 import { DISPLAY_LOCALE } from '../utils/format.util';
+import { currentTenantId } from '../context/tenant-context';
 
 export type ReportFormat = 'excel' | 'pdf';
 
@@ -80,6 +82,8 @@ export function sendReportBuffer(
 export class ReportService {
   private readonly logger = new Logger(ReportService.name);
 
+  constructor(private readonly dataSource: DataSource) {}
+
   /** يولّد التقرير بالصيغة المطلوبة (يرفض أي صيغة غير مدعومة بـ 400) */
   async generate(format: string, report: ReportDefinition): Promise<Buffer> {
     assertReportFormat(format);
@@ -142,18 +146,51 @@ export class ReportService {
     }
   }
 
+  /**
+   * هوية الشركة صاحبة الطلب (اسمها وشعارها) — من سياق الطلب. null خارج طلب
+   * شركة (مالك النظام، مهمة مجدولة): يبقى رأس التقرير بهوية STB.
+   */
+  private async companyBranding(): Promise<{
+    companyName: string;
+    logo: string | null;
+  } | null> {
+    const tenantId = currentTenantId();
+    if (!tenantId) return null;
+    try {
+      const [row] = await this.dataSource.query<
+        { companyName: string; logo: string | null }[]
+      >(
+        `SELECT "companyName", "logo_url" AS "logo" FROM tenants WHERE "id" = $1`,
+        [tenantId],
+      );
+      return row ?? null;
+    } catch (error) {
+      this.logger.warn(`تعذر قراءة هوية الشركة للتقرير: ${String(error)}`);
+      return null;
+    }
+  }
+
   private buildHtmlTemplate(
     data: ReportRow[],
     columns: ReportColumn[],
     title: string,
+    company: { companyName: string; logo: string | null } | null = null,
   ): string {
     const b = this.brand;
     const logoBase64 = this.getLogoBase64();
 
-    // ✅ استخدام اللوجو الحقيقي بدون فلاتر تدميرية
-    const logoImg = logoBase64
-      ? `<img src="${logoBase64}" class="logo" alt="STB Logo" />`
-      : `<div class="logo-fallback">STB</div>`;
+    // شعار الشركة إن رفعته (على خلفية بيضاء: قد يكون داكناً)، وإلا شعار STB
+    const logoImg = company?.logo
+      ? `<img src="${escapeHtml(company.logo)}" class="logo logo--company" alt="" />`
+      : logoBase64
+        ? `<img src="${logoBase64}" class="logo" alt="STB Logo" />`
+        : `<div class="logo-fallback">STB</div>`;
+    const headerName = company
+      ? escapeHtml(company.companyName)
+      : 'STB ERP System';
+    const headerTagline = company
+      ? 'تقرير صادر عبر نظام STB ERP'
+      : 'نظام إدارة الموارد البشرية والمؤسسات';
 
     const tableHeaders = columns
       .map((c) => `<th>${escapeHtml(c.header)}</th>`)
@@ -257,6 +294,13 @@ export class ReportService {
             object-fit: contain; 
           }
           
+          .logo--company {
+            max-width: 140px;
+            padding: 4px 8px;
+            background: #fff;
+            border-radius: 8px;
+          }
+
           .logo-fallback {
             font-weight: 800;
             font-size: 20px;
@@ -422,8 +466,8 @@ export class ReportService {
           <div class="report-header__brand">
             ${logoImg}
             <div class="report-header__meta">
-              <span class="report-header__company">STB ERP System</span>
-              <span class="report-header__tagline">نظام إدارة الموارد البشرية والمؤسسات</span>
+              <span class="report-header__company">${headerName}</span>
+              <span class="report-header__tagline">${headerTagline}</span>
             </div>
           </div>
           <div class="report-header__badge">تقرير رسمي</div>
@@ -517,7 +561,12 @@ export class ReportService {
     columns: ReportColumn[],
     title: string,
   ): Promise<Buffer> {
-    const html = this.buildHtmlTemplate(data, columns, title);
+    const html = this.buildHtmlTemplate(
+      data,
+      columns,
+      title,
+      await this.companyBranding(),
+    );
 
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'puppeteer-'));
 

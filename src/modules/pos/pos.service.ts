@@ -144,6 +144,12 @@ export interface PosTenantProfile {
   currency: string;
   currencyDecimals: number;
   timezone: string;
+  /**
+   * شعار الشركة (Data URL) يُطبع على الإيصال والتقارير — الشاشة تحفظه لتطبعه
+   * بلا إنترنت. null = بلا شعار. غائب = لم يتغيّر منذ `since` (يبقى المحفوظ):
+   * لا يُعاد إرساله مع كل سحب
+   */
+  logo?: string | null;
   /** فرع الجهاز: اسمه وعنوانه وهاتفه يُطبعان على الإيصال */
   branch: {
     id: string;
@@ -449,7 +455,11 @@ export class PosService {
     ]);
 
     await this.devices.update({ id: deviceId }, { lastSeenAt: serverTime });
-    const tenant = await this.tenantProfile(tenantId, device.warehouseId);
+    const tenant = await this.tenantProfile(
+      tenantId,
+      device.warehouseId,
+      sinceDate,
+    );
     const decimals = tenant.currencyDecimals;
 
     return {
@@ -500,6 +510,8 @@ export class PosService {
   private async tenantProfile(
     tenantId: string,
     warehouseId?: string,
+    /** آخر سحب: الشعار يُرسل فقط إن تغيّرت الشركة بعده (أو في السحب الكامل) */
+    since?: Date,
   ): Promise<PosTenantProfile> {
     const branches: PosTenantProfile['branch'][] = warehouseId
       ? await this.devices.manager.query(
@@ -515,20 +527,26 @@ export class PosService {
       country: string | null;
       currency: string | null;
       timezone: string | null;
+      logo: string | null;
+      updatedAt: Date;
     }[] = await this.devices.manager.query(
-      `SELECT "companyName", "country", "currency", "timezone"
+      `SELECT "companyName", "country", "currency", "timezone",
+              "logo_url" AS "logo", "updated_at" AS "updatedAt"
          FROM tenants WHERE "id" = $1`,
       [tenantId],
     );
     const row = rows[0];
     const country = getCountry(row?.country);
     const currency = row?.currency ?? country.currency;
+    const logoChanged =
+      !since || !row || new Date(row.updatedAt).getTime() > since.getTime();
     return {
       companyName: row?.companyName ?? '',
       country: country.code,
       currency,
       currencyDecimals: getCurrencyDecimals(currency),
       timezone: row?.timezone ?? country.timezone,
+      ...(logoChanged ? { logo: row?.logo ?? null } : {}),
       branch: branches[0] ?? null,
     };
   }

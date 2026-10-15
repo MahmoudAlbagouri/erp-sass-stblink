@@ -147,6 +147,23 @@ export class CustomersService {
     return customer;
   }
 
+  /**
+   * ما على العميل الآن (يشمل المحذوف: فاتورته القديمة تُطبع برصيده). null إن
+   * لم يوجد.
+   */
+  async balanceOf(id: string, tenantId: string): Promise<number | null> {
+    const row = await this.customers
+      .createQueryBuilder('customer')
+      .withDeleted()
+      .select(BALANCE_SQL, 'balance')
+      .where('customer.id = :id AND customer.tenantId = :tenantId', {
+        id,
+        tenantId,
+      })
+      .getRawOne<{ balance: string }>();
+    return row ? Number(row.balance) : null;
+  }
+
   /** عميل فعّال تابع للشركة — لإنشاء مستند جديد عليه */
   async findActive(
     id: string,

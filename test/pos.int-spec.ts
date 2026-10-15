@@ -1011,6 +1011,50 @@ describe('pos module', () => {
       ).toBe(true);
     });
 
+    it('sends the company logo only when it changed', async () => {
+      const PNG =
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      const first = await pos.bootstrap(device.id, screen, tenantA);
+      // التنزيل الكامل يحمل الشعار دائماً (null = بلا شعار)
+      expect(first.tenant).toHaveProperty('logo', null);
+
+      // سحب "ما تغيّر": لا يُعاد الشعار والشركة لم تتغيّر
+      const quiet = await pos.bootstrap(
+        device.id,
+        screen,
+        tenantA,
+        first.serverTime,
+      );
+      expect(quiet.tenant).not.toHaveProperty('logo');
+
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      await dataSource
+        .getRepository(Tenant)
+        .update({ id: tenantA }, { logo_url: PNG });
+      const changed = await pos.bootstrap(
+        device.id,
+        screen,
+        tenantA,
+        quiet.serverTime,
+      );
+      expect(changed.tenant.logo).toBe(PNG);
+    });
+
+    it("prints the customer's current balance on the invoice", async () => {
+      const customer = await customers.create({ name: 'مطعم الريف' }, tenantA);
+      const shiftId = randomUUID();
+      // 4.60 آجلاً بالكامل لعميل مسجّل
+      await sync([
+        openOp(shiftId),
+        saleOp(shiftId, 1, 2, { customerId: customer.id, payments: [] }),
+      ]);
+
+      const [invoice] = (await invoices.findAll(tenantA, {})).data;
+      expect(
+        (await invoices.findOne(invoice.id, tenantA)).customer,
+      ).toMatchObject({ name: 'مطعم الريف', balance: 4.6 });
+    });
+
     it('sends each cashier price-change permission to the device', async () => {
       await cashiers.create({ name: 'سالم', pin: '1234' }, tenantA);
       await cashiers.create(

@@ -15,6 +15,7 @@ import { apiTag } from '../../config/swagger.config';
 import { TenantsService } from './tenants.service';
 import { CreateTenantDto } from './dto/create-tenant.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
+import { SetTenantLogoDto } from './dto/set-tenant-logo.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { SystemAdminGuard } from '../../common/guards/system-admin.guard';
 import { SystemAdmin } from '../../common/decorators/system-admin.decorator';
@@ -32,6 +33,14 @@ import {
 @UseGuards(JwtAuthGuard, SystemAdminGuard)
 export class TenantsController {
   constructor(private readonly tenantsService: TenantsService) {}
+
+  /** شركة المستخدم (مالك النظام بلا شركة: في وضع الدعم يحملها توكنه) */
+  private ownTenant(user: CurrentUserData): string {
+    if (!user.tenantId) {
+      throw new ForbiddenException('هذا الإجراء لمستخدمي الشركات');
+    }
+    return user.tenantId;
+  }
 
   private assertCanAccessTenant(
     tenantId: string,
@@ -58,6 +67,28 @@ export class TenantsController {
   @SystemAdmin()
   findAll() {
     return this.tenantsService.findAll();
+  }
+
+  /** اسم الشركة وشعارها للطباعة والتقارير (لأي مستخدم في الشركة) */
+  @Get('me/branding')
+  branding(@CurrentUser() user: CurrentUserData) {
+    return this.tenantsService.branding(this.ownTenant(user));
+  }
+
+  /** رفع شعار الشركة أو تغييره (مدير الشركة) */
+  @Patch('me/logo')
+  setLogo(@Body() dto: SetTenantLogoDto, @CurrentUser() user: CurrentUserData) {
+    const tenantId = this.ownTenant(user);
+    this.assertCanAccessTenant(tenantId, user, true);
+    return this.tenantsService.setLogo(tenantId, dto.logo);
+  }
+
+  /** حذف شعار الشركة (مدير الشركة) */
+  @Delete('me/logo')
+  removeLogo(@CurrentUser() user: CurrentUserData) {
+    const tenantId = this.ownTenant(user);
+    this.assertCanAccessTenant(tenantId, user, true);
+    return this.tenantsService.setLogo(tenantId, null);
   }
 
   /** شركة واحدة */
