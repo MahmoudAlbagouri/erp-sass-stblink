@@ -463,6 +463,80 @@ describe('sales module', () => {
       });
     });
 
+    it('sells without VAT, title or QR for an unregistered business', async () => {
+      await salesSettings.update(tenantA, {
+        taxNumber: '300000000000003',
+        vatRegistered: false,
+      });
+
+      const draft = await newInvoice([
+        { productId: water.id, quantity: 10, unitPrice: 2.3 },
+      ]);
+      // نسبة الصنف 15% لكنها لا تُطبَّق: السعر هو الإجمالي
+      expect(draft).toMatchObject({ subtotal: 23, taxTotal: 0, total: 23 });
+      expect(draft.lines?.[0]).toMatchObject({ taxRate: 0, taxCategory: 'O' });
+
+      const issued = await invoices.issue(draft.id, {}, tenantA);
+      expect(issued.qrCode).toBeNull();
+      // نسبة الصنف نفسها باقية: تعود إن سُجّلت المنشأة
+      expect((await products.findOne(water.id, tenantA)).taxRate?.rate).toBe(
+        15,
+      );
+    });
+
+    it('recomputes a taxed draft before issuing once unregistered', async () => {
+      const draft = await newInvoice([
+        { productId: water.id, quantity: 10, unitPrice: 2.3 },
+      ]);
+      expect(draft.taxTotal).toBe(3);
+      await salesSettings.update(tenantA, { vatRegistered: false });
+
+      await expect(invoices.issue(draft.id, {}, tenantA)).rejects.toThrow(
+        'غير مسجّلة',
+      );
+      // حفظ المسودة يعيد حسابها بلا ضريبة، فتُصدر
+      await invoices.update(draft.id, {}, tenantA);
+      await expect(
+        invoices.issue(draft.id, {}, tenantA),
+      ).resolves.toMatchObject({ taxTotal: 0, total: 23 });
+    });
+
+    it('needs a tax number to register, and defaults by country', async () => {
+      await salesSettings.update(tenantA, { vatRegistered: false });
+      await expect(
+        salesSettings.update(tenantA, { vatRegistered: true }),
+      ).rejects.toThrow('الرقم الضريبي');
+      await expect(
+        salesSettings.update(tenantA, {
+          vatRegistered: true,
+          taxNumber: '300000000000003',
+        }),
+      ).resolves.toMatchObject({ vatRegistered: true });
+
+      // دولة بلا ضريبة قيمة مضافة: غير مسجّلة من البداية
+      const kuwait = await dataSource
+        .getRepository(Tenant)
+        .save({ companyName: 'شركة الكويت', country: 'KW' });
+      expect(await salesSettings.get(kuwait.id)).toMatchObject({
+        vatRegistered: false,
+        pricesIncludeTax: true,
+      });
+    });
+
+    it('prices before tax when the company sells net of VAT', async () => {
+      await salesSettings.update(tenantA, { pricesIncludeTax: false });
+      // 10 × 2.00 قبل الضريبة + 15% = 23
+      const draft = await newInvoice([
+        { productId: water.id, quantity: 10, unitPrice: 2 },
+      ]);
+      expect(draft).toMatchObject({
+        pricesIncludeTax: false,
+        subtotal: 20,
+        taxTotal: 3,
+        total: 23,
+      });
+    });
+
     it('sells services without touching stock', async () => {
       const draft = await newInvoice([
         { productId: delivery.id, quantity: 2, unitPrice: 11.5 },

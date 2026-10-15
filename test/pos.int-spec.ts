@@ -1011,6 +1011,48 @@ describe('pos module', () => {
       ).toBe(true);
     });
 
+    it('expects no VAT from a business that is not registered', async () => {
+      await dataSource.query(
+        `INSERT INTO sales_settings ("tenantId", "vatRegistered") VALUES ($1, false)`,
+        [tenantA],
+      );
+      const shiftId = randomUUID();
+      const untaxed = (counter: number) =>
+        saleOp(shiftId, counter, 1, {
+          lines: [
+            {
+              productId: water.id,
+              quantity: 1,
+              unitPrice: 2.3,
+              discount: 0,
+              taxRate: 0,
+              subtotal: 2.3,
+              taxAmount: 0,
+              total: 2.3,
+            },
+          ],
+          payments: [{ method: 'cash', amount: 2.3 }],
+        });
+
+      const { results } = await sync([
+        openOp(shiftId),
+        untaxed(1), // كما يجب: بلا ضريبة
+        saleOp(shiftId, 2, 1), // شاشة لم تعرف بالتغيير: حسبت 15%
+      ]);
+
+      expect(results.map((r) => r.status)).toEqual(['ok', 'ok', 'ok']);
+      const flagged = await dataSource
+        .getRepository(PosAuditLog)
+        .find({ where: { action: 'sale_anomaly' } });
+      expect(flagged.map((f) => f.details)).toEqual([
+        expect.stringMatching(/POS1-000002 .*والمنشأة غير مسجّلة/),
+      ]);
+      // الشاشة تعرف من بيانات الفوترة التي تنزل لها
+      expect(
+        (await pos.bootstrap(device.id, screen, tenantA)).settings,
+      ).toMatchObject({ vatRegistered: false, pricesIncludeTax: true });
+    });
+
     it('sends the company logo only when it changed', async () => {
       const PNG =
         'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';

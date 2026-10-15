@@ -804,8 +804,10 @@ export class PosService {
 
     const issues = checks
       .filter((c) => Math.abs(c.taxRate - c.productTaxRate) > 0.001)
-      .map(
-        (c) => `${c.productName}: ضريبة ${c.taxRate}% بدل ${c.productTaxRate}%`,
+      .map((c) =>
+        c.vatRegistered
+          ? `${c.productName}: ضريبة ${c.taxRate}% بدل ${c.productTaxRate}%`
+          : `${c.productName}: ضريبة ${c.taxRate}% والمنشأة غير مسجّلة في الضريبة`,
       );
 
     const belowMin = op.approvedBy ? [] : checks.filter((c) => c.belowMinPrice);

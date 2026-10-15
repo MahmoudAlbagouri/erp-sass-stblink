@@ -152,8 +152,10 @@ export interface PosLineCheck {
   productName: string;
   /** النسبة التي طبّقها الجهاز */
   taxRate: number;
-  /** نسبة الصنف في السيرفر الآن */
+  /** النسبة المتوقعة الآن: نسبة الصنف، أو صفر لمنشأة غير مسجّلة */
   productTaxRate: number;
+  /** المنشأة مسجّلة في ضريبة القيمة المضافة */
+  vatRegistered: boolean;
   /** صافي سعر الوحدة بعد الخصم أقل من أقل سعر مسموح للصنف */
   belowMinPrice: boolean;
   /** ما بيعت به الوحدة، وسعرها في الكتالوج بأساس الفاتورة */
@@ -473,11 +475,14 @@ export class SalesInvoicesService {
       : null;
     await this.warehouses.findActiveByIds([dto.warehouseId], tenantId);
 
-    const pricesIncludeTax = dto.pricesIncludeTax ?? true;
+    // الافتراضي أساس تسعير الشركة (شامل الضريبة أو قبلها)
+    const seller = await this.settings.get(tenantId);
+    const pricesIncludeTax = dto.pricesIncludeTax ?? seller.pricesIncludeTax;
     const lines = await this.computeLines(
       dto.lines,
       pricesIncludeTax,
       tenantId,
+      seller.vatRegistered,
     );
 
     const id = await this.dataSource.transaction(async (manager) => {
@@ -536,6 +541,7 @@ export class SalesInvoicesService {
       lineInputs,
       pricesIncludeTax,
       tenantId,
+      (await this.settings.get(tenantId)).vatRegistered,
     );
 
     await this.dataSource.transaction(async (manager) => {
@@ -630,6 +636,12 @@ export class SalesInvoicesService {
     }
 
     const seller = await this.settings.get(tenantId);
+    // مسودة حُسبت ضريبتها قبل أن تُلغى الشركة تسجيلها: تُعاد حسابها أولاً
+    if (!seller.vatRegistered && draft.taxTotal > 0) {
+      throw new BadRequestException(
+        'المنشأة غير مسجّلة في ضريبة القيمة المضافة والمسودة محسوبة بضريبة — افتحها واحفظها لتُحسب بلا ضريبة ثم أصدرها',
+      );
+    }
 
     await this.dataSource.transaction(async (manager) => {
       const invoice = await this.lock(manager, id, tenantId);
@@ -681,7 +693,13 @@ export class SalesInvoicesService {
       ? await this.customers.findOne(sale.customerId, tenantId)
       : null;
     const decimals = await moneyDecimalsOf(this.dataSource.manager, tenantId);
-    const { lines, checks } = await this.posLines(sale, tenantId, decimals);
+    const seller = await this.settings.get(tenantId);
+    const { lines, checks } = await this.posLines(
+      sale,
+      tenantId,
+      decimals,
+      seller.vatRegistered,
+    );
     const totals = totalsOf(lines);
 
     // البيع تمّ على الجهاز والإيصال طُبع: هنا يُتحقق من الاتساق فقط. الباقي
@@ -699,7 +717,6 @@ export class SalesInvoicesService {
         `المقبوض (${tendered}) لا يساوي إجمالي الفاتورة (${totals.total}) — البيع الآجل لعميل مسجّل فقط`,
       );
     }
-    const seller = await this.settings.get(tenantId);
     // تاريخ الفاتورة = يوم البيع بتوقيت الشركة، لا بساعة السيرفر
     const saleDay = dateOnly(
       sale.issuedAt,
@@ -760,6 +777,8 @@ export class SalesInvoicesService {
     sale: PosSaleInput,
     tenantId: string,
     decimals: number,
+    /** منشأة غير مسجّلة: نسبة الضريبة المتوقعة صفر لكل الأصناف */
+    vatRegistered: boolean,
   ): Promise<{ lines: ComputedLine[]; checks: PosLineCheck[] }> {
     const tolerance = amountTolerance(decimals);
     const checks: PosLineCheck[] = [];
@@ -813,7 +832,8 @@ export class SalesInvoicesService {
       }
 
       // ما يخالف بيانات الصنف لا يُرفض (البيع تمّ) لكن يُبلَّغ عنه للمراجعة
-      const productTaxRate = product.taxRate?.rate ?? 0;
+      // النسبة التي كان يجب أن تطبّقها الشاشة (صفر لمنشأة غير مسجّلة)
+      const productTaxRate = vatRegistered ? (product.taxRate?.rate ?? 0) : 0;
       let minNetPrice: number | null = null;
       if (product.minSalePrice !== null && product.minSalePrice !== undefined) {
         minNetPrice = product.priceIncludesTax
@@ -841,6 +861,7 @@ export class SalesInvoicesService {
         productName: product.name,
         taxRate: input.taxRate,
         productTaxRate,
+        vatRegistered,
         belowMinPrice:
           minNetPrice !== null &&
           netUnitPrice + 0.5 / 10 ** decimals < minNetPrice,
@@ -868,7 +889,12 @@ export class SalesInvoicesService {
         priceReason: priceChanged ? (input.priceReason ?? null) : null,
         discount: input.discount,
         taxRate: input.taxRate,
-        taxCategory: product.taxRate?.category ?? TaxCategory.STANDARD,
+        // بيع بلا ضريبة لمنشأة غير مسجّلة: خارج النطاق. وما حُسبت عليه ضريبة
+        // (شاشة لم تعرف بالتغيير بعد) يُسجَّل كما طُبع ويُبلَّغ عنه
+        taxCategory:
+          !vatRegistered && input.taxRate === 0
+            ? TaxCategory.OUT_OF_SCOPE
+            : (product.taxRate?.category ?? TaxCategory.STANDARD),
         subtotal: input.subtotal,
         taxAmount: input.taxAmount,
         total: input.total,
@@ -975,16 +1001,17 @@ export class SalesInvoicesService {
           taxTotal: invoice.taxTotal,
           previousHash: previousInvoiceHash,
         }),
-        // بلا رقم ضريبي للبائع لا يوجد ما يُرمَّز (منشأة غير مسجلة ضريبياً)
-        qrCode: seller.taxNumber
-          ? buildZatcaQr({
-              sellerName: seller.sellerName ?? '',
-              taxNumber: seller.taxNumber,
-              issuedAt,
-              total: invoice.total,
-              taxTotal: invoice.taxTotal,
-            })
-          : null,
+        // رمز هيئة الزكاة والضريبة للمنشأة المسجّلة فقط (برقمها الضريبي)
+        qrCode:
+          seller.vatRegistered && seller.taxNumber
+            ? buildZatcaQr({
+                sellerName: seller.sellerName ?? '',
+                taxNumber: seller.taxNumber,
+                issuedAt,
+                total: invoice.total,
+                taxTotal: invoice.taxTotal,
+              })
+            : null,
       },
     );
 
@@ -1013,6 +1040,8 @@ export class SalesInvoicesService {
     inputs: SalesLineDto[],
     pricesIncludeTax: boolean,
     tenantId: string,
+    /** منشأة غير مسجّلة: بلا ضريبة مهما كانت نسبة الصنف */
+    vatRegistered: boolean,
   ): Promise<ComputedLine[]> {
     const decimals = await moneyDecimalsOf(this.dataSource.manager, tenantId);
     const productIds = [...new Set(inputs.map((l) => l.productId))];
@@ -1048,7 +1077,7 @@ export class SalesInvoicesService {
       }
 
       const discount = input.discount ?? 0;
-      const taxRate = product.taxRate?.rate ?? 0;
+      const taxRate = vatRegistered ? (product.taxRate?.rate ?? 0) : 0;
       assertPricing(
         product,
         input,
@@ -1082,7 +1111,10 @@ export class SalesInvoicesService {
         unitPrice: input.unitPrice,
         discount,
         taxRate,
-        taxCategory: product.taxRate?.category ?? TaxCategory.STANDARD,
+        // غير المسجّلة خارج نطاق الضريبة
+        taxCategory: vatRegistered
+          ? (product.taxRate?.category ?? TaxCategory.STANDARD)
+          : TaxCategory.OUT_OF_SCOPE,
         subtotal: amounts.subtotal,
         taxAmount: amounts.taxAmount,
         total: amounts.total,

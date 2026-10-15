@@ -122,6 +122,16 @@ export class UpdateSalesSettingsDto {
   @MaxLength(300)
   invoiceFooter?: string | null;
 
+  /** مسجّلة في ضريبة القيمة المضافة (تفعيلها يحتاج الرقم الضريبي) */
+  @IsOptional()
+  @IsBoolean()
+  vatRegistered?: boolean;
+
+  /** أسعار البيع شاملة الضريبة (false = تُضاف الضريبة فوق السعر) */
+  @IsOptional()
+  @IsBoolean()
+  pricesIncludeTax?: boolean;
+
   /** إعدادات شاشة الكاشير: باركود الميزان وما يحتاج موافقة مشرف */
   @IsOptional()
   @ValidateNested()

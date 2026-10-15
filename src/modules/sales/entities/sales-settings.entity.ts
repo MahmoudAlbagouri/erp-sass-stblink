@@ -38,6 +38,23 @@ export class SalesSettings {
   @Column({ type: 'varchar', length: 30, nullable: true })
   phone?: string | null;
 
+  /**
+   * مسجّلة في ضريبة القيمة المضافة. false = منشأة غير مسجّلة: الفواتير بلا
+   * ضريبة مهما كانت نسبة الصنف، بعنوان "فاتورة مبيعات" بلا رقم ضريبي ولا QR،
+   * وضريبة المشتريات تدخل في تكلفة البضاعة. نسب الأصناف تبقى كما هي: تعود
+   * للعمل إن سُجّلت الشركة. انظر common/utils/vat.util.ts
+   */
+  @Column({ default: true })
+  vatRegistered!: boolean;
+
+  /**
+   * أسعار البيع شاملة الضريبة (ما يراه العميل على الرف). false = قبلها
+   * (البيع بالجملة): الضريبة تُضاف فوق السعر. يحكم شاشة الكاشير، وهو الافتراضي
+   * لفواتير لوحة التحكم الجديدة.
+   */
+  @Column({ default: true })
+  pricesIncludeTax!: boolean;
+
   /** سطر أسفل الفاتورة المطبوعة (سياسة الاسترجاع، شكر...) */
   @Column({ type: 'varchar', length: 300, nullable: true })
   invoiceFooter?: string | null;

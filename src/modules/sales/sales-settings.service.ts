@@ -1,7 +1,8 @@
 // src/modules/sales/sales-settings.service.ts
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { defaultVatRegistered } from '../../common/utils/vat.util';
 import { UpdateSalesSettingsDto } from './dto/sales.dto';
 import { SalesSettings } from './entities/sales-settings.entity';
 
@@ -17,11 +18,18 @@ export class SalesSettingsService {
     const existing = await this.settings.findOne({ where: { tenantId } });
     if (existing) return existing;
 
-    // الفهرس الفريد يحسم طلبين متزامنين: الثاني لا يضيف شيئاً
+    // الفهرس الفريد يحسم طلبين متزامنين: الثاني لا يضيف شيئاً. التسجيل في
+    // الضريبة يبدأ حسب الدولة (لا ضريبة في الكويت وقطر…)
     await this.settings
       .createQueryBuilder()
       .insert()
-      .values({ tenantId })
+      .values({
+        tenantId,
+        vatRegistered: await defaultVatRegistered(
+          this.settings.manager,
+          tenantId,
+        ),
+      })
       .orIgnore()
       .execute();
     return this.settings.findOneOrFail({ where: { tenantId } });
@@ -32,6 +40,15 @@ export class SalesSettingsService {
     dto: UpdateSalesSettingsDto,
   ): Promise<SalesSettings> {
     const current = await this.get(tenantId);
+    // التسجيل في الضريبة يعني رقماً ضريبياً على كل فاتورة ورمز QR بها
+    const registering = dto.vatRegistered === true && !current.vatRegistered;
+    const taxNumber =
+      dto.taxNumber !== undefined ? dto.taxNumber : current.taxNumber;
+    if (registering && !taxNumber) {
+      throw new BadRequestException(
+        'أدخل الرقم الضريبي للمنشأة قبل تفعيل التسجيل في ضريبة القيمة المضافة',
+      );
+    }
     Object.assign(current, dto);
     return this.settings.save(current);
   }

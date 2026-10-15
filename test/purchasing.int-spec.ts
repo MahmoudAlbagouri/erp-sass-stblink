@@ -273,6 +273,27 @@ describe('purchasing module', () => {
       ]);
     });
 
+    it('adds purchase VAT to cost for a business not registered for VAT', async () => {
+      await dataSource.query(
+        `INSERT INTO sales_settings ("tenantId", "vatRegistered") VALUES ($1, false)`,
+        [tenantA],
+      );
+
+      const posted = await postedInvoice();
+
+      // المورد ما زال يستحق 230 (حصّل الضريبة)، لكنها لا تُسترد: التكلفة 23
+      expect(posted).toMatchObject({ total: 230, remaining: 230 });
+      expect(await avgCostOf(water)).toBe(23);
+      expect(posted.lines?.[0]).toMatchObject({ unitCost: 23 });
+      expect(
+        (
+          await stock.findMovements(tenantA, {
+            type: StockMovementType.PURCHASE,
+          })
+        ).data,
+      ).toMatchObject([{ quantity: 10, unitCost: 23 }]);
+    });
+
     it('converts purchase units to base units', async () => {
       // 5 كراتين × 24 قطعة، الكرتون بـ 36 → القطعة بـ 1.5
       const draft = await newInvoice([

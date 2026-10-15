@@ -37,6 +37,8 @@ import { SuppliersService } from './suppliers.service';
 import { computeLine, sumMoney } from '../../common/utils/document-totals.util';
 import { moneyDecimalsOf } from '../../common/utils/money.util';
 import { tenantCalendarOf } from '../../common/utils/timezone.util';
+import { vatRegisteredOf } from '../../common/utils/vat.util';
+import Decimal from 'decimal.js';
 
 export const PURCHASE_INVOICE_REFERENCE = 'purchase_invoice';
 const NUMBER_PREFIX = 'PI-';
@@ -309,6 +311,24 @@ export class PurchaseInvoicesService {
         where: { invoiceId: id },
         order: { sortOrder: 'ASC' },
       });
+
+      // منشأة غير مسجّلة في الضريبة لا تسترد ضريبة مشترياتها: هي جزء من تكلفة
+      // البضاعة (الإجمالي ÷ الكمية)، وإلا ظهر الربح أعلى من حقيقته. التكلفة
+      // المعتمدة تُحفظ على السطر كما دخلت المتوسط
+      if (!(await vatRegisteredOf(manager, tenantId))) {
+        for (const line of lines) {
+          if (!line.taxAmount || !line.baseQuantity) continue;
+          line.unitCost = new Decimal(line.total)
+            .div(line.baseQuantity)
+            .toDecimalPlaces(4)
+            .toNumber();
+          await manager.update(
+            PurchaseInvoiceLine,
+            { id: line.id },
+            { unitCost: line.unitCost },
+          );
+        }
+      }
 
       await this.stock.apply(
         manager,
