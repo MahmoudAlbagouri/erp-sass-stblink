@@ -152,6 +152,7 @@ scripts/docs-catalog.cjs  مولّد الكتالوج
 المجموعات: **النظام** (auth، tenants، plans، subscriptions، users، roles،
 permissions، branches، dashboard، profile، notifications، media، files) ·
 **التجاري** (catalog، inventory، purchasing، sales، pos، delivery، quotation) ·
+**المحاسبة** (accounting) ·
 **الموارد البشرية** (employees، departments، shifts، contracts، salaries، payroll،
 advances، loans، bonuses، deduction، leaves، resignations، eos، settlements،
 attendance).
@@ -160,6 +161,7 @@ attendance).
 
 | الموديول | ما يفعله | المسارات | الجداول |
 |---|---|---|---|
+| [المحاسبة (`accounting`)](modules/accounting.md) | شجرة حسابات لكل دولة، قيود يومية لا تُعدَّل، ترحيل تلقائي لكل المستندات، قفل الفترات، والقوائم المالية. | 17 | 7 |
 | [السلف (`advances`)](modules/advances.md) | سلفة على الراتب تُخصم في شهر سدادها. | 7 | 1 |
 | [الحضور والبصمة (`attendance`)](modules/attendance.md) | استقبال بصمات أجهزة ZKTeco، وسجلات الحضور وتقاريره. | 18 | 3 |
 | [المصادقة (`auth`)](modules/auth.md) | تسجيل شركة جديدة، الدخول، تجديد الجلسة، استعادة كلمة المرور، ووضع الدعم. | 8 | 1 |
@@ -196,7 +198,7 @@ attendance).
 | [الشركات (`tenants`)](modules/tenants.md) | الشركة (المستأجر): بياناتها، دولتها، عملتها، ومنطقتها الزمنية. | 8 | 1 |
 | [المستخدمون (`users`)](modules/users.md) | حسابات الدخول: دور كل مستخدم، حالته، والفروع المسموح له بها. | 6 | 1 |
 
-المجموع: 35 موديولاً، 328 مساراً، 69 جدولاً.
+المجموع: 36 موديولاً، 345 مساراً، 76 جدولاً.
 
 <!-- AUTO:END -->
 

@@ -1,6 +1,7 @@
 import {
   Injectable,
   BadRequestException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -80,6 +81,8 @@ function overlapDaysInclusive(
 
 @Injectable()
 export class PayrollService {
+  private readonly logger = new Logger(PayrollService.name);
+
   constructor(
     @InjectRepository(Payroll) private payrollRepo: Repository<Payroll>,
     private dataSource: DataSource,
@@ -418,10 +421,10 @@ export class PayrollService {
     await queryRunner.startTransaction();
 
     try {
-      // 1. جلب المسير + عناصره مع التحقق من عزل المستأجرين (Multi-tenancy)
+      // 1. قفل المسير وحده ثم جلب عناصره: PostgreSQL يرفض FOR UPDATE على
+      // الطرف الاختياري من LEFT JOIN (relations مع lock كانت تُفشل كل صرف)
       const payroll = await queryRunner.manager.findOne(Payroll, {
         where: { id: payrollId, tenantId },
-        relations: ['items'],
         lock: { mode: 'pessimistic_write' },
       });
 
@@ -433,6 +436,9 @@ export class PayrollService {
       if (payroll.isDisbursed) {
         throw new BadRequestException('تم صرف هذا المسير مسبقاً');
       }
+      payroll.items = await queryRunner.manager.find(PayrollItem, {
+        where: { payrollId: payroll.id },
+      });
 
       const employeeIds = payroll.items.map((i) => i.employeeId);
 
@@ -526,10 +532,13 @@ export class PayrollService {
               startDate: LessThanOrEqual(monthEnd),
             },
           }),
+          // النشطة فقط — نفس ما خُصم عند التوليد. بدونه كان الخصم المعلّق أو
+          // الملغي يُعدّ مدفوعاً (ويكتمل) دون أن يُخصم من الراتب
           queryRunner.manager.find(Deduction, {
             where: {
               tenantId,
               employeeId: In(employeeIds),
+              status: DeductionStatus.ACTIVE,
               startDate: LessThanOrEqual(monthEnd),
             },
           }),
@@ -604,6 +613,11 @@ export class PayrollService {
       ) {
         throw err;
       }
+      // الرسالة العامة للمستخدم، والسبب الحقيقي في السجل
+      this.logger.error(
+        `payroll ${payrollId} disbursement failed: ${(err as Error)?.message}`,
+        (err as Error)?.stack,
+      );
       throw new BadRequestException('حدث خطأ أثناء تأكيد عملية الصرف');
     } finally {
       await queryRunner.release();

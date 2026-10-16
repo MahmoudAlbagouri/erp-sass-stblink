@@ -6,11 +6,19 @@ import {
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Between, DataSource, Repository } from 'typeorm';
 import { scopedEmployeeWhere } from '../branches/branch-scope';
+import { assertStatusTransition } from '../../common/utils/status-transition.util';
 import { Bonus, BonusStatus } from './entities/bonus.entity';
 import { CreateBonusDto } from './dto/create-bonus.dto';
 import { UpdateBonusDto } from './dto/update-bonus.dto';
 import { Employee } from '../employees/entities/employee.entity';
 import { isPaidViaDisbursedPayroll } from '../payroll/utils/disbursed-payroll.util';
+
+const BONUS_STATUS_LABEL: Record<BonusStatus, string> = {
+  [BonusStatus.PENDING]: 'معلّقة',
+  [BonusStatus.APPROVED]: 'معتمدة',
+  [BonusStatus.REJECTED]: 'مرفوضة',
+  [BonusStatus.PAID]: 'مدفوعة',
+};
 
 @Injectable()
 export class BonusesService {
@@ -83,11 +91,16 @@ export class BonusesService {
     tenantId: string,
   ): Promise<Bonus> {
     const bonus = await this.findOne(id, tenantId);
-
-    // التحقق من أن الحالة الجديدة صحيحة
-    if (!Object.values(BonusStatus).includes(status)) {
-      throw new BadRequestException('حالة غير صالحة');
-    }
+    // مكافأة صُرفت مباشرة لا تُرفض (المال خرج فعلاً)
+    assertStatusTransition(
+      bonus.status,
+      status,
+      {
+        [BonusStatus.PENDING]: [BonusStatus.APPROVED, BonusStatus.REJECTED],
+        [BonusStatus.APPROVED]: bonus.isDisbursed ? [] : [BonusStatus.REJECTED],
+      },
+      BONUS_STATUS_LABEL,
+    );
 
     bonus.status = status;
     return this.bonusRepo.save(bonus);

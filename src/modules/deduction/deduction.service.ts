@@ -1,16 +1,20 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
 import { scopedEmployeeWhere } from '../branches/branch-scope';
+import { assertStatusTransition } from '../../common/utils/status-transition.util';
 import { Deduction, DeductionStatus } from './entities/deduction.entity';
 import { CreateDeductionDto } from './dto/create-deduction.dto';
 import { UpdateDeductionDto } from './dto/update-deduction.dto';
 import { Employee } from '../employees/entities/employee.entity';
 import { moneyDecimalsOf, roundMoney } from '../../common/utils/money.util';
+
+const DEDUCTION_STATUS_LABEL: Record<DeductionStatus, string> = {
+  [DeductionStatus.PENDING]: 'معلّق',
+  [DeductionStatus.ACTIVE]: 'نشط',
+  [DeductionStatus.COMPLETED]: 'مكتمل',
+  [DeductionStatus.CANCELLED]: 'ملغي',
+};
 
 @Injectable()
 export class DeductionsService {
@@ -100,10 +104,19 @@ export class DeductionsService {
     tenantId: string,
   ): Promise<Deduction> {
     const deduction = await this.findOne(id, tenantId);
-
-    if (!Object.values(DeductionStatus).includes(status)) {
-      throw new BadRequestException('حالة غير صالحة');
-    }
+    // "مكتمل" يضعه المسير مع آخر دفعة، والملغي والمكتمل لا يعودان
+    assertStatusTransition(
+      deduction.status,
+      status,
+      {
+        [DeductionStatus.PENDING]: [
+          DeductionStatus.ACTIVE,
+          DeductionStatus.CANCELLED,
+        ],
+        [DeductionStatus.ACTIVE]: [DeductionStatus.CANCELLED],
+      },
+      DEDUCTION_STATUS_LABEL,
+    );
 
     deduction.status = status;
     return this.deductionRepo.save(deduction);

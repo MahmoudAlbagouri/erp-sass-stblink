@@ -42,6 +42,10 @@ export class Loan {
   @Column({ type: 'date' })
   startDate!: Date;
 
+  /** متى اعتُمد (به يُقيَّد تسليم مبلغه في المحاسبة). null = قبل حفظه */
+  @Column({ type: 'timestamptz', nullable: true })
+  approvedAt?: Date | null;
+
   @Column({ name: 'employee_id' })
   employeeId!: string;
 

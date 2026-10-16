@@ -6,9 +6,17 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { scopedEmployeeWhere } from '../branches/branch-scope';
+import { assertStatusTransition } from '../../common/utils/status-transition.util';
 import { Advance, AdvanceStatus } from './entities/advance.entity';
 import { CreateAdvanceDto } from './dto/create-advance.dto';
 import { SalariesService } from '../salaries/salaries.service';
+
+const ADVANCE_STATUS_LABEL: Record<AdvanceStatus, string> = {
+  [AdvanceStatus.PENDING]: 'معلّقة',
+  [AdvanceStatus.APPROVED]: 'معتمدة',
+  [AdvanceStatus.REJECTED]: 'مرفوضة',
+  [AdvanceStatus.PAID]: 'مدفوعة',
+};
 
 @Injectable()
 export class AdvancesService {
@@ -82,9 +90,27 @@ export class AdvancesService {
     return advance;
   }
 
+  /**
+   * اعتماد أو رفض سلفة معلّقة، أو التراجع عن اعتماد سلفة لم تُسلَّم بعد.
+   * سلفة سُلّمت للموظف لا تُرفض (المال خرج فعلاً)، و"مدفوعة" لا تُوضع يدوياً.
+   */
   async updateStatus(id: string, status: AdvanceStatus, tenantId: string) {
     const advance = await this.repo.findOne({ where: { id, tenantId } });
     if (!advance) throw new NotFoundException('السلفة غير موجودة');
+    assertStatusTransition(
+      advance.status,
+      status,
+      {
+        [AdvanceStatus.PENDING]: [
+          AdvanceStatus.APPROVED,
+          AdvanceStatus.REJECTED,
+        ],
+        [AdvanceStatus.APPROVED]: advance.isDisbursed
+          ? []
+          : [AdvanceStatus.REJECTED],
+      },
+      ADVANCE_STATUS_LABEL,
+    );
 
     advance.status = status;
     return await this.repo.save(advance);

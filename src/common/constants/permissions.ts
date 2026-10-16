@@ -442,6 +442,24 @@ export const PERMS = {
     labelAr: 'تسوية حساب الطيارين وشركات الشحن',
   },
 
+  // ─── المحاسبة ──────────────────────────────────────
+  ACCOUNTING_VIEW: {
+    name: 'view_accounting',
+    labelAr: 'عرض شجرة الحسابات والقيود والقوائم المالية',
+  },
+  ACCOUNTS_MANAGE: {
+    name: 'manage_chart_of_accounts',
+    labelAr: 'إضافة وتعديل حسابات الشجرة',
+  },
+  JOURNAL_CREATE: {
+    name: 'create_journal_entries',
+    labelAr: 'تسجيل القيود اليدوية وعكسها',
+  },
+  ACCOUNTING_SETTINGS_MANAGE: {
+    name: 'manage_accounting_settings',
+    labelAr: 'تفعيل المحاسبة وقفل الفترات وحسابات طرق الدفع',
+  },
+
   // ── System (system admins only) ─────────────────────
   SYSTEM_STATS: {
     name: 'system:view_platform_stats',

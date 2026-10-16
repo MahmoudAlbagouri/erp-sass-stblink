@@ -1,4 +1,5 @@
 // src/modules/inventory/stock.service.ts
+import { randomUUID } from 'crypto';
 import {
   BadRequestException,
   Injectable,
@@ -238,7 +239,8 @@ export class StockService {
           unitCost: line.unitCost,
           note: dto.note,
         })),
-        { referenceType: 'adjustment', userId },
+        // كل طلب تسوية مستند واحد: به تُجمع حركاته في قيد محاسبي واحد
+        { referenceType: 'adjustment', referenceId: randomUUID(), userId },
       ),
     );
     return results.map((r) => r.movement!);

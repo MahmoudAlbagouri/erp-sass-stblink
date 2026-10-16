@@ -51,6 +51,7 @@ import { InventoryModule } from './modules/inventory/inventory.module';
 import { PurchasingModule } from './modules/purchasing/purchasing.module';
 import { PosModule } from './modules/pos/pos.module';
 import { DeliveryModule } from './modules/delivery/delivery.module';
+import { AccountingModule } from './modules/accounting/accounting.module';
 import { SalesModule } from './modules/sales/sales.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { BranchesModule } from './modules/branches/branches.module';
@@ -122,6 +123,7 @@ import { BranchesModule } from './modules/branches/branches.module';
     DashboardModule,
     PosModule,
     DeliveryModule,
+    AccountingModule,
   ],
   providers: [
     {

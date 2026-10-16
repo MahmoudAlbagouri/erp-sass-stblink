@@ -77,6 +77,10 @@ export const FEATURES = {
     name: 'delivery_module',
     labelAr: 'التوصيل والشحن (طيارين وشركات شحن وتسوياتهم)',
   },
+  ACCOUNTING_MODULE: {
+    name: 'accounting_module',
+    labelAr: 'المحاسبة (شجرة الحسابات والقيود والقوائم المالية)',
+  },
 
   // ─── ميزات إضافية (Add-ons) ──────────────────────────
   REPORTS_EXPORT: {

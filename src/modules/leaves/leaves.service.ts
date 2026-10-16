@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import { assertStatusTransition } from '../../common/utils/status-transition.util';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { scopedEmployeeWhere } from '../branches/branch-scope';
@@ -277,9 +278,26 @@ export class LeavesService {
     return leave;
   }
 
+  /**
+   * اعتماد أو رفض طلب معلّق، أو إلغاء اعتماد (الرصيد يُحسب من الإجازات المعتمدة
+   * فيعود تلقائياً). المرفوض لا يُعتمد بعد ذلك — يُقدَّم طلب جديد.
+   */
   async updateStatus(id: string, status: LeaveStatus, tenantId: string) {
     const leave = await this.repo.findOne({ where: { id, tenantId } });
     if (!leave) throw new NotFoundException('طلب الإجازة غير موجود في مؤسستك');
+    assertStatusTransition(
+      leave.status,
+      status,
+      {
+        [LeaveStatus.PENDING]: [LeaveStatus.APPROVED, LeaveStatus.REJECTED],
+        [LeaveStatus.APPROVED]: [LeaveStatus.REJECTED],
+      },
+      {
+        [LeaveStatus.PENDING]: 'معلّق',
+        [LeaveStatus.APPROVED]: 'معتمد',
+        [LeaveStatus.REJECTED]: 'مرفوض',
+      },
+    );
 
     if (
       status === LeaveStatus.APPROVED &&
