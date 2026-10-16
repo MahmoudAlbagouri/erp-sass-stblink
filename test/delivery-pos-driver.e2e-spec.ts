@@ -356,10 +356,22 @@ describe('Delivery from POS and the driver screen (e2e)', () => {
         .set({ 'X-Driver-Agent': access.agentId, 'X-Driver-Key': access.key })
         .send(body);
 
-    const board = data<{ agent: { name: string }; orders: Order[] }>(
-      await driver('get', '/board'),
+    // الطيار بلا جلسة مستخدم: عملة الشركة وتوقيتها تنزل مع أوردراته
+    await dataSource.query(
+      `UPDATE tenants SET "country" = 'EG', "currency" = 'EGP', "timezone" = 'Africa/Cairo' WHERE "id" = $1`,
+      [tenant.tenantId],
     );
+    const board = data<{
+      agent: { name: string };
+      tenant: { country: string; currency: string; timezone: string };
+      orders: Order[];
+    }>(await driver('get', '/board'));
     expect(board.agent.name).toBe('محمود');
+    expect(board.tenant).toEqual({
+      country: 'EG',
+      currency: 'EGP',
+      timezone: 'Africa/Cairo',
+    });
     expect(board.orders.map((o) => o.id)).toEqual([mine.id]);
 
     // أوردر طيار آخر: كأنه غير موجود

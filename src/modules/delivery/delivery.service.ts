@@ -13,6 +13,7 @@ import {
   paginated,
   resolvePagination,
 } from '../../common/dto/pagination.dto';
+import { getCountry } from '../../common/constants/countries';
 import { nextDocumentNumber } from '../../common/utils/document-number.util';
 import { sumMoney } from '../../common/utils/document-totals.util';
 import { moneyDecimalsOf, roundMoney } from '../../common/utils/money.util';
@@ -147,6 +148,11 @@ export interface DriverBoard {
     unsettledCount: number;
   };
   company: string;
+  /**
+   * دولة الشركة وعملتها وتوقيتها: الطيار بلا جلسة مستخدم (لا توكن يحملها)،
+   * فتعرض شاشته المبالغ بعملة الشركة منها — وتحفظها لتفتح بها بلا إنترنت
+   */
+  tenant: { country: string; currency: string; timezone: string };
   orders: DeliveryOrder[];
 }
 
@@ -1266,10 +1272,20 @@ export class DeliveryService {
       .addOrderBy('line.sortOrder', 'ASC')
       .getMany();
 
-    const [company] = await this.dataSource.query<{ name: string }[]>(
-      `SELECT "companyName" AS "name" FROM tenants WHERE "id" = $1`,
+    const [company] = await this.dataSource.query<
+      {
+        name: string;
+        country: string | null;
+        currency: string | null;
+        timezone: string | null;
+      }[]
+    >(
+      `SELECT "companyName" AS "name", "country", "currency", "timezone"
+         FROM tenants WHERE "id" = $1`,
       [tenantId],
     );
+    // نفس قاعدة الكاشير: الدولة تحدد العملة والتوقيت إن لم يُضبطا
+    const country = getCountry(company?.country);
     const stats = (await this.agentStats(tenantId, agent.id)).get(agent.id);
     return {
       agent: {
@@ -1279,6 +1295,11 @@ export class DeliveryService {
         unsettledCount: stats?.unsettled ?? 0,
       },
       company: company?.name ?? '',
+      tenant: {
+        country: country.code,
+        currency: company?.currency ?? country.currency,
+        timezone: company?.timezone ?? country.timezone,
+      },
       orders,
     };
   }
