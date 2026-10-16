@@ -618,6 +618,9 @@ export class SalesInvoicesService {
   /**
    * الإصدار داخل معاملة المستدعي: موديول يربط الإصدار بتغيير حالته (أوردر
    * توصيل يخرج مع الطيار) فيقعان معاً أو لا يقع أيهما.
+   *
+   * `issuedAt`: وقت الإصدار الفعلي إن سبق وقت التسجيل (طيار استلم الأوردر بلا
+   * إنترنت ورُفع الاستلام لاحقاً). الافتراضي الآن.
    */
   async issueWithin(
     manager: EntityManager,
@@ -625,7 +628,7 @@ export class SalesInvoicesService {
     dto: IssueSalesInvoiceDto,
     tenantId: string,
     userId?: string,
-    options: DeliveryAccess = {},
+    options: DeliveryAccess & { issuedAt?: Date } = {},
   ): Promise<void> {
     // ─── تحقق قبل القفل (قراءات لا تحتاج قفلاً) ───
     const draft = await this.findOne(id, tenantId);
@@ -678,7 +681,7 @@ export class SalesInvoicesService {
       order: { sortOrder: 'ASC' },
     });
     await this.finalize(manager, invoice, lines, {
-      issuedAt: new Date(),
+      issuedAt: options.issuedAt ?? new Date(),
       tenders,
       seller,
       userId,

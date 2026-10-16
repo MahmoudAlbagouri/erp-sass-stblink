@@ -18,6 +18,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination.dto';
@@ -212,6 +213,46 @@ export class FailDeliveryOrderDto {
   @IsNotEmpty({ message: 'سبب عدم التسليم مطلوب' })
   @MaxLength(300)
   reason!: string;
+}
+
+// ══════════════════════════ شاشة الطيار: الرفع ══════════════════════════
+
+export const DRIVER_OPERATION_TYPES = ['pickup', 'deliver', 'fail'] as const;
+export type DriverOperationType = (typeof DRIVER_OPERATION_TYPES)[number];
+
+/** عملية سجّلها الطيار على جواله (ربما بلا إنترنت) وتُرفع لاحقاً */
+export class DriverOperationDto {
+  /** معرّف العملية على الجوال: نتيجتها تعود به */
+  @IsUUID()
+  id!: string;
+
+  /** pickup استلم وخرج، deliver سلّم، fail لم يُسلَّم */
+  @IsIn(DRIVER_OPERATION_TYPES, { message: 'نوع العملية غير معروف' })
+  type!: DriverOperationType;
+
+  @IsUUID()
+  orderId!: string;
+
+  /** متى وقعت فعلاً على الجوال (قد يسبق وقت الرفع بساعات) */
+  @IsDateString()
+  occurredAt!: string;
+
+  /** سبب عدم التسليم — إجباري لـ fail */
+  @ValidateIf((op: DriverOperationDto) => op.type === 'fail')
+  @IsString()
+  @IsNotEmpty({ message: 'سبب عدم التسليم مطلوب' })
+  @MaxLength(300)
+  reason?: string;
+}
+
+export class DriverSyncDto {
+  /** بترتيب وقوعها على الجوال */
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => DriverOperationDto)
+  operations!: DriverOperationDto[];
 }
 
 export class DeliveryOrderQueryDto extends PaginationQueryDto {

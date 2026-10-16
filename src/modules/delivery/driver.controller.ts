@@ -14,7 +14,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { apiTag } from '../../config/swagger.config';
 import { DeliveryService } from './delivery.service';
 import { CurrentDriver, DriverGuard } from './driver.guard';
-import { FailDeliveryOrderDto } from './dto/delivery.dto';
+import { DriverSyncDto, FailDeliveryOrderDto } from './dto/delivery.dto';
 import type { DeliveryAgent } from './entities/delivery.entity';
 
 /**
@@ -67,5 +67,12 @@ export class DriverController {
   ) {
     await this.delivery.assertDriverOrder(driver, id);
     return this.delivery.fail(id, dto, driver.tenantId);
+  }
+
+  /** رفع ما سجّله الطيار بلا إنترنت بترتيبه — نتيجة لكل عملية، وإعادة الرفع لا تكررها */
+  @Post('sync')
+  @HttpCode(HttpStatus.OK)
+  sync(@Body() dto: DriverSyncDto, @CurrentDriver() driver: DeliveryAgent) {
+    return this.delivery.syncDriver(driver, dto.operations);
   }
 }

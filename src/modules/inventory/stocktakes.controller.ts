@@ -26,6 +26,7 @@ import { TenantScopeGuard } from '../../common/guards/tenant-scope.guard';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import {
   CreateStocktakeDto,
+  StocktakeCountsDto,
   StocktakeQueryDto,
   UpdateStocktakeDto,
 } from './dto/inventory.dto';
@@ -69,15 +70,49 @@ export class StocktakesController {
     return this.stocktakes.create(dto, tenantId, userId);
   }
 
-  /** تعديل مسودة جرد */
+  /** تعديل مسودة جرد (expectedUpdatedAt يمنع مسح ما عُدّ بعد فتحها: 409) */
   @Patch(':id')
   @Permissions(PERMS.STOCKTAKE_MANAGE)
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateStocktakeDto,
     @CurrentTenantId() tenantId: string,
+    @CurrentUser('id') userId: string,
   ) {
-    return this.stocktakes.update(id, dto, tenantId);
+    return this.stocktakes.update(id, dto, tenantId, userId);
+  }
+
+  /** شاشة العدّ: ما عُدّ في الجرد الآن (بلا رصيد النظام) */
+  @Get(':id/counts')
+  @Permissions(PERMS.INVENTORY_VIEW)
+  counts(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.stocktakes.counts(id, tenantId);
+  }
+
+  /** شاشة العدّ: رفع العدّ (ربما بعد انقطاع) — كل صنف بكميته ووقت عدّه، والأحدث يكسب */
+  @Post(':id/counts')
+  @HttpCode(HttpStatus.OK)
+  @Permissions(PERMS.STOCKTAKE_MANAGE)
+  applyCounts(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: StocktakeCountsDto,
+    @CurrentTenantId() tenantId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.stocktakes.applyCounts(id, dto, tenantId, userId);
+  }
+
+  /** شاشة العدّ: الأصناف المخزنية وباركوداتها للبحث على الجهاز بلا إنترنت */
+  @Get(':id/catalog')
+  @Permissions(PERMS.STOCKTAKE_MANAGE)
+  catalog(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.stocktakes.catalog(id, tenantId);
   }
 
   /** اعتماد الجرد: تُسوّى الأرصدة على المعدود */

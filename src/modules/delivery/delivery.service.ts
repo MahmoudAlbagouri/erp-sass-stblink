@@ -48,6 +48,7 @@ import {
   DeliveryAgentQueryDto,
   DeliveryOrderQueryDto,
   DeliverySettlementQueryDto,
+  DriverOperationDto,
   FailDeliveryOrderDto,
   UpdateDeliveryAgentDto,
   UpdateDeliveryZoneDto,
@@ -148,6 +149,29 @@ export interface DriverBoard {
   company: string;
   orders: DeliveryOrder[];
 }
+
+/** نتيجة عملية رفعها الطيار (نفس شكل نتائج رفع الكاشير) */
+export interface DriverOperationResult {
+  id: string;
+  /** duplicate = الأوردر في الحالة المطلوبة من قبل (رفع مكرر) */
+  status: 'ok' | 'duplicate' | 'error';
+  message?: string;
+}
+
+/** الحالة التي تجعل عملية الطيار منفّذة من قبل */
+const DRIVER_DONE_STATUSES: Record<
+  DriverOperationDto['type'],
+  DeliveryOrderStatus[]
+> = {
+  // خرج ثم انتهى: الاستلام وقع قبلها
+  pickup: [
+    DeliveryOrderStatus.OUT,
+    DeliveryOrderStatus.DELIVERED,
+    DeliveryOrderStatus.FAILED,
+  ],
+  deliver: [DeliveryOrderStatus.DELIVERED],
+  fail: [DeliveryOrderStatus.FAILED],
+};
 
 export interface DeliverySummary {
   /** عدد الأوردرات في كل حالة (المنتهية: اليوم فقط) */
@@ -675,11 +699,15 @@ export class DeliveryService {
    * خروج الأوردر مع الجهة: تصدر الفاتورة فتخرج البضاعة، ويُسجَّل ثمنها
    * كاملاً — "courier" (على الجهة حتى تسويتها) للتحصيل عند الاستلام، أو
    * طريقة الدفع المقدّم.
+   *
+   * `at`: متى خرج فعلاً إن سبق التسجيل (طيار استلم بلا إنترنت) — انظر
+   * eventTime. الافتراضي الآن.
    */
   async dispatch(
     id: string,
     tenantId: string,
     userId?: string,
+    at?: Date,
   ): Promise<DeliveryOrder> {
     await this.dataSource.transaction(async (manager) => {
       const order = await this.lockOrder(manager, id, tenantId);
@@ -687,6 +715,7 @@ export class DeliveryService {
       if (!order.agentId) {
         throw new BadRequestException('أسند الأوردر لطيار أو شركة شحن أولاً');
       }
+      const dispatchedAt = eventTime(at, order.assignedAt);
       const invoice = await manager.findOneOrFail(SalesInvoice, {
         where: { id: order.invoiceId, tenantId },
       });
@@ -695,7 +724,7 @@ export class DeliveryService {
         await manager.update(
           DeliveryOrder,
           { id, tenantId },
-          { status: DeliveryOrderStatus.OUT, dispatchedAt: new Date() },
+          { status: DeliveryOrderStatus.OUT, dispatchedAt },
         );
         return;
       }
@@ -720,7 +749,7 @@ export class DeliveryService {
         },
         tenantId,
         userId,
-        { delivery: true },
+        { delivery: true, issuedAt: dispatchedAt },
       );
 
       await manager.update(
@@ -728,7 +757,7 @@ export class DeliveryService {
         { id, tenantId },
         {
           status: DeliveryOrderStatus.OUT,
-          dispatchedAt: new Date(),
+          dispatchedAt,
           codAmount:
             order.paymentMode === DeliveryPaymentMode.COD ? invoice.total : 0,
         },
@@ -738,14 +767,21 @@ export class DeliveryService {
   }
 
   /** سُلّم للعميل: المبلغ (للتحصيل عند الاستلام) أصبح مع الجهة */
-  async deliver(id: string, tenantId: string): Promise<DeliveryOrder> {
+  async deliver(
+    id: string,
+    tenantId: string,
+    at?: Date,
+  ): Promise<DeliveryOrder> {
     await this.dataSource.transaction(async (manager) => {
       const order = await this.lockOrder(manager, id, tenantId);
       assertOrderStatus(order, [DeliveryOrderStatus.OUT], 'تأكيد تسليم');
       await manager.update(
         DeliveryOrder,
         { id, tenantId },
-        { status: DeliveryOrderStatus.DELIVERED, deliveredAt: new Date() },
+        {
+          status: DeliveryOrderStatus.DELIVERED,
+          deliveredAt: eventTime(at, order.dispatchedAt),
+        },
       );
     });
     return this.findOrder(id, tenantId);
@@ -761,24 +797,26 @@ export class DeliveryService {
     dto: FailDeliveryOrderDto,
     tenantId: string,
     userId?: string,
+    at?: Date,
   ): Promise<DeliveryOrder> {
     await this.dataSource.transaction(async (manager) => {
       const order = await this.lockOrder(manager, id, tenantId);
       assertOrderStatus(order, [DeliveryOrderStatus.OUT], 'تسجيل عدم تسليم');
-      const now = new Date();
+      const failedAt = eventTime(at, order.dispatchedAt);
       const returnId = await this.reverseInvoice(
         manager,
         order,
         `أوردر توصيل ${order.number} لم يُسلَّم: ${dto.reason}`,
         tenantId,
         userId,
+        failedAt,
       );
       await manager.update(
         DeliveryOrder,
         { id, tenantId },
         {
           status: DeliveryOrderStatus.FAILED,
-          failedAt: now,
+          failedAt,
           failReason: dto.reason,
           returnId,
           codAmount: 0,
@@ -798,6 +836,7 @@ export class DeliveryService {
     reason: string,
     tenantId: string,
     userId?: string,
+    at: Date = new Date(),
   ): Promise<string> {
     const timezone = await tenantTimezoneOf(manager, tenantId);
     const invoice = await this.invoices.lock(
@@ -809,7 +848,7 @@ export class DeliveryService {
       manager,
       invoice.id,
       {
-        returnDate: dateOnly(new Date(), timezone),
+        returnDate: dateOnly(at, timezone),
         reason,
         refund:
           invoice.paidAmount > 0
@@ -1255,6 +1294,93 @@ export class DeliveryService {
     if (!owns) throw new NotFoundException(ORDER_NOT_FOUND);
   }
 
+  /**
+   * يرفع ما سجّله الطيار على جواله بترتيبه (ربما بلا إنترنت لساعات). كل
+   * عملية مستقلة: فشل واحدة لا يوقف ما بعدها، والنتيجة تعود لكل عملية
+   * بمعرّفها ليحذفها الجوال من طابوره أو يعرض سبب رفضها.
+   *
+   * العملية تطلب حالة، فإعادة رفعها لا تكررها: أوردر بلغ الحالة المطلوبة (أو
+   * ما بعدها للاستلام) ← duplicate. وقت الحدث من الجوال (انظر eventTime).
+   * أوردر أُلغي أو أُسند لغيره أثناء انقطاع الجوال يُرفض بسببه — البضاعة مع
+   * الطيار، والإدارة تحسم.
+   */
+  async syncDriver(
+    agent: DeliveryAgent,
+    operations: DriverOperationDto[],
+  ): Promise<{ results: DriverOperationResult[] }> {
+    const results: DriverOperationResult[] = [];
+    for (const operation of operations) {
+      results.push(await this.runDriverOperation(agent, operation));
+    }
+    return { results };
+  }
+
+  private async runDriverOperation(
+    agent: DeliveryAgent,
+    op: DriverOperationDto,
+  ): Promise<DriverOperationResult> {
+    const { tenantId } = agent;
+    const done = (order: DeliveryOrder | null) =>
+      !!order &&
+      order.agentId === agent.id &&
+      DRIVER_DONE_STATUSES[op.type].includes(order.status);
+
+    const order = await this.orders.findOne({
+      where: { id: op.orderId, tenantId },
+    });
+    if (!order) {
+      return { id: op.id, status: 'error', message: ORDER_NOT_FOUND };
+    }
+    if (order.agentId !== agent.id) {
+      return {
+        id: op.id,
+        status: 'error',
+        message: `الأوردر ${order.number} لم يعد مسنداً لك — راجع المدير`,
+      };
+    }
+    if (done(order)) return { id: op.id, status: 'duplicate' };
+    if (order.status === DeliveryOrderStatus.CANCELLED) {
+      return {
+        id: op.id,
+        status: 'error',
+        message: `أُلغي الأوردر ${order.number} من الإدارة — أعد البضاعة للمحل`,
+      };
+    }
+
+    const at = new Date(op.occurredAt);
+    try {
+      switch (op.type) {
+        case 'pickup':
+          await this.dispatch(order.id, tenantId, undefined, at);
+          break;
+        case 'deliver':
+          await this.deliver(order.id, tenantId, at);
+          break;
+        case 'fail':
+          await this.fail(
+            order.id,
+            { reason: op.reason ?? '' },
+            tenantId,
+            undefined,
+            at,
+          );
+          break;
+      }
+      return { id: op.id, status: 'ok' };
+    } catch (error) {
+      // رفعان متزامنان لنفس العملية: من سبق نفّذها، والثاني مكرر لا خطأ
+      const now = await this.orders.findOne({
+        where: { id: order.id, tenantId },
+      });
+      if (done(now)) return { id: op.id, status: 'duplicate' };
+      return {
+        id: op.id,
+        status: 'error',
+        message: error instanceof Error ? error.message : 'خطأ غير متوقع',
+      };
+    }
+  }
+
   // ══════════════════════════ مساعدات ══════════════════════════
 
   private orderQuery(tenantId: string) {
@@ -1401,6 +1527,17 @@ async function suggestedAgentFee(
     ),
     decimals,
   );
+}
+
+/**
+ * وقت حدث على الأوردر (خروج، تسليم، عدم تسليم). من الجوال قد يسبق التسجيل
+ * بساعات؛ ساعة الجوال قد تخطئ، فلا يتجاوز الآن ولا يسبق الحدث السابق.
+ */
+function eventTime(at: Date | undefined, notBefore?: Date | null): Date {
+  const now = new Date();
+  if (!at || Number.isNaN(at.getTime()) || at > now) return now;
+  if (notBefore && at < notBefore) return notBefore;
+  return at;
 }
 
 function assertOrderStatus(

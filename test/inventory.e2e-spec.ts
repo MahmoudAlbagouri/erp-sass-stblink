@@ -139,6 +139,144 @@ describe('Inventory API (e2e)', () => {
     expect(summary.value).toBe(142.5);
   });
 
+  it('counts a stocktake from several devices, offline-safe', async () => {
+    const units = data<{ id: string }[]>(await get('/catalog/units'));
+    const water = data<{ id: string }>(
+      await post('/catalog/products', {
+        name: 'مياه',
+        baseUnitId: units[0].id,
+        salePrice: 2,
+        barcodes: [{ barcode: '6281000000017' }],
+      }),
+    ).id;
+    const rice = await createProduct('أرز');
+    const service = data<{ id: string }>(
+      await post('/catalog/products', {
+        name: 'تغليف',
+        type: 'service',
+        baseUnitId: units[0].id,
+        salePrice: 5,
+      }),
+    ).id;
+    const warehouseId = await mainWarehouseId();
+    await post('/inventory/adjustments', {
+      warehouseId,
+      type: 'opening',
+      lines: [
+        { productId: water, quantity: 10, unitCost: 1 },
+        { productId: rice, quantity: 4, unitCost: 3 },
+      ],
+    });
+
+    // يبدأ فارغاً ويُعدّ من شاشة العدّ — ولا يُعتمد فارغاً
+    const created = await post('/inventory/stocktakes', {
+      warehouseId,
+      lines: [],
+    });
+    expect(created.status).toBe(201);
+    const id = data<{ id: string }>(created).id;
+    const openedAt = data<{ updatedAt: string }>(created).updatedAt;
+    expect((await post(`/inventory/stocktakes/${id}/post`)).status).toBe(400);
+
+    // نسخة البحث على الجهاز: المخزني وباركوداته، بلا الخدمات
+    const catalog = data<{
+      products: { id: string; barcodes: { code: string; factor: number }[] }[];
+    }>(await get(`/inventory/stocktakes/${id}/catalog`));
+    expect(catalog.products.map((p) => p.id).sort()).toEqual(
+      [water, rice].sort(),
+    );
+    expect(catalog.products.find((p) => p.id === water)!.barcodes).toEqual([
+      { code: '6281000000017', factor: 1 },
+    ]);
+
+    const minutesAgo = (minutes: number) =>
+      new Date(Date.now() - minutes * 60_000).toISOString();
+    const t10 = minutesAgo(10);
+    const count = (counts: object[]) =>
+      post(`/inventory/stocktakes/${id}/counts`, { counts });
+    type Counted = {
+      results: { status: string }[];
+      stocktake: { lines: { productId: string; countedQuantity: number }[] };
+    };
+
+    // الجهاز (أ) عدّ قبل 10 دقائق ووصل أولاً
+    const a = data<Counted>(
+      await count([
+        { productId: water, countedQuantity: 8, countedAt: t10 },
+        { productId: rice, countedQuantity: 3, countedAt: t10 },
+      ]),
+    );
+    expect(a.results.map((r) => r.status)).toEqual(['ok', 'ok']);
+
+    // الجهاز (ب) كان بلا إنترنت: عدّه الأقدم للمياه لا يغلب الأحدث، وصنف
+    // الخدمة يُرفض وحده، وإزالة الأرز (بعد عدّه) تُنفَّذ
+    const b = data<Counted>(
+      await count([
+        { productId: water, countedQuantity: 5, countedAt: minutesAgo(30) },
+        { productId: service, countedQuantity: 1, countedAt: minutesAgo(30) },
+        { productId: rice, countedQuantity: null, countedAt: minutesAgo(5) },
+      ]),
+    );
+    expect(b.results.map((r) => r.status)).toEqual(['stale', 'error', 'ok']);
+    expect(b.stocktake.lines).toEqual([
+      expect.objectContaining({ productId: water, countedQuantity: 8 }),
+    ]);
+
+    // إعادة رفع نفس العدّ (انقطع الاتصال قبل الرد) تضع الكمية ولا تضيفها
+    const replay = data<Counted>(
+      await count([{ productId: water, countedQuantity: 8, countedAt: t10 }]),
+    );
+    expect(replay.stocktake.lines).toEqual([
+      expect.objectContaining({ productId: water, countedQuantity: 8 }),
+    ]);
+
+    // لوحة تحكم فتحت الجرد قبل العدّ: حفظها يُرفض بدل أن يمسح ما عُدّ
+    const patch = (body: object) =>
+      api()
+        .patch(`/inventory/stocktakes/${id}`)
+        .set(auth(tenant.adminToken))
+        .send(body);
+    expect(
+      (await patch({ lines: [], expectedUpdatedAt: openedAt })).status,
+    ).toBe(409);
+    const current = data<{ updatedAt: string }>(
+      await get(`/inventory/stocktakes/${id}`),
+    );
+    expect(
+      (
+        await patch({
+          lines: [{ productId: water, countedQuantity: 8 }],
+          expectedUpdatedAt: current.updatedAt,
+        })
+      ).status,
+    ).toBe(200);
+
+    // الحفظ أبقى وقت عدّ المياه (لم تتغير): عدّ أقدم يصل الآن لا يغلبه
+    const late = data<Counted>(
+      await count([
+        { productId: water, countedQuantity: 1, countedAt: minutesAgo(20) },
+      ]),
+    );
+    expect(late.results.map((r) => r.status)).toEqual(['stale']);
+
+    expect((await post(`/inventory/stocktakes/${id}/post`)).status).toBe(200);
+    const levels = data<{ data: { productId: string; quantity: number }[] }>(
+      await get(`/inventory/stock?warehouseId=${warehouseId}`),
+    ).data;
+    expect(levels.find((l) => l.productId === water)?.quantity).toBe(8);
+    // الأرز أُزيل من الجرد: رصيده كما هو
+    expect(levels.find((l) => l.productId === rice)?.quantity).toBe(4);
+
+    // بعد الاعتماد لا عدّ
+    expect(
+      (
+        await count([
+          { productId: water, countedQuantity: 2, countedAt: minutesAgo(1) },
+        ])
+      ).status,
+    ).toBe(400);
+  });
+
   it('imports a price list with opening stock in one request', async () => {
     const list = {
       defaultUnit: 'كيلوجرام',

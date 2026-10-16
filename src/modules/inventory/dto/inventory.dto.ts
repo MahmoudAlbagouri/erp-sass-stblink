@@ -17,6 +17,7 @@ import {
   MaxLength,
   Min,
   NotEquals,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination.dto';
@@ -25,7 +26,7 @@ import { StockTransferStatus } from '../entities/stock-transfer.entity';
 import { StocktakeStatus } from '../entities/stocktake.entity';
 
 /** أقصى عدد أسطر في مستند واحد (تحويل / جرد / تسوية) */
-const MAX_LINES = 500;
+export const MAX_LINES = 500;
 
 // ══════════════════════════ المخازن ══════════════════════════
 
@@ -240,15 +241,48 @@ export class CreateStocktakeDto {
   @MaxLength(500)
   note?: string;
 
+  /** قد تبدأ فارغة وتُعدّ من شاشة العدّ؛ الاعتماد يحتاج صنفاً واحداً على الأقل */
   @IsArray()
-  @ArrayMinSize(1, { message: 'أضف صنفاً واحداً على الأقل' })
   @ArrayMaxSize(MAX_LINES)
   @ValidateNested({ each: true })
   @Type(() => StocktakeLineDto)
   lines!: StocktakeLineDto[];
 }
 
-export class UpdateStocktakeDto extends PartialType(CreateStocktakeDto) {}
+export class UpdateStocktakeDto extends PartialType(CreateStocktakeDto) {
+  /**
+   * `updatedAt` كما فتحته الشاشة. إن تغيّر الجرد بعدها (عُدّ من شاشة العدّ أو
+   * عدّله غيرك) يُرفض الحفظ بـ 409 بدل أن يمسح ما عُدّ.
+   */
+  @IsOptional()
+  @IsDateString()
+  expectedUpdatedAt?: string;
+}
+
+/** عدّ صنف واحد من شاشة العدّ */
+export class StocktakeCountDto {
+  @IsUUID()
+  productId!: string;
+
+  /** الكمية المعدودة بوحدة الأساس. null = أُزيل الصنف من الجرد */
+  @ValidateIf((count: StocktakeCountDto) => count.countedQuantity !== null)
+  @IsNumber({ maxDecimalPlaces: 4 })
+  @Min(0, { message: 'الكمية المعدودة لا تقل عن صفر' })
+  countedQuantity!: number | null;
+
+  /** متى عُدّ على الجهاز: الأحدث يكسب إن عدّ الصنف جهازان */
+  @IsDateString()
+  countedAt!: string;
+}
+
+export class StocktakeCountsDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(MAX_LINES)
+  @ValidateNested({ each: true })
+  @Type(() => StocktakeCountDto)
+  counts!: StocktakeCountDto[];
+}
 
 export class StocktakeQueryDto extends PaginationQueryDto {
   @IsOptional()

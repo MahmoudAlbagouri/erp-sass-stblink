@@ -97,6 +97,16 @@ export class StocktakeLine {
   })
   countedQuantity!: number;
 
+  /**
+   * متى عُدّ آخر مرة (وقت الجهاز في شاشة العدّ). عدّان لنفس الصنف من جهازين:
+   * الأحدث يكسب ولو وصل أولاً. null = سطر قديم قبل شاشة العدّ.
+   */
+  @Column({ type: 'timestamptz', nullable: true })
+  countedAt?: Date | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  countedById?: string | null;
+
   /** رصيد النظام لحظة الاعتماد (null قبل الاعتماد) */
   @Column({
     type: 'numeric',

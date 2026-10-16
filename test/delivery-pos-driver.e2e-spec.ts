@@ -395,4 +395,146 @@ describe('Delivery from POS and the driver screen (e2e)', () => {
       .set(auth(tenant.adminToken));
     expect((await driver('get', '/board')).status).toBe(401);
   });
+
+  it('syncs what the driver did offline: in order, once, at the time it happened', async () => {
+    const ctx = await setup();
+    const order = async () =>
+      data<Order>(
+        await post('/delivery/orders', {
+          warehouseId: ctx.warehouseId,
+          recipientName: 'أحمد',
+          phone: '0501111111',
+          address: 'حي الياسمين',
+          paymentMode: 'cod',
+          agentId: ctx.driver.id,
+          lines: [{ productId: ctx.productId, quantity: 1, unitPrice: 2.3 }],
+        }),
+      );
+    const delivered = await order();
+    const failed = await order();
+    const cancelled = await order();
+    const reassigned = await order();
+    const early = await order();
+    // أُسندت قبل ثلاث ساعات: أحداث الجوال بعدها
+    await dataSource.query(
+      `UPDATE delivery_orders SET "assignedAt" = now() - interval '3 hours'`,
+    );
+    const other = data<{ id: string }>(
+      await post('/delivery/agents', { type: 'driver', name: 'سعيد' }),
+    );
+    const access = data<{ agentId: string; key: string }>(
+      await post(`/delivery/agents/${ctx.driver.id}/driver-access`),
+    );
+    const driverHeaders = {
+      'X-Driver-Agent': access.agentId,
+      'X-Driver-Key': access.key,
+    };
+    const sync = (operations: object[]) =>
+      api()
+        .post('/delivery/driver/sync')
+        .set(driverHeaders)
+        .send({ operations });
+
+    // والطيار بلا إنترنت: المدير ألغى أوردراً وأسند آخر لغيره
+    await post(`/delivery/orders/${cancelled.id}/cancel`);
+    await post(`/delivery/orders/${reassigned.id}/assign`, {
+      agentId: other.id,
+    });
+
+    const minutesAgo = (minutes: number) =>
+      new Date(Date.now() - minutes * 60_000).toISOString();
+    const op = (
+      type: string,
+      orderId: string,
+      minutes: number,
+      reason?: string,
+    ) => ({
+      id: randomUUID(),
+      type,
+      orderId,
+      occurredAt: minutesAgo(minutes),
+      ...(reason ? { reason } : {}),
+    });
+    const operations = [
+      op('pickup', delivered.id, 90),
+      op('pickup', failed.id, 90),
+      op('deliver', delivered.id, 60),
+      op('fail', failed.id, 45, 'العميل لا يرد'),
+      op('pickup', cancelled.id, 80),
+      op('pickup', reassigned.id, 80),
+      // ساعة الجوال متقدمة نصف ساعة: لا يُسجَّل وقت في المستقبل
+      op('pickup', early.id, -30),
+    ];
+
+    type Results = { results: { status: string; message?: string }[] };
+    const first = data<Results>(await sync(operations));
+    expect(first.results.map((r) => r.status)).toEqual([
+      'ok',
+      'ok',
+      'ok',
+      'ok',
+      'error',
+      'error',
+      'ok',
+    ]);
+    expect(first.results[4].message).toContain('أُلغي');
+    expect(first.results[5].message).toContain('لم يعد مسنداً لك');
+
+    type Timed = Order & {
+      dispatchedAt: string;
+      deliveredAt: string | null;
+      failedAt: string | null;
+      failReason: string | null;
+    };
+    const at = (value: string | null) => new Date(value!).toISOString();
+
+    // أوقات الجوال لا وقت الرفع — والفاتورة صدرت لحظة الخروج
+    const done = data<Timed>(await get(`/delivery/orders/${delivered.id}`));
+    expect(done.status).toBe('delivered');
+    expect(at(done.dispatchedAt)).toBe(operations[0].occurredAt);
+    expect(at(done.deliveredAt)).toBe(operations[2].occurredAt);
+    const invoice = data<{ issuedAt: string }>(
+      await get(`/sales/invoices/${done.invoice.id}`),
+    );
+    expect(at(invoice.issuedAt)).toBe(operations[0].occurredAt);
+
+    const back = data<Timed>(await get(`/delivery/orders/${failed.id}`));
+    expect(back).toMatchObject({
+      status: 'failed',
+      failReason: 'العميل لا يرد',
+    });
+    expect(back.returnId).toBeTruthy();
+    expect(at(back.failedAt)).toBe(operations[3].occurredAt);
+
+    const future = data<Timed>(await get(`/delivery/orders/${early.id}`));
+    expect(new Date(future.dispatchedAt).getTime()).toBeLessThanOrEqual(
+      Date.now(),
+    );
+
+    // 50 − المسلَّم − الخارج الآن (الراجع عاد، والملغي لم يخرج)
+    expect(await stockOf(ctx.productId)).toBe(48);
+
+    // نفس الرفع مرة ثانية (انقطع الاتصال قبل الرد): لا شيء يتكرر
+    const again = data<Results>(await sync(operations));
+    expect(again.results.map((r) => r.status)).toEqual([
+      'duplicate',
+      'duplicate',
+      'duplicate',
+      'duplicate',
+      'error',
+      'error',
+      'duplicate',
+    ]);
+    expect(await stockOf(ctx.productId)).toBe(48);
+    expect(
+      data<{ agent: { heldAmount: number } }>(
+        await api().get('/delivery/driver/board').set(driverHeaders),
+      ).agent.heldAmount,
+    ).toBe(2.3);
+
+    // "لم يُسلَّم" بلا سبب: الدفعة كلها مرفوضة
+    expect(
+      (await sync([{ ...op('fail', early.id, 1), reason: '' }])).status,
+    ).toBe(400);
+  });
 });
