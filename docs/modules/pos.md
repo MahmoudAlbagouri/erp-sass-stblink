@@ -65,6 +65,18 @@
   `late_after_close`) يكتبها السيرفر وحده ولا يقبلها من الجهاز.
 - **ما ينزل للجهاز** مع الأصناف: رصيد مخزنه، أرصدة العملاء، العروض، وإعدادات
   الكاشير (باركود الميزان والموافقات).
+- **مميزات الشاشة لكل شركة** (`pos-screen-settings.service.ts`،
+  `common/constants/pos-features.ts` — المصدر الوحيد للقائمة والقوالب):
+  21 ميزة تُشغَّل وتُقفل (العميل، الآجل، الخصمان، تغيير السعر، الوحدات، التعليق،
+  الشبكة، الدفع السريع، الطباعة التلقائية، الدرج، المرتجع، الميزان، الرصيد، لوحة
+  الأرقام، شاشة العميل، التوصيل، الطاولات، المطبخ) وخمسة قوالب. تُحفظ في
+  `sales_settings.posOptions` (`features`، `template`، `featureDisabledAt`) فتنزل
+  للجهاز مع البوتستراب. `resolvePosOptions` يكمّل الغائب بالافتراضي (مفعّل)،
+  و`scaleBarcode` مشتقة من `scale.enabled`. الباقة تحكم التوصيل والمطاعم.
+  - **البيع الآجل المقفل يرفضه السيرفر** (`assertCreditAllowed`) إلا فاتورة
+    `issuedAt` قبل `featureDisabledAt.creditSales` (بيعت بلا إنترنت قبل الإقفال).
+  - `SalesSettingsService.update` **يدمج** `posOptions` (كانت تُستبدل كاملة فتمسح
+    ما يُحفظ من غير صفحة الفوترة)، و`updatePosOptions` لتعديل جزء منها.
 - عمليات الطابور: `shift.open`، `customer.create`، `sale`، `return`،
   `cash.move`، `audit`، `shift.close`، `kitchen.send`، `kitchen.close`.
 - **المطاعم** (ميزة `restaurant_module`، `restaurant.service.ts`):
@@ -104,6 +116,7 @@
 - `/pos/display` — شاشة العميل (نافذة ثانية تعرض السلة والإجمالي).
 - `/dashboard/pos/devices`، `/cashiers`، `/shifts`.
 - `/dashboard/pos/promotions` — العروض والأسعار الخاصة.
+- `/dashboard/pos/settings` — إعدادات شاشة الكاشير: القوالب والمميزات.
 - `/dashboard/pos/restaurant` — الطاولات (واحدة أو متتالية: «طاولة 1» … «طاولة
   20») وإعدادات المطبخ.
 - `/kitchen` — شاشة المطبخ (ملء الشاشة، تتحدث كل 5 ثوانٍ).
@@ -117,7 +130,7 @@
 ### الملفات
 
 - المجلد: `src/modules/pos/`
-- الخدمات: `pos-cashiers.service.ts`، `pos-extras.service.ts`، `pos.service.ts`، `restaurant.service.ts`
+- الخدمات: `pos-cashiers.service.ts`، `pos-extras.service.ts`، `pos-screen-settings.service.ts`، `pos.service.ts`، `restaurant.service.ts`
 
 ### جداول قاعدة البيانات
 
@@ -133,7 +146,7 @@
 | `kitchen_orders` | `KitchenOrder` | `restaurant.entity.ts` |
 | `restaurant_settings` | `RestaurantSettings` | `restaurant.entity.ts` |
 
-### المسارات (36)
+### المسارات (38)
 
 **شاشة الكاشير** — `pos-device.controller.ts` (القسم في Swagger: «شاشة الكاشير»)
 
@@ -150,6 +163,8 @@
 
 | الطريقة | المسار | الوظيفة | الصلاحية | ميزة الباقة |
 |---|---|---|---|---|
+| GET | `/pos/screen-settings` | مميزات الشاشة الظاهرة لهذه الشركة، والقوالب الجاهزة، وما تسمح به الباقة | عرض أجهزة الكاشير والورديات `view_pos` | نقاط البيع (الكاشير) أونلاين وأوفلاين `pos_module` |
+| PATCH | `/pos/screen-settings` | تشغيل وإقفال مميزات الشاشة أو تطبيق قالب (تصل الأجهزة مع مزامنتها) | إعدادات شاشة الكاشير: المميزات الظاهرة والقوالب `manage_pos_settings` | نقاط البيع (الكاشير) أونلاين وأوفلاين `pos_module` |
 | GET | `/pos/ping` | فحص الاتصال: الجهاز يسأل دورياً ليعرف هل يرفع ما في طابوره | البيع من شاشة الكاشير `use_pos` | نقاط البيع (الكاشير) أونلاين وأوفلاين `pos_module` |
 | GET | `/pos/bootstrap` | تنزيل بيانات البيع للجهاز (كلها أو ما تغيّر منذ آخر مزامنة) | البيع من شاشة الكاشير `use_pos` | نقاط البيع (الكاشير) أونلاين وأوفلاين `pos_module` |
 | POST | `/pos/sync` | رفع طابور الجهاز: ورديات ومبيعات تمّت محلياً | البيع من شاشة الكاشير `use_pos` | نقاط البيع (الكاشير) أونلاين وأوفلاين `pos_module` |

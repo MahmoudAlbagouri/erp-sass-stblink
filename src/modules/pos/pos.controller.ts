@@ -41,7 +41,9 @@ import {
   UpdatePosCashierDto,
   UpdatePosDeviceDto,
 } from './dto/pos.dto';
+import { UpdatePosScreenSettingsDto } from './dto/pos-screen.dto';
 import { PosCashiersService } from './pos-cashiers.service';
+import { PosScreenSettingsService } from './pos-screen-settings.service';
 import { PosExtrasService } from './pos-extras.service';
 import { PosService } from './pos.service';
 
@@ -54,7 +56,26 @@ export class PosController {
     private readonly pos: PosService,
     private readonly cashiers: PosCashiersService,
     private readonly extras: PosExtrasService,
+    private readonly screenSettings: PosScreenSettingsService,
   ) {}
+
+  // ─── مميزات شاشة الكاشير ─────────────────────────────────────
+  /** مميزات الشاشة الظاهرة لهذه الشركة، والقوالب الجاهزة، وما تسمح به الباقة */
+  @Get('screen-settings')
+  @Permissions(PERMS.POS_VIEW)
+  screenSettingsOf(@CurrentTenantId() tenantId: string) {
+    return this.screenSettings.get(tenantId);
+  }
+
+  /** تشغيل وإقفال مميزات الشاشة أو تطبيق قالب (تصل الأجهزة مع مزامنتها) */
+  @Patch('screen-settings')
+  @Permissions(PERMS.POS_SETTINGS_MANAGE)
+  updateScreenSettings(
+    @Body() dto: UpdatePosScreenSettingsDto,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.screenSettings.update(tenantId, dto);
+  }
 
   // ─── شاشة الكاشير ───────────────────────────────────────────
   /** فحص الاتصال: الجهاز يسأل دورياً ليعرف هل يرفع ما في طابوره */

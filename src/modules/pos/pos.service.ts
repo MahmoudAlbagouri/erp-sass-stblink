@@ -1,4 +1,5 @@
 // src/modules/pos/pos.service.ts
+import Decimal from 'decimal.js';
 import {
   BadRequestException,
   ConflictException,
@@ -794,6 +795,7 @@ export class PosService {
         'التحصيل عبر التوصيل لفاتورة توصيل فقط (ببيانات المستلم)',
       );
     }
+    await this.assertCreditAllowed(op, device);
 
     const { invoice, duplicate, overdrawn, checks } =
       await this.invoices.recordPosSale(
@@ -840,6 +842,34 @@ export class PosService {
       );
     }
     return duplicate;
+  }
+
+  /**
+   * البيع الآجل مقفل في مميزات الشاشة: لا يُقبل ما بقي على حساب العميل. ما
+   * بيع آجلاً على جهاز بلا إنترنت قبل الإقفال يُقبل (بيع حصل فعلاً)
+   */
+  private async assertCreditAllowed(
+    op: PosSaleOp,
+    device: PosDevice,
+  ): Promise<void> {
+    const total = op.lines.reduce(
+      (sum, line) => sum.plus(line.total),
+      new Decimal(0),
+    );
+    const paid = op.payments.reduce(
+      (sum, payment) => sum.plus(payment.amount),
+      new Decimal(0),
+    );
+    if (total.minus(paid).lte(0.0005)) return;
+    const { features, featureDisabledAt } = resolvePosOptions(
+      (await this.salesSettings.get(device.tenantId)).posOptions,
+    );
+    if (features.creditSales) return;
+    const disabledAt = featureDisabledAt.creditSales;
+    if (disabledAt && new Date(op.issuedAt) < new Date(disabledAt)) return;
+    throw new BadRequestException(
+      'البيع الآجل غير مفعّل في إعدادات شاشة الكاشير',
+    );
   }
 
   /**

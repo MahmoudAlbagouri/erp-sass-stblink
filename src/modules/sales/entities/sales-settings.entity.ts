@@ -6,6 +6,12 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import {
+  DEFAULT_POS_FEATURES,
+  PosFeatureKey,
+  PosFeatures,
+  PosTemplateKey,
+} from '../../../common/constants/pos-features';
 
 /**
  * بيانات البائع التي تُطبع على الفاتورة وتدخل في رمز QR (سجل واحد لكل شركة).
@@ -96,6 +102,18 @@ export interface PosOptions {
      */
     priceChange: boolean;
   };
+  /**
+   * مميزات الشاشة الظاهرة لهذه الشركة (common/constants/pos-features).
+   * `scaleBarcode` مشتقة من `scale.enabled` (مصدرها الوحيد)
+   */
+  features: PosFeatures;
+  /** القالب الذي اختارته الشركة، أو custom بعد تعديل مميزاته */
+  template: PosTemplateKey | 'custom';
+  /**
+   * متى أُقفلت كل ميزة: عملية من جهاز تمت قبلها (بلا إنترنت) لا تُرفض بسبب
+   * إقفال جاء بعدها
+   */
+  featureDisabledAt: Partial<Record<PosFeatureKey, string>>;
 }
 
 export const DEFAULT_POS_OPTIONS: PosOptions = {
@@ -112,17 +130,30 @@ export const DEFAULT_POS_OPTIONS: PosOptions = {
     manualDrawer: false,
     priceChange: false,
   },
+  features: DEFAULT_POS_FEATURES,
+  template: 'all',
+  featureDisabledAt: {},
 };
 
 /** الإعدادات المحفوظة فوق الافتراضية (شركة لم تحفظ شيئاً تأخذ الافتراضي) */
 export function resolvePosOptions(
   saved?: Partial<PosOptions> | null,
 ): PosOptions {
+  const scale = { ...DEFAULT_POS_OPTIONS.scale, ...(saved?.scale ?? {}) };
   return {
-    scale: { ...DEFAULT_POS_OPTIONS.scale, ...(saved?.scale ?? {}) },
+    scale,
     approvals: {
       ...DEFAULT_POS_OPTIONS.approvals,
       ...(saved?.approvals ?? {}),
     },
+    // ميزة جديدة لم تعرفها الشركة بعد تأخذ الافتراضي (مفعّلة): لا يختفي زر
+    // كانت تستخدمه
+    features: {
+      ...DEFAULT_POS_FEATURES,
+      ...(saved?.features ?? {}),
+      scaleBarcode: scale.enabled,
+    },
+    template: saved?.template ?? 'all',
+    featureDisabledAt: saved?.featureDisabledAt ?? {},
   };
 }

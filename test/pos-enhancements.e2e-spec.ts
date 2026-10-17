@@ -243,10 +243,18 @@ describe('POS enhancements (e2e)', () => {
     expect(
       (await patch('/sales/settings', { posOptions: options })).status,
     ).toBe(200);
-    // إعدادات شاشة أقدم بلا priceChange: لا تحتاج موافقة على تغيير السعر
-    expect((await bootstrap()).posOptions).toEqual({
+    // إعدادات شاشة أقدم بلا priceChange: لا تحتاج موافقة على تغيير السعر.
+    // ومعها مميزات الشاشة (pos-screen-settings) بالافتراضي
+    const saved = (await bootstrap()).posOptions as typeof options & {
+      features: Record<string, boolean>;
+    };
+    expect(saved).toMatchObject({
       ...options,
       approvals: { ...options.approvals, priceChange: false },
+    });
+    expect(saved.features).toMatchObject({
+      scaleBarcode: true,
+      quickPay: false,
     });
     const priceApproval = {
       ...options,
@@ -255,7 +263,7 @@ describe('POS enhancements (e2e)', () => {
     expect(
       (await patch('/sales/settings', { posOptions: priceApproval })).status,
     ).toBe(200);
-    expect((await bootstrap()).posOptions).toEqual(priceApproval);
+    expect((await bootstrap()).posOptions).toMatchObject(priceApproval);
 
     expect(
       (

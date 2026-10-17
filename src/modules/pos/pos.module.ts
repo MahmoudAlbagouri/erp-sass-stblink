@@ -21,6 +21,7 @@ import {
   RestaurantSettings,
 } from './entities/restaurant.entity';
 import { PosExtrasService } from './pos-extras.service';
+import { PosScreenSettingsService } from './pos-screen-settings.service';
 import { PosDeviceGuard } from './guards/pos-device.guard';
 import { PosCashiersService } from './pos-cashiers.service';
 import { PosDeviceController } from './pos-device.controller';
@@ -72,6 +73,7 @@ export class PosDevicesQuotaResolver implements QuotaResolver {
     PosService,
     PosCashiersService,
     PosExtrasService,
+    PosScreenSettingsService,
     RestaurantService,
     PosDeviceGuard,
     PosDevicesQuotaResolver,

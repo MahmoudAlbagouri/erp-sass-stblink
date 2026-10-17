@@ -423,6 +423,10 @@ export const PERMS = {
     name: 'manage_pos_devices',
     labelAr: 'إضافة وتعديل أجهزة الكاشير',
   },
+  POS_SETTINGS_MANAGE: {
+    name: 'manage_pos_settings',
+    labelAr: 'إعدادات شاشة الكاشير: المميزات الظاهرة والقوالب',
+  },
   RESTAURANT_MANAGE: {
     name: 'manage_restaurant',
     labelAr: 'إدارة الطاولات وإعدادات المطبخ',

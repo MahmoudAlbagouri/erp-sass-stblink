@@ -4,7 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { defaultVatRegistered } from '../../common/utils/vat.util';
 import { UpdateSalesSettingsDto } from './dto/sales.dto';
-import { SalesSettings } from './entities/sales-settings.entity';
+import { PosOptions, SalesSettings } from './entities/sales-settings.entity';
 
 @Injectable()
 export class SalesSettingsService {
@@ -49,7 +49,27 @@ export class SalesSettingsService {
         'أدخل الرقم الضريبي للمنشأة قبل تفعيل التسجيل في ضريبة القيمة المضافة',
       );
     }
-    Object.assign(current, dto);
+    const { posOptions, ...fields } = dto;
+    Object.assign(current, fields);
+    // دمج لا استبدال: صفحة الفوترة ترسل الميزان والموافقات فقط، فلا تمسح
+    // مميزات الشاشة التي تُحفظ من صفحتها
+    if (posOptions) {
+      current.posOptions = {
+        ...current.posOptions,
+        // الموافقات من شاشة أقدم قد تأتي بلا priceChange: الافتراضي يكمّلها
+        ...(posOptions as Partial<PosOptions>),
+      };
+    }
+    return this.settings.save(current);
+  }
+
+  /** يعدّل أجزاء من إعدادات الكاشير ويبقي الباقي كما هو */
+  async updatePosOptions(
+    tenantId: string,
+    patch: Partial<PosOptions>,
+  ): Promise<SalesSettings> {
+    const current = await this.get(tenantId);
+    current.posOptions = { ...current.posOptions, ...patch };
     return this.settings.save(current);
   }
 }
