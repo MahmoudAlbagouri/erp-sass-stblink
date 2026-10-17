@@ -39,6 +39,8 @@ import {
 } from '../sales/sales-invoices.service';
 import { SalesReturnsService } from '../sales/sales-returns.service';
 import { DeliveryService } from '../delivery/delivery.service';
+import { KitchenCloseOp, KitchenSendOp } from './dto/restaurant.dto';
+import { PosRestaurantOptions, RestaurantService } from './restaurant.service';
 import type { PosDeliveryOptions } from '../delivery/delivery.service';
 import { SubscriptionManagerService } from '../subscriptions/subscription-manager.service';
 import { SalesSettingsService } from '../sales/sales-settings.service';
@@ -143,6 +145,8 @@ export interface PosBootstrap {
   posOptions: PosOptions;
   /** البيع "توصيل": الجهات والمناطق وصنف الرسوم. null = الباقة بلا توصيل */
   delivery: PosDeliveryOptions | null;
+  /** المطاعم: الطاولات وإعدادات المطبخ. null = الباقة بلا مطاعم */
+  restaurant: PosRestaurantOptions | null;
 }
 
 export interface PosTenantProfile {
@@ -248,6 +252,7 @@ export class PosService {
     private readonly cashiers: PosCashiersService,
     private readonly extras: PosExtrasService,
     private readonly delivery: DeliveryService,
+    private readonly restaurant: RestaurantService,
     private readonly subscriptions: SubscriptionManagerService,
   ) {}
 
@@ -445,6 +450,11 @@ export class PosService {
       .catch(() => false))
       ? await this.delivery.posOptions(tenantId)
       : null;
+    const restaurant = (await this.subscriptions
+      .hasFeature(tenantId, FEATURES.RESTAURANT_MODULE.name)
+      .catch(() => false))
+      ? await this.restaurant.deviceOptions(device)
+      : null;
 
     const [
       settings,
@@ -503,6 +513,7 @@ export class PosService {
       promotions,
       posOptions: resolvePosOptions(settings.posOptions),
       delivery,
+      restaurant,
     };
   }
 
@@ -665,6 +676,18 @@ export class PosService {
         case 'shift.close':
           duplicate = await this.closeShift(
             await validated(CloseShiftOp, operation.payload),
+            device,
+          );
+          break;
+        case 'kitchen.send':
+          duplicate = await this.restaurant.recordKitchenOrder(
+            await validated(KitchenSendOp, operation.payload),
+            device,
+          );
+          break;
+        case 'kitchen.close':
+          duplicate = await this.restaurant.closeKitchenOrders(
+            await validated(KitchenCloseOp, operation.payload),
             device,
           );
           break;

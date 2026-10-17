@@ -515,6 +515,8 @@ export const POS_OPERATION_TYPES = [
   'cash.move',
   'audit',
   'shift.close',
+  'kitchen.send',
+  'kitchen.close',
 ] as const;
 export type PosOperationType = (typeof POS_OPERATION_TYPES)[number];
 

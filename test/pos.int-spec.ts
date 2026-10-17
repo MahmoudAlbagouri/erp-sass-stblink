@@ -30,6 +30,7 @@ import {
   PosPromotion,
 } from '../src/modules/pos/entities/pos-extras.entity';
 import { PosService } from '../src/modules/pos/pos.service';
+import { RestaurantService } from '../src/modules/pos/restaurant.service';
 import { CustomersService } from '../src/modules/sales/customers.service';
 import { CustomerPayment } from '../src/modules/sales/entities/customer-payment.entity';
 import { Customer } from '../src/modules/sales/entities/customer.entity';
@@ -233,6 +234,8 @@ describe('pos module', () => {
       ),
       // التوصيل خارج هذا الاختبار: الباقة بلا توصيل
       {} as DeliveryService,
+      // والمطاعم كذلك: الباقة بلا مطاعم
+      {} as RestaurantService,
       { hasFeature: () => Promise.resolve(false) } as never,
     );
   });

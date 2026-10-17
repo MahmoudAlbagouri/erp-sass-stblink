@@ -15,12 +15,19 @@ import {
   PosCashMovement,
   PosPromotion,
 } from './entities/pos-extras.entity';
+import {
+  DiningTable,
+  KitchenOrder,
+  RestaurantSettings,
+} from './entities/restaurant.entity';
 import { PosExtrasService } from './pos-extras.service';
 import { PosDeviceGuard } from './guards/pos-device.guard';
 import { PosCashiersService } from './pos-cashiers.service';
 import { PosDeviceController } from './pos-device.controller';
 import { PosController } from './pos.controller';
 import { PosService } from './pos.service';
+import { RestaurantController } from './restaurant.controller';
+import { RestaurantService } from './restaurant.service';
 
 /** استهلاك حد الخطة max_pos_devices = عدد أجهزة الكاشير */
 @QuotaResolverFor('max_pos_devices')
@@ -35,7 +42,7 @@ export class PosDevicesQuotaResolver implements QuotaResolver {
 
 /**
  * موديول نقاط البيع: أجهزة الكاشير، الورديات، ومزامنة الأجهزة (تنزيل بيانات
- * البيع ورفع ما بيع محلياً).
+ * البيع ورفع ما بيع محلياً)، والمطاعم (الطاولات وشاشة المطبخ).
  *
  * لا يملك فواتير: كل بيع يُسجَّل عبر SalesInvoicesService.recordPosSale، فيمرّ
  * بنفس مسار المخزون والترقيم والضريبة كأي فاتورة بيع.
@@ -49,6 +56,9 @@ export class PosDevicesQuotaResolver implements QuotaResolver {
       PosCashMovement,
       PosAuditLog,
       PosPromotion,
+      DiningTable,
+      KitchenOrder,
+      RestaurantSettings,
     ]),
     JwtModule.register({}), // PosDeviceGuard: جلسة المستخدم الاختيارية
     CatalogModule, // ProductsService, CatalogSettingsService
@@ -57,11 +67,12 @@ export class PosDevicesQuotaResolver implements QuotaResolver {
     SubscriptionsModule, // SubscriptionGuard
     DeliveryModule, // البيع "توصيل" من الكاشير
   ],
-  controllers: [PosController, PosDeviceController],
+  controllers: [PosController, PosDeviceController, RestaurantController],
   providers: [
     PosService,
     PosCashiersService,
     PosExtrasService,
+    RestaurantService,
     PosDeviceGuard,
     PosDevicesQuotaResolver,
   ],

@@ -77,6 +77,10 @@ export const FEATURES = {
     name: 'delivery_module',
     labelAr: 'التوصيل والشحن (طيارين وشركات شحن وتسوياتهم)',
   },
+  RESTAURANT_MODULE: {
+    name: 'restaurant_module',
+    labelAr: 'المطاعم: الطاولات وشاشة المطبخ وبون المطبخ',
+  },
   ACCOUNTING_MODULE: {
     name: 'accounting_module',
     labelAr: 'المحاسبة (شجرة الحسابات والقيود والقوائم المالية)',

@@ -1,6 +1,6 @@
 # نقاط البيع (`pos`)
 
-> أجهزة الكاشير، الكاشيرات، الورديات، ومزامنة شاشة تعمل بلا إنترنت.
+> أجهزة الكاشير، الكاشيرات، الورديات، ومزامنة شاشة تعمل بلا إنترنت — والمطاعم: الطاولات وشاشة المطبخ وبونه.
 
 ## الغرض
 
@@ -66,7 +66,29 @@
 - **ما ينزل للجهاز** مع الأصناف: رصيد مخزنه، أرصدة العملاء، العروض، وإعدادات
   الكاشير (باركود الميزان والموافقات).
 - عمليات الطابور: `shift.open`، `customer.create`، `sale`، `return`،
-  `cash.move`، `audit`، `shift.close`.
+  `cash.move`، `audit`، `shift.close`، `kitchen.send`، `kitchen.close`.
+- **المطاعم** (ميزة `restaurant_module`، `restaurant.service.ts`):
+  - **الطاولات** (`dining_tables`): اسم وقسم وكراسي، لفرع أو لكل الفروع (null).
+    تنزل للجهاز مع البوتستراب (`restaurant`: طاولات فرعه الفعّالة + إعدادات
+    المطبخ؛ null لباقة بلا مطاعم). **الطلب المفتوح على الطاولة يعيش على الجهاز**
+    (يعمل بلا إنترنت) — السيرفر يعرف الطاولة وبونات مطبخها فقط.
+  - **بون المطبخ** (`kitchen_orders`): عملية `kitchen.send` بمعرّف من الجهاز (رفع
+    مكرر = `duplicate`): رقم الطلب في الوردية، النوع (`dine_in` / `takeaway` /
+    `delivery`)، الطاولة، `orderRef` (يجمع بونات الطلب الواحد) و`round`،
+    والأسطر — **الكمية السالبة إلغاء** ما أُرسل. الفرع = فرع مخزن الجهاز.
+    `sentAt` وقت الجهاز، إلا ساعة جهاز في المستقبل أو متأخرة أكثر من يوم: وقت
+    الوصول.
+  - **الحالات**: `new` ← `preparing` ← `ready` ← `served` (و`cancelled`)، والرجوع
+    خطوة مسموح لتصحيح ضغطة. الأوقات `startedAt` / `readyAt` / `servedAt`.
+  - **شاشة المطبخ** (`GET /pos/kitchen/orders`، صلاحية `use_kitchen_display`):
+    الجديد وقيد التحضير (آخر 24 ساعة) والجاهز (آخر ساعتين) — لفرع أو لفروع
+    المستخدم.
+  - **الجهاز يعرف الجاهز**: `GET /pos/device/kitchen` (بوناته غير المسلّمة)،
+    و`POST /pos/device/kitchen/:id/served`. عملية `kitchen.close` (الطاولة دفعت)
+    تُسلّم **الجاهز فقط** من بوناتها — ما لم يُحضَّر بعد يبقى للمطبخ.
+  - **إعدادات المطبخ** (`restaurant_settings`، صف لكل شركة، منفصل عن
+    `sales_settings` لأن حفظ إعدادات الفوترة يستبدل `posOptions` كاملة):
+    تصنيفات المطبخ (فارغة = كل الأصناف)، طباعة البون، والإرسال عند الدفع.
 - أكواد الرفض: `401` المفتاح غير صالح، `409` الجهاز مربوط بشاشة أخرى، `402`
   الاشتراك متوقف.
 
@@ -82,6 +104,9 @@
 - `/pos/display` — شاشة العميل (نافذة ثانية تعرض السلة والإجمالي).
 - `/dashboard/pos/devices`، `/cashiers`، `/shifts`.
 - `/dashboard/pos/promotions` — العروض والأسعار الخاصة.
+- `/dashboard/pos/restaurant` — الطاولات (واحدة أو متتالية: «طاولة 1» … «طاولة
+  20») وإعدادات المطبخ.
+- `/kitchen` — شاشة المطبخ (ملء الشاشة، تتحدث كل 5 ثوانٍ).
 - `/dashboard/pos/audit` — سجل التدقيق وحركات الدرج.
 - إعدادات الكاشير (الموافقات وباركود الميزان) في `/dashboard/sales/settings`.
 
@@ -92,7 +117,7 @@
 ### الملفات
 
 - المجلد: `src/modules/pos/`
-- الخدمات: `pos-cashiers.service.ts`، `pos-extras.service.ts`، `pos.service.ts`
+- الخدمات: `pos-cashiers.service.ts`، `pos-extras.service.ts`، `pos.service.ts`، `restaurant.service.ts`
 
 ### جداول قاعدة البيانات
 
@@ -104,8 +129,11 @@
 | `pos_devices` | `PosDevice` | `pos.entity.ts` |
 | `pos_cashiers` | `PosCashier` | `pos.entity.ts` |
 | `pos_shifts` | `PosShift` | `pos.entity.ts` |
+| `dining_tables` | `DiningTable` | `restaurant.entity.ts` |
+| `kitchen_orders` | `KitchenOrder` | `restaurant.entity.ts` |
+| `restaurant_settings` | `RestaurantSettings` | `restaurant.entity.ts` |
 
-### المسارات (25)
+### المسارات (36)
 
 **شاشة الكاشير** — `pos-device.controller.ts` (القسم في Swagger: «شاشة الكاشير»)
 
@@ -115,6 +143,8 @@
 | GET | `/pos/device/bootstrap` | الأصناف والأسعار والعملاء والكاشيرات (كلها أو ما تغيّر منذ `since`) | — | — |
 | POST | `/pos/device/sync` | رفع طابور الشاشة: ورديات ومبيعات ومرتجعات تمّت محلياً | — | — |
 | GET | `/pos/device/invoices/:number` | فاتورة برقمها المطبوع: لاختيار ما يُرجَع منها | — | — |
+| GET | `/pos/device/kitchen` | بونات المطبخ من هذه الشاشة التي لم تُسلَّم: حالتها (للتنبيه بالجاهز) | — | — |
+| POST | `/pos/device/kitchen/:id/served` | الكاشير استلم طلباً جاهزاً من المطبخ | — | — |
 
 **نقاط البيع** — `pos.controller.ts` (القسم في Swagger: «نقاط البيع»)
 
@@ -141,5 +171,19 @@
 | POST | `/pos/promotions` | إضافة عرض: سعر خاص، خصم نسبة، أو اشترِ X واحصل على Y | إدارة عروض وأسعار الكاشير `manage_pos_promotions` | نقاط البيع (الكاشير) أونلاين وأوفلاين `pos_module` |
 | PATCH | `/pos/promotions/:id` | تعديل عرض أو إيقافه | إدارة عروض وأسعار الكاشير `manage_pos_promotions` | نقاط البيع (الكاشير) أونلاين وأوفلاين `pos_module` |
 | DELETE | `/pos/promotions/:id` | حذف عرض | إدارة عروض وأسعار الكاشير `manage_pos_promotions` | نقاط البيع (الكاشير) أونلاين وأوفلاين `pos_module` |
+
+**نقاط البيع** — `restaurant.controller.ts` (القسم في Swagger: «نقاط البيع»)
+
+| الطريقة | المسار | الوظيفة | الصلاحية | ميزة الباقة |
+|---|---|---|---|---|
+| GET | `/pos/restaurant/tables` | طاولات المطعم مرتبة بالقسم (المقيَّد بفروع: طاولات فروعه والمشتركة) | عرض أجهزة الكاشير والورديات `view_pos` | المطاعم: الطاولات وشاشة المطبخ وبون المطبخ `restaurant_module` |
+| POST | `/pos/restaurant/tables` | إضافة طاولة | إدارة الطاولات وإعدادات المطبخ `manage_restaurant` | المطاعم: الطاولات وشاشة المطبخ وبون المطبخ `restaurant_module` |
+| POST | `/pos/restaurant/tables/bulk` | إضافة طاولات متتالية دفعة واحدة ("طاولة 1" … "طاولة 20") | إدارة الطاولات وإعدادات المطبخ `manage_restaurant` | المطاعم: الطاولات وشاشة المطبخ وبون المطبخ `restaurant_module` |
+| PATCH | `/pos/restaurant/tables/:id` | تعديل طاولة أو إيقافها | إدارة الطاولات وإعدادات المطبخ `manage_restaurant` | المطاعم: الطاولات وشاشة المطبخ وبون المطبخ `restaurant_module` |
+| DELETE | `/pos/restaurant/tables/:id` | حذف طاولة (بونات المطبخ القديمة تبقى باسمها) | إدارة الطاولات وإعدادات المطبخ `manage_restaurant` | المطاعم: الطاولات وشاشة المطبخ وبون المطبخ `restaurant_module` |
+| GET | `/pos/restaurant/settings` | إعدادات المطبخ: التصنيفات التي تُحضَّر فيه، طباعة البون، والإرسال عند الدفع | عرض أجهزة الكاشير والورديات `view_pos` | المطاعم: الطاولات وشاشة المطبخ وبون المطبخ `restaurant_module` |
+| PATCH | `/pos/restaurant/settings` | تعديل إعدادات المطبخ (تصل شاشات الكاشير مع مزامنتها التالية) | إدارة الطاولات وإعدادات المطبخ `manage_restaurant` | المطاعم: الطاولات وشاشة المطبخ وبون المطبخ `restaurant_module` |
+| GET | `/pos/kitchen/orders` | طلبات المطبخ: الجديد وقيد التحضير والجاهز الذي لم يُسلَّم | شاشة المطبخ: عرض الطلبات وتحديث حالتها `use_kitchen_display` | المطاعم: الطاولات وشاشة المطبخ وبون المطبخ `restaurant_module` |
+| PATCH | `/pos/kitchen/orders/:id` | نقل طلب: قيد التحضير، جاهز، سُلّم (أو الرجوع خطوة) | شاشة المطبخ: عرض الطلبات وتحديث حالتها `use_kitchen_display` | المطاعم: الطاولات وشاشة المطبخ وبون المطبخ `restaurant_module` |
 
 <!-- AUTO:END -->

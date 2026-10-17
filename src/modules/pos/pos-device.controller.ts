@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Post,
   Query,
   UseGuards,
@@ -19,6 +20,7 @@ import {
   type PosDeviceContext,
 } from './guards/pos-device.guard';
 import { PosService } from './pos.service';
+import { RestaurantService } from './restaurant.service';
 
 /**
  * ما تطلبه شاشة الكاشير في الخلفية وهي تبيع: فحص الاتصال، سحب الأصناف
@@ -32,7 +34,10 @@ import { PosService } from './pos.service';
 @Controller('pos/device')
 @UseGuards(PosDeviceGuard)
 export class PosDeviceController {
-  constructor(private readonly pos: PosService) {}
+  constructor(
+    private readonly pos: PosService,
+    private readonly restaurant: RestaurantService,
+  ) {}
 
   /** فحص الاتصال — وهو أيضاً ما يُعلم الشاشة أن اشتراكها ما زال سارياً */
   @Get('ping')
@@ -66,5 +71,21 @@ export class PosDeviceController {
     @PosContext() context: PosDeviceContext,
   ) {
     return this.pos.lookupInvoice(number, context.device.tenantId);
+  }
+
+  /** بونات المطبخ من هذه الشاشة التي لم تُسلَّم: حالتها (للتنبيه بالجاهز) */
+  @Get('kitchen')
+  kitchen(@PosContext() context: PosDeviceContext) {
+    return this.restaurant.deviceKitchenOrders(context.device);
+  }
+
+  /** الكاشير استلم طلباً جاهزاً من المطبخ */
+  @Post('kitchen/:id/served')
+  @HttpCode(HttpStatus.OK)
+  served(
+    @Param('id', ParseUUIDPipe) id: string,
+    @PosContext() context: PosDeviceContext,
+  ) {
+    return this.restaurant.serveFromDevice(id, context.device);
   }
 }

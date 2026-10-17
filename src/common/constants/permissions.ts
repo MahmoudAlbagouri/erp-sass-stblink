@@ -423,6 +423,14 @@ export const PERMS = {
     name: 'manage_pos_devices',
     labelAr: 'إضافة وتعديل أجهزة الكاشير',
   },
+  RESTAURANT_MANAGE: {
+    name: 'manage_restaurant',
+    labelAr: 'إدارة الطاولات وإعدادات المطبخ',
+  },
+  KITCHEN_DISPLAY: {
+    name: 'use_kitchen_display',
+    labelAr: 'شاشة المطبخ: عرض الطلبات وتحديث حالتها',
+  },
 
   // ─── التوصيل والشحن ─────────────────────────────────
   DELIVERY_VIEW: {
