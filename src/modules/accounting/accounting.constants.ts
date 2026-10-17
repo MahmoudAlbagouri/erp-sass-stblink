@@ -82,6 +82,8 @@ export enum JournalSource {
   LEAVE_SETTLEMENT = 'leave_settlement',
   CUSTOMER_OPENING = 'customer_opening',
   SUPPLIER_OPENING = 'supplier_opening',
+  EXPENSE_VOUCHER = 'expense_voucher',
+  YEAR_CLOSING = 'year_closing',
 }
 
 export const JOURNAL_SOURCE_LABEL: Record<JournalSource, string> = {
@@ -105,6 +107,8 @@ export const JOURNAL_SOURCE_LABEL: Record<JournalSource, string> = {
   [JournalSource.LEAVE_SETTLEMENT]: 'بدل إجازة مصروف',
   [JournalSource.CUSTOMER_OPENING]: 'رصيد افتتاحي لعميل',
   [JournalSource.SUPPLIER_OPENING]: 'رصيد افتتاحي لمورد',
+  [JournalSource.EXPENSE_VOUCHER]: 'سند صرف',
+  [JournalSource.YEAR_CLOSING]: 'إقفال السنة المالية',
 };
 
 /** الطرف في سطر القيد (الدفتر المساعد) */
@@ -132,6 +136,23 @@ export const DEFAULT_PAYMENT_ACCOUNTS: Record<string, SystemAccount> = {
 };
 
 export const JOURNAL_NUMBER_PREFIX = 'JV-';
+export const EXPENSE_VOUCHER_PREFIX = 'PV-';
+
+/**
+ * حسابات لها دفتر مساعد في النظام (كشف العملاء، الموردين، المخزون، ذمم
+ * الموظفين والتوصيل) أو تحسبها المستندات (الضريبة): لا يُصرف عليها بسند
+ * صرف — تتحرك بمستنداتها فيبقى الأستاذ مطابقاً لدفاترها.
+ */
+export const SUBLEDGER_ACCOUNTS: readonly SystemAccount[] = [
+  SystemAccount.RECEIVABLES,
+  SystemAccount.PAYABLES,
+  SystemAccount.INVENTORY,
+  SystemAccount.COURIER_RECEIVABLE,
+  SystemAccount.EMPLOYEE_ADVANCES,
+  SystemAccount.EMPLOYEE_LOANS,
+  SystemAccount.VAT_INPUT,
+  SystemAccount.VAT_OUTPUT,
+];
 
 /** أقصى أسطر في قيد يدوي (القيد الافتتاحي التلقائي بلا حد) */
 export const MAX_MANUAL_LINES = 300;

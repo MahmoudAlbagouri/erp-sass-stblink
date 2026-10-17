@@ -214,6 +214,13 @@ export class AccountingSettings {
   @Column({ type: 'date', nullable: true })
   lockDate?: string | null;
 
+  /**
+   * آخر سنة مالية أُقفلت (أُغلقت إيراداتها ومصروفاتها في الأرباح المحتجزة).
+   * ما قبل نهايتها مقفل دائماً، أياً كان تاريخ القفل
+   */
+  @Column({ type: 'int', nullable: true })
+  closedThroughYear?: number | null;
+
   /** دولة الشجرة الجاهزة التي أُنشئت منها الشجرة */
   @Column({ type: 'varchar', length: 2 })
   chartCountry!: string;

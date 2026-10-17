@@ -3,7 +3,11 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import Decimal from 'decimal.js';
 import { DataSource } from 'typeorm';
 import { moneyDecimalsOf } from '../../common/utils/money.util';
-import { AccountType, SystemAccount } from './accounting.constants';
+import {
+  AccountType,
+  JournalSource,
+  SystemAccount,
+} from './accounting.constants';
 import {
   BalanceSheetQueryDto,
   LedgerQueryDto,
@@ -232,11 +236,14 @@ export class ReportsService {
     const rows = await this.dataSource.query<
       { accountId: string; net: string }[]
     >(
+      // قيد إقفال السنة لا يدخل: يصفّر الإيرادات والمصروفات فيُخفي ربح السنة
       `SELECT l."accountId", SUM(l."debit" - l."credit") AS "net"
          FROM journal_lines l
          JOIN accounts a ON a."id" = l."accountId"
+         JOIN journal_entries e ON e."id" = l."entryId"
         WHERE l."tenantId" = $1 AND l."date" >= $2 AND l."date" <= $3
-          AND a."type" IN ('revenue', 'expense')${branch}
+          AND a."type" IN ('revenue', 'expense')
+          AND e."sourceType" <> '${JournalSource.YEAR_CLOSING}'${branch}
         GROUP BY l."accountId"`,
       params,
     );
@@ -350,7 +357,10 @@ export class ReportsService {
       assets,
       liabilities,
       equity,
-      /** أرباح السنوات السابقة غير المقفلة في حساب، وصافي ربح السنة حتى التاريخ */
+      /**
+       * أرباح سنوات سابقة لم تُقفل بعد (المقفلة في حساب الأرباح المحتجزة ضمن
+       * حقوق الملكية)، وصافي ربح السنة حتى التاريخ
+       */
       earnings: { retained, currentYear: currentProfit },
       totals: {
         assets: totalAssets,

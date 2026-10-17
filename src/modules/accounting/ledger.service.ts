@@ -50,6 +50,11 @@ export interface LedgerEntryInput {
    * لأول يوم مفتوح ويُحفظ تاريخ المستند. القيد اليدوي في فترة مقفلة يُرفض.
    */
   automatic: boolean;
+  /**
+   * إقفال السنة وإعادة فتحها فقط: القيد بتاريخ آخر يوم في السنة ولو كانت
+   * الفترة مقفلة (الإقفال نفسه يقفلها). بداية الدفاتر تبقى حداً.
+   */
+  allowLocked?: boolean;
 }
 
 /**
@@ -241,11 +246,15 @@ export class LedgerService {
     input: LedgerEntryInput,
     settings: AccountingSettings,
   ): { date: string; documentDate: string | null } {
-    const firstOpen = settings.lockDate
-      ? maxDate(settings.startDate, nextDay(settings.lockDate))
+    const lock = effectiveLockDate(settings);
+    const firstOpen = lock
+      ? maxDate(settings.startDate, nextDay(lock))
       : settings.startDate;
     if (input.date >= firstOpen)
       return { date: input.date, documentDate: null };
+    if (input.allowLocked && input.date >= settings.startDate) {
+      return { date: input.date, documentDate: null };
+    }
 
     if (!input.automatic) {
       if (input.date < settings.startDate) {
@@ -254,7 +263,7 @@ export class LedgerService {
         );
       }
       throw new BadRequestException(
-        `الفترة مقفلة حتى ${settings.lockDate} — سجّل القيد بتاريخ بعدها`,
+        `الفترة مقفلة حتى ${lock} — سجّل القيد بتاريخ بعدها`,
       );
     }
     return { date: firstOpen, documentDate: input.date };
@@ -300,6 +309,15 @@ function normalizeLines(
 }
 
 const maxDate = (a: string, b: string) => (a >= b ? a : b);
+
+/** آخر يوم مقفل: تاريخ القفل أو نهاية آخر سنة مُقفلة، أيهما أبعد */
+export function effectiveLockDate(settings: AccountingSettings): string | null {
+  const closedEnd = settings.closedThroughYear
+    ? `${settings.closedThroughYear}-12-31`
+    : null;
+  if (!settings.lockDate) return closedEnd;
+  return closedEnd ? maxDate(settings.lockDate, closedEnd) : settings.lockDate;
+}
 
 /** اليوم التالي لتاريخ (YYYY-MM-DD) */
 export function nextDay(date: string): string {

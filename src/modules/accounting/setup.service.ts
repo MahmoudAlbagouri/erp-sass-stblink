@@ -185,6 +185,15 @@ export class SetupService {
     const changes: Partial<AccountingSettings> = {};
 
     if (dto.lockDate !== undefined) {
+      // السنة المُقفلة لا تُفتح بتاريخ القفل: بإعادة فتحها (فيُعكس قيد إقفالها)
+      const closedEnd = settings.closedThroughYear
+        ? `${settings.closedThroughYear}-12-31`
+        : null;
+      if (closedEnd && (dto.lockDate === null || dto.lockDate < closedEnd)) {
+        throw new BadRequestException(
+          `سنة ${settings.closedThroughYear} مُقفلة: القفل لا يقل عن ${closedEnd} — أعد فتح السنة أولاً`,
+        );
+      }
       if (dto.lockDate !== null) {
         if (dto.lockDate < settings.startDate) {
           throw new BadRequestException(

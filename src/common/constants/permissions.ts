@@ -455,9 +455,13 @@ export const PERMS = {
     name: 'create_journal_entries',
     labelAr: 'تسجيل القيود اليدوية وعكسها',
   },
+  EXPENSE_VOUCHER_MANAGE: {
+    name: 'manage_expense_vouchers',
+    labelAr: 'تسجيل سندات الصرف (المصروفات) وإلغاؤها',
+  },
   ACCOUNTING_SETTINGS_MANAGE: {
     name: 'manage_accounting_settings',
-    labelAr: 'تفعيل المحاسبة وقفل الفترات وحسابات طرق الدفع',
+    labelAr: 'تفعيل المحاسبة وقفل الفترات وإقفال السنة وحسابات طرق الدفع',
   },
 
   // ── System (system admins only) ─────────────────────

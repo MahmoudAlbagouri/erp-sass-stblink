@@ -7,6 +7,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseIntPipe,
   ParseUUIDPipe,
   Patch,
   Post,
@@ -40,12 +41,15 @@ import {
   TrialBalanceQueryDto,
   UpdateAccountDto,
   UpdateAccountingSettingsDto,
+  VatReturnQueryDto,
 } from './dto/accounting.dto';
 import { JournalsService } from './journals.service';
 import { PostingService } from './posting.service';
 import { ReportsService } from './reports.service';
 import { SetupService } from './setup.service';
 import { buildChartTemplate } from './templates/chart-templates';
+import { VatReturnService } from './vat-return.service';
+import { YearEndService } from './year-end.service';
 
 @ApiTags(apiTag('ACCOUNTING'))
 @Controller('accounting')
@@ -59,6 +63,8 @@ export class AccountingController {
     private readonly journals: JournalsService,
     private readonly reports: ReportsService,
     private readonly posting: PostingService,
+    private readonly yearEnd: YearEndService,
+    private readonly vat: VatReturnService,
   ) {}
 
   // ─── التفعيل والإعدادات ───
@@ -105,6 +111,40 @@ export class AccountingController {
   async sync(@CurrentTenantId() tenantId: string) {
     await this.setup.settingsOf(tenantId);
     return this.posting.sync(tenantId, true);
+  }
+
+  // ─── إقفال السنة المالية ───
+
+  /** السنوات المالية: ربح كل سنة، وحالتها (مقفلة/مفتوحة)، وما يمكن إقفاله أو إعادة فتحه */
+  @Get('year-end')
+  @Permissions(PERMS.ACCOUNTING_VIEW)
+  async years(@CurrentTenantId() tenantId: string) {
+    await this.posting.sync(tenantId);
+    return this.yearEnd.list(tenantId);
+  }
+
+  /** إقفال سنة منتهية: الإيرادات والمصروفات إلى الأرباح المحتجزة، وقفل الفترة حتى نهايتها */
+  @Post('year-end/:year/close')
+  @HttpCode(HttpStatus.OK)
+  @Permissions(PERMS.ACCOUNTING_SETTINGS_MANAGE)
+  closeYear(
+    @Param('year', ParseIntPipe) year: number,
+    @CurrentTenantId() tenantId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.yearEnd.close(tenantId, year, userId);
+  }
+
+  /** إعادة فتح آخر سنة مقفلة (عكس قيد إقفالها) */
+  @Post('year-end/:year/reopen')
+  @HttpCode(HttpStatus.OK)
+  @Permissions(PERMS.ACCOUNTING_SETTINGS_MANAGE)
+  reopenYear(
+    @Param('year', ParseIntPipe) year: number,
+    @CurrentTenantId() tenantId: string,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.yearEnd.reopen(tenantId, year, userId);
   }
 
   // ─── شجرة الحسابات ───
@@ -227,6 +267,17 @@ export class AccountingController {
   ) {
     await this.posting.sync(tenantId);
     return this.reports.incomeStatement(tenantId, query);
+  }
+
+  /** إقرار ضريبة القيمة المضافة لفترة: المبيعات والمشتريات والمصروفات بفئة الضريبة، وصافي المستحق */
+  @Get('reports/vat-return')
+  @Permissions(PERMS.ACCOUNTING_VIEW)
+  async vatReturn(
+    @Query() query: VatReturnQueryDto,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    await this.posting.sync(tenantId);
+    return this.vat.build(tenantId, query);
   }
 
   /** الميزانية (المركز المالي) في تاريخ */

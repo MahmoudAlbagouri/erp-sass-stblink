@@ -262,3 +262,116 @@ export class BalanceSheetQueryDto {
   @IsUUID()
   branchId?: string;
 }
+
+// ══════════════════════════ سندات الصرف ══════════════════════════
+
+export class ExpenseLineDto {
+  /** حساب المصروف (فرعي) */
+  @IsUUID(undefined, { message: 'اختر حساب المصروف' })
+  accountId!: string;
+
+  /** المبلغ قبل الضريبة */
+  @IsNumber(MONEY)
+  @Min(0.001, { message: 'المبلغ أكبر من صفر' })
+  amount!: number;
+
+  /** نسبة الضريبة % (صفر أو غيابها = بلا ضريبة) */
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(100)
+  taxRate?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  description?: string | null;
+
+  /** مركز التكلفة */
+  @IsOptional()
+  @IsUUID()
+  branchId?: string | null;
+}
+
+export class CreateExpenseVoucherDto {
+  @Matches(DATE_ONLY, { message: DATE_MESSAGE })
+  date!: string;
+
+  /** الصندوق أو البنك الذي يُدفع منه (حساب أصول فرعي) */
+  @IsUUID(undefined, { message: 'اختر الصندوق أو البنك' })
+  paidFromAccountId!: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'المستفيد مطلوب' })
+  @MaxLength(150)
+  payee!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  payeeTaxNumber?: string | null;
+
+  /** رقم فاتورة المستفيد أو الإيصال */
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  reference?: string | null;
+
+  @IsString()
+  @IsNotEmpty({ message: 'البيان مطلوب' })
+  @MaxLength(500)
+  description!: string;
+
+  @IsArray()
+  @ArrayMinSize(1, { message: 'أضف بنداً واحداً على الأقل' })
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => ExpenseLineDto)
+  lines!: ExpenseLineDto[];
+}
+
+export class CancelExpenseVoucherDto {
+  /** تاريخ قيد الإلغاء (في فترة مفتوحة) */
+  @Matches(DATE_ONLY, { message: DATE_MESSAGE })
+  date!: string;
+
+  @IsString()
+  @IsNotEmpty({ message: 'سبب الإلغاء مطلوب' })
+  @MaxLength(300)
+  reason!: string;
+}
+
+export class ExpenseQueryDto extends PaginationQueryDto {
+  @IsOptional()
+  @Matches(DATE_ONLY, { message: DATE_MESSAGE })
+  from?: string;
+
+  @IsOptional()
+  @Matches(DATE_ONLY, { message: DATE_MESSAGE })
+  to?: string;
+
+  @IsOptional()
+  @IsIn(['posted', 'cancelled'])
+  status?: 'posted' | 'cancelled';
+
+  /** السندات التي فيها هذا الحساب (مصروفاً أو صندوقاً) */
+  @IsOptional()
+  @IsUUID()
+  accountId?: string;
+
+  /** رقم السند أو المستفيد أو المرجع أو البيان */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  search?: string;
+}
+
+// ══════════════════════════ الضريبة والإقفال ══════════════════════════
+
+export class VatReturnQueryDto {
+  @Matches(DATE_ONLY, { message: DATE_MESSAGE })
+  from!: string;
+
+  @Matches(DATE_ONLY, { message: DATE_MESSAGE })
+  to!: string;
+}
