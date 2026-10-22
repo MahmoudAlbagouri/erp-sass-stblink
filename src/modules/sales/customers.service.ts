@@ -27,8 +27,9 @@ const CODE_PREFIX = 'CUS-';
 /**
  * ما على العميل — يُحسب دائماً من المستندات الصادرة (لا عمود رصيد يُحدَّث
  * يدوياً فيخرج عن الحقيقة). `customer` هو اسم الجدول المستعار في الاستعلام.
+ * التعريف الوحيد لرصيد العميل: تستخدمه الصفحة الرئيسية أيضاً فتتطابق الأرقام.
  */
-const BALANCE_SQL = `(
+export const CUSTOMER_BALANCE_SQL = `(
   "customer"."openingBalance"
   + COALESCE((SELECT SUM(i."total") FROM sales_invoices i
                WHERE i."customerId" = "customer"."id" AND i."status" = 'issued'), 0)
@@ -97,7 +98,7 @@ export class CustomersService {
 
     const qb = this.customers
       .createQueryBuilder('customer')
-      .addSelect(BALANCE_SQL, 'balance')
+      .addSelect(CUSTOMER_BALANCE_SQL, 'balance')
       .where('customer.tenantId = :tenantId', { tenantId });
 
     const search = query.search?.trim();
@@ -114,7 +115,7 @@ export class CustomersService {
       });
     }
     if (query.withBalance) {
-      qb.andWhere(`${BALANCE_SQL} <> 0`);
+      qb.andWhere(`${CUSTOMER_BALANCE_SQL} <> 0`);
     }
 
     const total = await qb.getCount();
@@ -134,7 +135,7 @@ export class CustomersService {
   async findOne(id: string, tenantId: string): Promise<Customer> {
     const { entities, raw } = await this.customers
       .createQueryBuilder('customer')
-      .addSelect(BALANCE_SQL, 'balance')
+      .addSelect(CUSTOMER_BALANCE_SQL, 'balance')
       .where('customer.id = :id AND customer.tenantId = :tenantId', {
         id,
         tenantId,
@@ -155,7 +156,7 @@ export class CustomersService {
     const row = await this.customers
       .createQueryBuilder('customer')
       .withDeleted()
-      .select(BALANCE_SQL, 'balance')
+      .select(CUSTOMER_BALANCE_SQL, 'balance')
       .where('customer.id = :id AND customer.tenantId = :tenantId', {
         id,
         tenantId,
@@ -197,7 +198,6 @@ export class CustomersService {
     return qb.orderBy('customer.name', 'ASC').getMany();
   }
 
-  /** إجمالي ما على كل العملاء */
   /**
    * ما على كل عميل الآن (غير الصفري فقط) — تنزّله أجهزة الكاشير لتفحص حد
    * الائتمان عند البيع الآجل بلا إنترنت.
@@ -206,9 +206,9 @@ export class CustomersService {
     const rows = await this.customers
       .createQueryBuilder('customer')
       .select('customer.id', 'id')
-      .addSelect(BALANCE_SQL, 'balance')
+      .addSelect(CUSTOMER_BALANCE_SQL, 'balance')
       .where('customer.tenantId = :tenantId', { tenantId })
-      .andWhere(`${BALANCE_SQL} <> 0`)
+      .andWhere(`${CUSTOMER_BALANCE_SQL} <> 0`)
       .getRawMany<{ id: string; balance: string }>();
     return rows.map((row) => ({ id: row.id, balance: Number(row.balance) }));
   }
@@ -253,9 +253,13 @@ export class CustomersService {
     return false;
   }
 
+  /**
+   * إجمالي ما على العملاء = مجموع الأرصدة الموجبة، كمجموع عمود «عليه» في صفحة
+   * العملاء. عميل له رصيد عندنا لا يُنقص ما على غيره.
+   */
   async totalReceivables(tenantId: string): Promise<number> {
     const [row] = await this.customers.query<{ value: string }[]>(
-      `SELECT COALESCE(SUM(${BALANCE_SQL}), 0) AS "value"
+      `SELECT COALESCE(SUM(GREATEST(${CUSTOMER_BALANCE_SQL}, 0)), 0) AS "value"
          FROM customers "customer"
         WHERE "customer"."tenantId" = $1 AND "customer"."deletedAt" IS NULL`,
       [tenantId],

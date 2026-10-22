@@ -306,6 +306,79 @@ describe('Dashboard overview (e2e)', () => {
     ]);
   });
 
+  it('counts what customers owe exactly as the customers page does', async () => {
+    const units = data<{ id: string }[]>(await get('/catalog/units'));
+    const productId = data<{ id: string }>(
+      await post('/catalog/products', {
+        name: 'مياه 330 مل',
+        baseUnitId: units[0].id,
+        salePrice: 2.3,
+      }),
+    ).id;
+    const warehouses = data<{ id: string; type: string }[]>(
+      await get('/inventory/warehouses'),
+    );
+    const warehouseId = warehouses.find((w) => w.type === 'main')!.id;
+    await post('/inventory/adjustments', {
+      warehouseId,
+      type: 'opening',
+      lines: [{ productId, quantity: 50, unitCost: 1 }],
+    });
+    const customer = (name: string, openingBalance = 0) =>
+      post('/sales/customers', { name, openingBalance }).then(
+        (res) => data<{ id: string }>(res).id,
+      );
+    const onAccount = (customerId: string, amount: number) =>
+      post('/sales/payments', {
+        customerId,
+        paymentDate: '2026-10-12',
+        amount,
+        method: 'cash',
+      });
+
+    // عليه 100 قبل النظام + فاتورة 23 دفع منها 3 + 5 على الحساب = 115
+    const owing = await customer('مطعم الريف', 100);
+    const invoice = data<{ id: string }>(
+      await post('/sales/invoices', {
+        customerId: owing,
+        warehouseId,
+        invoiceDate: '2026-10-12',
+        lines: [{ productId, quantity: 10, unitPrice: 2.3 }],
+      }),
+    );
+    await post(`/sales/invoices/${invoice.id}/issue`, {
+      payments: [{ method: 'cash', amount: 3 }],
+    });
+    await onAccount(owing, 5);
+    // له رصيد عندنا: لا يُنقص ما على غيره
+    await onAccount(await customer('مقهى النخيل'), 30);
+
+    const customers = data<{ data: { balance: number }[] }>(
+      await get('/sales/customers'),
+    );
+    const owedOnPage = customers.data
+      .filter((c) => c.balance > 0)
+      .reduce((sum, c) => sum + c.balance, 0);
+    expect(owedOnPage).toBe(115);
+
+    const { sales, branches } = await overview();
+    expect(sales).toMatchObject({
+      receivables: 115,
+      receivablesBasis: 'balances',
+      topDebtors: [{ name: 'مطعم الريف', total: 115 }],
+    });
+    const summary = data<{ receivables: number }>(await get('/sales/summary'));
+    expect(summary.receivables).toBe(115);
+
+    // الافتتاحي والقبض على الحساب بلا فرع: الفرع يرى المتبقي على فواتيره
+    const scoped = await overview(`?branchId=${branches[0].id}`);
+    expect(scoped.sales).toMatchObject({
+      receivables: 20,
+      receivablesBasis: 'invoices',
+      topDebtors: [{ name: 'مطعم الريف', total: 20 }],
+    });
+  });
+
   it('scopes the numbers to one branch and still compares all branches', async () => {
     await sellSomething();
     const main = (await overview()).branches![0];

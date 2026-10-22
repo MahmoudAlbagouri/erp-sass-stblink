@@ -30,6 +30,7 @@ import {
   LeaveStatus,
 } from '../leaves/entities/leave-request.entity';
 import { Payroll } from '../payroll/entities/payroll.entity';
+import { CUSTOMER_BALANCE_SQL } from '../sales/customers.service';
 import { SubscriptionManagerService } from '../subscriptions/subscription-manager.service';
 
 const DAY_MINUTES = 24 * 60;
@@ -98,8 +99,14 @@ export interface SalesOverview {
   grossProfit: number;
   previousGrossProfit: number;
   returnsTotal: number;
-  /** ما لم يُحصَّل من كل الفواتير الصادرة حتى الآن (لا يتقيد بالفترة) */
+  /**
+   * ما على العملاء الآن (لا يتقيد بالفترة). للشركة كلها: مجموع أرصدتهم
+   * الموجبة كصفحة العملاء (الافتتاحي والقبض على الحساب والمردود). مع فرع أو
+   * لمستخدم مقيَّد بفروع: المتبقي على فواتير مخازنها — الرصيد بلا فرع.
+   */
   receivables: number;
+  /** من أين حُسب `receivables` و`topDebtors` */
+  receivablesBasis: 'balances' | 'invoices';
   /** يوم بيوم، وكل أيام الفترة حاضرة (اليوم بلا مبيعات = صفر) */
   daily: { date: string; total: number; invoices: number }[];
   /** مبيعات الفترة السابقة يوماً بيوم، بنفس طول `daily` وترتيبه */
@@ -111,7 +118,7 @@ export interface SalesOverview {
   paymentMethods: { method: string; amount: number }[];
   topProducts: { name: string; quantity: number; total: number }[];
   topCustomers: (NamedAmount & { invoices: number })[];
-  /** أكبر العملاء مديونية حتى الآن (لا يتقيد بالفترة) */
+  /** أكبر العملاء مديونية حتى الآن (لا يتقيد بالفترة)، بأساس `receivables` */
   topDebtors: NamedAmount[];
   /** مبيعات كل فرع (مجموع مخازنه) في الفترة — كل الفروع دائماً، حتى مع اختيار فرع */
   branches: {
@@ -438,6 +445,12 @@ export class DashboardService {
     // الفواتير وكشف الحساب. التوزيع حسب الساعة وحده بلحظة الإصدار
     const inPeriod = [...scope, period.from, period.to];
     const atMoment = [...scope, period.start, period.end];
+    // ما على العملاء: أرصدتهم للشركة كلها، وإلا فواتير مخازن الفروع المقيَّدة
+    const receivablesBasis = warehouseIds === null ? 'balances' : 'invoices';
+    const owedByCustomer = `
+      SELECT "customer"."name" AS "name", ${CUSTOMER_BALANCE_SQL} AS "owed"
+        FROM customers "customer"
+       WHERE "customer"."tenantId" = $1 AND "customer"."deletedAt" IS NULL`;
 
     const [
       byDay,
@@ -501,12 +514,18 @@ export class DashboardService {
           WHERE ${issued()} AND "returnDate" BETWEEN $3 AND $4`,
         inPeriod,
       ),
-      this.query<{ amount: number }>(
-        `SELECT COALESCE(SUM(GREATEST("total" - "returnedAmount" - "paidAmount", 0)), 0)::float AS "amount"
-           FROM sales_invoices
-          WHERE ${issued()}`,
-        scope,
-      ),
+      receivablesBasis === 'balances'
+        ? this.query<{ amount: number }>(
+            `SELECT COALESCE(SUM(GREATEST("owed", 0)), 0)::float AS "amount"
+               FROM (${owedByCustomer}) owing`,
+            [tenantId],
+          )
+        : this.query<{ amount: number }>(
+            `SELECT COALESCE(SUM(GREATEST("total" - "returnedAmount" - "paidAmount", 0)), 0)::float AS "amount"
+               FROM sales_invoices
+              WHERE ${issued()}`,
+            scope,
+          ),
       // سند القبض يحمل فرعه (فرع فاتورته، أو المختار لدفعة على الحساب)
       this.query<{ method: string; amount: number }>(
         `SELECT payment."method"::text AS "method",
@@ -546,18 +565,27 @@ export class DashboardService {
           LIMIT ${TOP_LIST}`,
         inPeriod,
       ),
-      this.query<NamedAmount>(
-        `SELECT customer."name" AS "name",
-                SUM(GREATEST(invoice."total" - invoice."returnedAmount" - invoice."paidAmount", 0))::float AS "total"
-           FROM sales_invoices invoice
-           JOIN customers customer ON customer."id" = invoice."customerId"
-          WHERE ${issued('invoice')}
-          GROUP BY customer."id", customer."name"
-         HAVING SUM(GREATEST(invoice."total" - invoice."returnedAmount" - invoice."paidAmount", 0)) > 0
-          ORDER BY 2 DESC
-          LIMIT ${TOP_LIST}`,
-        scope,
-      ),
+      receivablesBasis === 'balances'
+        ? this.query<NamedAmount>(
+            `SELECT "name", "owed"::float AS "total"
+               FROM (${owedByCustomer}) owing
+              WHERE "owed" > 0
+              ORDER BY "owed" DESC, "name" ASC
+              LIMIT ${TOP_LIST}`,
+            [tenantId],
+          )
+        : this.query<NamedAmount>(
+            `SELECT customer."name" AS "name",
+                    SUM(GREATEST(invoice."total" - invoice."returnedAmount" - invoice."paidAmount", 0))::float AS "total"
+               FROM sales_invoices invoice
+               JOIN customers customer ON customer."id" = invoice."customerId"
+              WHERE ${issued('invoice')}
+              GROUP BY customer."id", customer."name"
+             HAVING SUM(GREATEST(invoice."total" - invoice."returnedAmount" - invoice."paidAmount", 0)) > 0
+              ORDER BY 2 DESC
+              LIMIT ${TOP_LIST}`,
+            scope,
+          ),
       // المقارنة بين الفروع: كلها دائماً، حتى مع اختيار فرع واحد
       this.query<{
         id: string;
@@ -661,6 +689,7 @@ export class DashboardService {
       previousGrossProfit: round(previous.profit),
       returnsTotal: round(returns[0]?.total ?? 0),
       receivables: round(receivables[0]?.amount ?? 0),
+      receivablesBasis,
       daily: Array.from({ length: period.days }, (_, index) => {
         const date = dayAt(period.from, index);
         const row = rows.get(date);
