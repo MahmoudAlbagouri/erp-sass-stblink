@@ -38,38 +38,39 @@ export class UploadInterceptor implements NestInterceptor {
     }
     visited.add(data);
 
-    // 3. إذا كانت مصفوفة، نطبق التحويل على كل عنصر
+    // 3. إذا كانت مصفوفة، نطبق التحويل على كل عنصر — بما فيها النصوص
+    // (مرفقات العقد attachmentPaths مصفوفة مسارات)
     if (Array.isArray(data)) {
-      return data.map((item: unknown) => this.transformData(item, visited));
+      return data.map((item: unknown) => this.transformValue(item, visited));
     }
 
     // 4. نمر على كل مفاتيح الكائن
     const record = data as Record<string, unknown>;
     for (const key of Object.keys(record)) {
-      const value = record[key];
-
       // حالة خاصة: تجاهل بعض المفاتيح إذا لزم الأمر (مثل filename الداخلي)
       if (key === 'filename') continue;
-
-      // معالجة النصوص المفردة (مثل mainImage أو logo)
-      if (typeof value === 'string' && this.isImagePath(value)) {
-        if (!value.startsWith('http')) {
-          record[key] = `${this.baseUrl}/${value}`;
-        }
-      }
-      // معالجة القيم التي هي كائنات أو مصفوفات للدخول فيها recursively
-      else if (value && typeof value === 'object') {
-        record[key] = this.transformData(value, visited);
-      }
+      record[key] = this.transformValue(record[key], visited);
     }
 
     return data;
   }
 
-  // دالة ذكية للتحقق من امتدادات الصور الشائعة
-  private isImagePath(value: string): boolean {
+  // نص مسار ملف ← رابط كامل، وكائن/مصفوفة ← ندخل فيه recursively
+  private transformValue(value: unknown, visited: WeakSet<object>): unknown {
+    if (typeof value === 'string') {
+      if (!this.isFilePath(value) || value.startsWith('http')) return value;
+      // المسار المخزّن يبدأ بـ "/" (مثل /contract/image/x.jpg): لا نكرر الفاصل
+      return `${this.baseUrl}/${value.replace(/^\/+/, '')}`;
+    }
+    if (value && typeof value === 'object') {
+      return this.transformData(value, visited);
+    }
+    return value;
+  }
+
+  // امتدادات الملفات المرفوعة (jfif صورة JPEG بامتداد مختلف)
+  private isFilePath(value: string): boolean {
     if (!value) return false;
-    const allowedExtensions = /\.(jpg|jpeg|png|webp|gif|svg|bmp|pdf)$/i;
-    return allowedExtensions.test(value);
+    return /\.(jpe?g|jfif|png|webp|gif|svg|bmp|avif|pdf)$/i.test(value);
   }
 }

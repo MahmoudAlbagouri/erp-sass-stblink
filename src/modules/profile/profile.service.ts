@@ -52,6 +52,7 @@ export class ProfileService {
 
     const employee = await this.employeeRepo.findOne({
       where: { user: { id: user.id } },
+      relations: ['department'],
     });
 
     if (!employee) {

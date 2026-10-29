@@ -656,7 +656,12 @@ export class PayrollService {
   async findOneWithDetails(id: string, tenantId: string) {
     return this.payrollRepo.findOne({
       where: { id, tenantId },
-      relations: ['items', 'items.employee', 'disbursedBy'],
+      relations: [
+        'items',
+        'items.employee',
+        'items.employee.department',
+        'disbursedBy',
+      ],
       order: { items: { netSalary: 'DESC' } },
     });
   }
