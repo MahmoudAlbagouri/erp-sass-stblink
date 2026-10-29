@@ -15,6 +15,7 @@ import { Role } from '../roles/entities/role.entity';
 import { UserStatus } from '../../common/enums/user.enums';
 import { CurrentUserData } from '../../common/decorators/current-user.decorator';
 import { resolveUserBranches } from '../branches/branches.util';
+import { revokeUserSessions } from '../auth/auth-sessions';
 
 const ASSIGN_SUPER_ADMIN_PERMISSION = 'assign_super_admin';
 
@@ -154,6 +155,7 @@ export class UsersService {
     delete changes.isDisclaimerAccepted;
     delete changes.disclaimerAcceptedAt;
 
+    const passwordChanged = !!changes.password;
     if (changes.password)
       changes.password = await argon2.hash(changes.password);
     if (
@@ -184,7 +186,12 @@ export class UsersService {
       );
     }
 
-    return this.userRepository.save(user);
+    const saved = await this.userRepository.save(user);
+    // كلمة مرور جديدة: كل جلساته بالقديمة تنتهي (يدخل من جديد)
+    if (passwordChanged) {
+      await revokeUserSessions(this.userRepository.manager, user.id);
+    }
+    return saved;
   }
 
   async remove(id: string, currentUser: CurrentUserData): Promise<void> {
@@ -214,6 +221,7 @@ export class UsersService {
 
     // 6. تنفيذ الحذف اللطيف (Soft Delete)
     await this.userRepository.softRemove(userToDelete);
+    await revokeUserSessions(this.userRepository.manager, userToDelete.id);
   }
 
   async getSystemStats() {

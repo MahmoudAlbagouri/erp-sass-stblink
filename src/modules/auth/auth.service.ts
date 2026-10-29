@@ -5,6 +5,7 @@ import {
   ConflictException,
   BadRequestException,
   Logger,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { randomInt } from 'crypto';
 import { JwtService } from '@nestjs/jwt';
@@ -27,7 +28,16 @@ import {
   getJwtRefreshSecret,
   JWT_ACCESS_EXPIRES_IN,
 } from '../../config/jwt.config';
-import type { JwtPayload } from '../../common/types/auth.types';
+import type {
+  CurrentUserData,
+  JwtPayload,
+} from '../../common/types/auth.types';
+import {
+  extendSession,
+  openSession,
+  revokeSession,
+  revokeUserSessions,
+} from './auth-sessions';
 import { DomainEvents } from '../../common/events/domain-events';
 
 @Injectable()
@@ -85,7 +95,10 @@ export class AuthService {
     return {
       message: 'تم إنشاء الحساب بنجاح',
       userId: createdUser.id,
-      ...(await this.getTokens(createdUser.id)),
+      ...(await this.getTokens(
+        createdUser.id,
+        await openSession(this.entityManager, createdUser.id),
+      )),
     };
   }
 
@@ -158,10 +171,21 @@ export class AuthService {
       }
     }
 
-    return { userId: user.id, ...(await this.getTokens(user.id)) };
+    const sessionId = await openSession(this.entityManager, user.id);
+    return { userId: user.id, ...(await this.getTokens(user.id, sessionId)) };
   }
 
-  async refreshTokens(userId: string) {
+  /**
+   * تجديد الجلسة: التوقيع وحده لا يكفي — الجلسة يجب أن تكون قائمة (لم يخرج
+   * صاحبها ولم تتغير كلمة مروره). توكن بلا جلسة (صادر قبلها) يُرفض.
+   */
+  async refreshTokens(userId: string, sessionId?: string) {
+    if (
+      !sessionId ||
+      !(await extendSession(this.entityManager, sessionId, userId))
+    ) {
+      throw new UnauthorizedException('انتهت الجلسة — سجّل الدخول من جديد');
+    }
     const user = await this.usersService.findOne(userId);
     if (!user) throw new ForbiddenException('User not found');
     if (user.status !== UserStatus.ACTIVE) {
@@ -169,11 +193,17 @@ export class AuthService {
         'حسابك غير نشط. يرجى التواصل مع مدير النظام.',
       );
     }
-    return this.getTokens(user.id);
+    return this.getTokens(user.id, sessionId);
+  }
+
+  /** الخروج: يلغي الجلسة على السيرفر فلا يجدّدها توكنها بعد الآن */
+  async logout(userId: string, sessionId?: string): Promise<void> {
+    if (sessionId) await revokeSession(this.entityManager, sessionId, userId);
   }
 
   // ✅ قبول الإقرار: تحديث الحالة + إصدار Tokens جديدة تحمل isDisclaimerAccepted = true
-  async acceptDisclaimer(userId: string) {
+  async acceptDisclaimer(user: CurrentUserData) {
+    const userId = user.id;
     // الشرط isDisclaimerAccepted = false يجعل العملية idempotent:
     // تكرار الطلب لا يُغيّر تاريخ الموافقة الأصلي
     await this.entityManager.update(
@@ -185,7 +215,11 @@ export class AuthService {
     return {
       message: 'تم تسجيل الإقرار بنجاح',
       userId,
-      ...(await this.getTokens(userId)),
+      // نفس الجلسة (توكن صادر قبل الجلسات: جلسة جديدة)
+      ...(await this.getTokens(
+        userId,
+        user.sessionId ?? (await openSession(this.entityManager, userId)),
+      )),
     };
   }
 
@@ -259,12 +293,14 @@ export class AuthService {
         resetPasswordToken: null,
         resetPasswordExpires: null,
       });
+      // من عرف كلمة المرور القديمة (أو سرق جلسة) يخرج من كل الأجهزة
+      await revokeUserSessions(manager, user.id);
     });
 
     return { message: 'تم تغيير كلمة المرور بنجاح' };
   }
 
-  private async getTokens(userId: string) {
+  private async getTokens(userId: string, sessionId: string) {
     const user = await this.usersService.findOne(userId);
     // مالك النظام بلا شركة: لا دولة ولا عملة في توكنه
     const locale = user.tenantId
@@ -289,6 +325,7 @@ export class AuthService {
             permissions: user.role.permissions?.map((p) => ({ name: p.name })),
           }
         : null,
+      sid: sessionId,
     };
 
     const [accessToken, refreshToken] = await Promise.all([

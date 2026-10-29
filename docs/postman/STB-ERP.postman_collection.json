@@ -126,7 +126,35 @@
                 "refresh"
               ]
             },
-            "description": "تجديد الجلسة بتوكن التجديد",
+            "description": "تجديد الجلسة بتوكن التجديد (والجلسة لم تُلغَ)",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{refreshToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "POST /auth/logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "تسجيل الخروج: يلغي جلسة توكن التجديد على السيرفر",
             "auth": {
               "type": "bearer",
               "bearer": [

@@ -39,6 +39,8 @@ export interface JwtPayload {
    * انظر modules/branches/branch-scope.
    */
   branchIds?: string[];
+  /** جلسة الدخول على السيرفر (انظر modules/auth/auth-sessions) */
+  sid?: string;
 }
 
 /** إعدادات دولة الشركة كما تُحمَل داخل التوكن */
@@ -70,6 +72,8 @@ export interface CurrentUserData {
   timezone?: string;
   /** الفروع المقيَّد بها (فارغة = كل الفروع) */
   branchIds?: string[];
+  /** جلسة الدخول التي صدر لها التوكن */
+  sessionId?: string;
 }
 
 export type AuthenticatedRequest = Request & { user: CurrentUserData };

@@ -382,8 +382,8 @@ const toRequest = (endpoint) => {
       { key: "X-Device-Key", value: "{{deviceKey}}" },
     );
   }
-  // تجديد الجلسة يُرسل توكن التجديد لا توكن الوصول
-  if (key === "POST /auth/refresh") {
+  // تجديد الجلسة والخروج يُرسلان توكن التجديد لا توكن الوصول
+  if (key === "POST /auth/refresh" || key === "POST /auth/logout") {
     item.request.auth = {
       type: "bearer",
       bearer: [{ key: "token", value: "{{refreshToken}}", type: "string" }],

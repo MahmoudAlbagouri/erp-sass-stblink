@@ -1,10 +1,8 @@
+// src/modules/auth/strategies/refresh-token.strategy.ts
 import { Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
-import { Request } from 'express';
 import { getJwtRefreshSecret } from '../../../config/jwt.config';
-
-// src/modules/auth/strategies/refresh-token.strategy.ts
 
 @Injectable()
 export class RefreshTokenStrategy extends PassportStrategy(
@@ -15,22 +13,18 @@ export class RefreshTokenStrategy extends PassportStrategy(
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       secretOrKey: getJwtRefreshSecret(),
-      passReqToCallback: true,
     });
   }
 
-  // ✅ التعديل هنا لضمان إرجاع الـ tenantId
-  validate(req: Request, payload: { sub: string; tenantId: string }) {
-    const refreshToken = req
-      .get('Authorization')
-      ?.replace('Bearer ', '')
-      .trim();
-
-    // هذا الكائن هو الذي سيتم وضعه في request.user
+  /**
+   * request.user لمسارات التجديد والخروج: صاحب التوكن وجلسته. التوقيع وحده لا
+   * يكفي — الخدمة تتحقق أن الجلسة لم تُلغَ (انظر auth-sessions).
+   */
+  validate(payload: { sub: string; tenantId?: string; sid?: string }) {
     return {
       id: payload.sub,
-      tenantId: payload.tenantId, // تأكد من تمريره هنا
-      refreshToken,
+      tenantId: payload.tenantId,
+      sessionId: payload.sid,
     };
   }
 }
