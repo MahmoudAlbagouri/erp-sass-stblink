@@ -24,6 +24,7 @@ import { LeaveAccrualService } from '../leaves/leave-accrual.service';
 import { DateUtils } from '../../common/utils/date.utils';
 import type { CurrentUserData } from '../../common/decorators/current-user.decorator';
 import { isPaidViaDisbursedPayroll } from '../payroll/utils/disbursed-payroll.util';
+import { DomainEvents } from '../../common/events/domain-events';
 
 export interface SettlementPreview {
   employeeId: string;
@@ -46,6 +47,7 @@ export class SettlementsService {
     private readonly accrualService: LeaveAccrualService,
     private readonly dateUtils: DateUtils,
     @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly events: DomainEvents,
   ) {}
 
   private async resolveContractAndBalance(
@@ -245,6 +247,13 @@ export class SettlementsService {
       });
 
       await queryRunner.commitTransaction();
+      this.events.emit('settlement.confirmed', {
+        tenantId,
+        settlementId: saved.id,
+        employeeId: saved.employeeId,
+        days: roundedDays,
+        amount: Number(totalAmount),
+      });
       return saved;
     } catch (err) {
       await queryRunner.rollbackTransaction();
@@ -287,7 +296,15 @@ export class SettlementsService {
     settlement.disbursedById = user.id; // ← كان user.userId
     settlement.disbursedAt = new Date();
 
-    return await this.repo.save(settlement);
+    const saved = await this.repo.save(settlement);
+    this.events.emit('settlement.disbursed', {
+      tenantId,
+      actorUserId: user.id,
+      settlementId: saved.id,
+      employeeId: saved.employeeId,
+      amount: Number(saved.totalAmount),
+    });
+    return saved;
   }
 
   async findAll(tenantId: string): Promise<Settlement[]> {

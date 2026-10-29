@@ -37,6 +37,7 @@ import {
   moneyDecimalsOf,
   roundMoney as roundMoneyTo,
 } from '../../common/utils/money.util';
+import { DomainEvents } from '../../common/events/domain-events';
 
 /** دالة تقريب مالي لخانات عملة الشركة (2 أو 3) — انظر money.util */
 async function moneyRounder(
@@ -86,6 +87,7 @@ export class PayrollService {
   constructor(
     @InjectRepository(Payroll) private payrollRepo: Repository<Payroll>,
     private dataSource: DataSource,
+    private readonly events: DomainEvents,
   ) {}
 
   /**
@@ -599,6 +601,18 @@ export class PayrollService {
       await queryRunner.manager.save(Payroll, payroll);
 
       await queryRunner.commitTransaction();
+
+      this.events.emit('payroll.disbursed', {
+        tenantId,
+        actorUserId: userId,
+        payrollId: payroll.id,
+        month: payroll.month,
+        year: payroll.year,
+        items: payroll.items.map((item) => ({
+          employeeId: item.employeeId,
+          netSalary: Number(item.netSalary),
+        })),
+      });
 
       // إعادة الجلب مع العلاقات كاملة للفرونت
       return await this.payrollRepo.findOneOrFail({

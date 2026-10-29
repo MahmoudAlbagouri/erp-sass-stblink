@@ -1,4 +1,5 @@
 import type { DeliveryService } from '../src/modules/delivery/delivery.service';
+import type { DomainEvents } from '../src/common/events/domain-events';
 import { randomUUID } from 'crypto';
 import { DataSource } from 'typeorm';
 import { CatalogSettingsService } from '../src/modules/catalog/catalog-settings.service';
@@ -237,6 +238,7 @@ describe('pos module', () => {
       // والمطاعم كذلك: الباقة بلا مطاعم
       {} as RestaurantService,
       { hasFeature: () => Promise.resolve(false) } as never,
+      { emit: jest.fn() } as unknown as DomainEvents,
     );
   });
 

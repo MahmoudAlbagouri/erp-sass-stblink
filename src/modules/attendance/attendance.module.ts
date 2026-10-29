@@ -11,7 +11,6 @@ import { AttendanceService } from './attendance.service';
 import { ShiftsModule } from '../shifts/shifts.module';
 import { BiometricDevicesQuotaResolver } from './biometric-devices-quota.resolver';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
-import { NotificationsModule } from '../notifications/notifications.module'; // ✅ لإرسال إشعارات التعديل/الإضافة
 import { ReportService } from '../../common/reports/report.service'; // ✅ لتصدير سجلات الحضور PDF/Excel
 
 @Module({
@@ -24,7 +23,6 @@ import { ReportService } from '../../common/reports/report.service'; // ✅ لت
     ]),
     ShiftsModule, // ✅ استيراد موديول الورديات لحل مشكلة UnknownDependenciesException
     SubscriptionsModule, // ✅ استيراد موديول الاشتراكات
-    NotificationsModule, // ✅ جديد
   ],
   controllers: [AdmsController, AttendanceController],
   providers: [

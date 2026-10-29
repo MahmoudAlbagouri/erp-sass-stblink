@@ -45,6 +45,7 @@ import { DeductionsModule } from './modules/deduction/deduction.module';
 import { EOSModule } from './modules/eos/eos.module';
 import { ResignationsModule } from './modules/resignations/resignations.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { DomainEventsModule } from './common/events/domain-events';
 import { DepartmentsModule } from './modules/departments/departments.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
@@ -59,7 +60,9 @@ import { BranchesModule } from './modules/branches/branches.module';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
-    EventEmitterModule.forRoot(), // ✅ تم إضافته لتفعيل الـ Event Listeners
+    EventEmitterModule.forRoot(),
+    // أحداث النظام (common/events): الموديولات تعلن، والإشعارات تستمع
+    DomainEventsModule,
     ConfigModule.forRoot({
       isGlobal: true,
       load: [databaseConfig],

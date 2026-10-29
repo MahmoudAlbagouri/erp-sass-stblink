@@ -11,7 +11,7 @@ import {
 } from '../src/modules/attendance/entities/biometric-device.entity';
 import { DeviceCommand } from '../src/modules/attendance/entities/device-command.entity';
 import { Employee } from '../src/modules/employees/entities/employee.entity';
-import { NotificationsService } from '../src/modules/notifications/notifications.service';
+import type { DomainEvents } from '../src/common/events/domain-events';
 import { Shift } from '../src/modules/shifts/entities/shift.entity';
 import { Tenant } from '../src/modules/tenants/entities/tenant.entity';
 import type { CurrentUserData } from '../src/common/decorators/current-user.decorator';
@@ -75,8 +75,8 @@ describe('attendance module', () => {
       dataSource.getRepository(BiometricDevice),
       dataSource.getRepository(AttendanceLog),
       dataSource,
-      { create: jest.fn() } as unknown as NotificationsService,
       {} as ReportService,
+      { emit: jest.fn() } as unknown as DomainEvents,
     );
     adms = new AdmsService(
       dataSource.getRepository(BiometricDevice),

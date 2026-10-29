@@ -8,6 +8,7 @@ import { CreateDeductionDto } from './dto/create-deduction.dto';
 import { UpdateDeductionDto } from './dto/update-deduction.dto';
 import { Employee } from '../employees/entities/employee.entity';
 import { moneyDecimalsOf, roundMoney } from '../../common/utils/money.util';
+import { DomainEvents } from '../../common/events/domain-events';
 
 const DEDUCTION_STATUS_LABEL: Record<DeductionStatus, string> = {
   [DeductionStatus.PENDING]: 'معلّق',
@@ -21,6 +22,7 @@ export class DeductionsService {
   constructor(
     @InjectRepository(Deduction) private deductionRepo: Repository<Deduction>,
     @InjectRepository(Employee) private empRepo: Repository<Employee>,
+    private readonly events: DomainEvents,
   ) {}
 
   async create(dto: CreateDeductionDto, tenantId: string): Promise<Deduction> {
@@ -47,7 +49,22 @@ export class DeductionsService {
       tenantId,
     });
 
-    return this.deductionRepo.save(deduction);
+    const saved = await this.deductionRepo.save(deduction);
+    if (saved.status === DeductionStatus.ACTIVE) this.emitActivated(saved);
+    return saved;
+  }
+
+  /** الخصم صار نافذاً على الراتب: يُبلَّغ الموظف */
+  private emitActivated(deduction: Deduction): void {
+    this.events.emit('deduction.activated', {
+      tenantId: deduction.tenantId,
+      deductionId: deduction.id,
+      employeeId: deduction.employeeId,
+      totalAmount: Number(deduction.totalAmount),
+      monthlyAmount: Number(deduction.monthlyAmount),
+      installments: Number(deduction.installmentsCount),
+      reason: deduction.name,
+    });
   }
 
   async findAll(tenantId: string): Promise<Deduction[]> {
@@ -118,8 +135,13 @@ export class DeductionsService {
       DEDUCTION_STATUS_LABEL,
     );
 
+    const wasActive = deduction.status === DeductionStatus.ACTIVE;
     deduction.status = status;
-    return this.deductionRepo.save(deduction);
+    const saved = await this.deductionRepo.save(deduction);
+    if (!wasActive && status === DeductionStatus.ACTIVE) {
+      this.emitActivated(saved);
+    }
+    return saved;
   }
 
   async remove(id: string, tenantId: string): Promise<void> {

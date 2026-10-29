@@ -14,12 +14,18 @@ import {
   calculateContractEndDate,
   calculateProbationEndDate,
 } from './utils/contract-dates.util';
+import { DomainEvents } from '../../common/events/domain-events';
+
+/** YYYY-MM-DD من عمود date (نص) أو Date */
+const dayOf = (value?: Date | string | null): string | null =>
+  value ? new Date(value).toISOString().slice(0, 10) : null;
 
 @Injectable()
 export class ContractsService {
   constructor(
     @InjectRepository(Contract)
     private readonly repo: Repository<Contract>,
+    private readonly events: DomainEvents,
   ) {}
 
   async create(dto: CreateContractDto, tenantId: string): Promise<Contract> {
@@ -108,6 +114,7 @@ export class ContractsService {
     tenantId: string,
   ): Promise<Contract> {
     const contract = await this.findOne(id, tenantId);
+    const previousEnd = dayOf(contract.endDate);
 
     // ✅ إعادة حساب التواريخ عند التحديث إذا تغيرت المدخلات ذات الصلة
     const startDate = dto.startDate
@@ -128,7 +135,20 @@ export class ContractsService {
       dto.contractDurationMonths,
     );
     if (endDate) contract.endDate = endDate;
-    return await this.repo.save(contract);
+    const saved = await this.repo.save(contract);
+
+    // امتد تاريخ الانتهاء = تجديد (يُبلَّغ الموظف، وتبدأ تنبيهات التاريخ الجديد)
+    const newEnd = dayOf(saved.endDate);
+    if (newEnd && previousEnd && newEnd > previousEnd) {
+      this.events.emit('contract.renewed', {
+        tenantId,
+        contractId: saved.id,
+        employeeId: saved.employeeId,
+        previousEndDate: previousEnd,
+        endDate: newEnd,
+      });
+    }
+    return saved;
   }
 
   async remove(id: string, tenantId: string): Promise<void> {

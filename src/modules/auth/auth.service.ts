@@ -28,6 +28,7 @@ import {
   JWT_ACCESS_EXPIRES_IN,
 } from '../../config/jwt.config';
 import type { JwtPayload } from '../../common/types/auth.types';
+import { DomainEvents } from '../../common/events/domain-events';
 
 @Injectable()
 export class AuthService {
@@ -39,6 +40,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly mailerService: MailerService,
     @InjectEntityManager() private readonly entityManager: EntityManager,
+    private readonly events: DomainEvents,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -71,6 +73,13 @@ export class AuthService {
       });
 
       createdUser = await manager.save(admin);
+    });
+
+    this.events.emit('tenant.registered', {
+      tenantId: createdUser.tenantId!,
+      companyName: String(dto.companyName),
+      adminEmail: dto.email,
+      country: dto.country ?? null,
     });
 
     return {

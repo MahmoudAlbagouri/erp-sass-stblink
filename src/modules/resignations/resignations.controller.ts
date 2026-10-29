@@ -61,7 +61,12 @@ export class ResignationsController {
   ) {
     if (!user.employeeId)
       throw new NotFoundException('حسابك غير مرتبط بملف موظف');
-    return this.resignationsService.create(dto, user.employeeId, tenantId);
+    return this.resignationsService.create(
+      dto,
+      user.employeeId,
+      tenantId,
+      user.id,
+    );
   }
 
   /** سحب طلب الاستقالة المعلَّق */
@@ -75,7 +80,11 @@ export class ResignationsController {
   ) {
     if (!user.employeeId)
       throw new NotFoundException('حسابك غير مرتبط بملف موظف');
-    return this.resignationsService.cancelMyRequest(user.employeeId, tenantId);
+    return this.resignationsService.cancelMyRequest(
+      user.employeeId,
+      tenantId,
+      user.id,
+    );
   }
 
   /** قبول طلب استقالة أو رفضه */
@@ -87,8 +96,9 @@ export class ResignationsController {
     @Param('id') id: string,
     @Body() dto: DecisionResignationDto,
     @CurrentTenantId() tenantId: string,
+    @CurrentUser() user: CurrentUserData,
   ) {
-    return this.resignationsService.makeDecision(id, dto, tenantId);
+    return this.resignationsService.makeDecision(id, dto, tenantId, user.id);
   }
 
   /** قائمة طلبات الاستقالة */

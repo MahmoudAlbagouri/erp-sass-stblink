@@ -13,6 +13,7 @@ import {
 import { CreateResignationDto } from './dto/create-resignation.dto';
 import { DecisionResignationDto } from './dto/decision-resignation.dto';
 import { Employee } from '../employees/entities/employee.entity';
+import { DomainEvents } from '../../common/events/domain-events';
 
 @Injectable()
 export class ResignationsService {
@@ -20,6 +21,7 @@ export class ResignationsService {
     @InjectRepository(ResignationRequest)
     private reqRepo: Repository<ResignationRequest>,
     @InjectRepository(Employee) private empRepo: Repository<Employee>,
+    private readonly events: DomainEvents,
   ) {}
 
   // ✅ دالة جديدة لجلب طلبات الموظف الحالي
@@ -38,6 +40,7 @@ export class ResignationsService {
     dto: CreateResignationDto,
     employeeId: string,
     tenantId: string,
+    actorUserId?: string,
   ): Promise<ResignationRequest> {
     const employee = await this.empRepo.findOne({
       where: { id: employeeId, tenantId },
@@ -65,13 +68,23 @@ export class ResignationsService {
       status: ResignationStatus.PENDING,
     });
 
-    return this.reqRepo.save(request);
+    const saved = await this.reqRepo.save(request);
+    this.events.emit('resignation.submitted', {
+      tenantId,
+      actorUserId,
+      requestId: saved.id,
+      employeeId,
+      lastWorkingDay: dto.lastWorkingDay,
+      reason: dto.reason,
+    });
+    return saved;
   }
 
   async makeDecision(
     id: string,
     dto: DecisionResignationDto,
     tenantId: string,
+    actorUserId?: string,
   ): Promise<ResignationRequest> {
     const request = await this.reqRepo.findOne({ where: { id, tenantId } });
     if (!request) throw new NotFoundException('طلب الاستقالة غير موجود');
@@ -86,12 +99,22 @@ export class ResignationsService {
     request.managerNotes = dto.managerNotes;
     request.decisionDate = new Date();
 
-    return this.reqRepo.save(request);
+    const saved = await this.reqRepo.save(request);
+    this.events.emit('resignation.decided', {
+      tenantId,
+      actorUserId,
+      requestId: saved.id,
+      employeeId: saved.employeeId,
+      status: saved.status,
+      notes: saved.managerNotes,
+    });
+    return saved;
   }
 
   async cancelMyRequest(
     employeeId: string,
     tenantId: string,
+    actorUserId?: string,
   ): Promise<ResignationRequest> {
     const request = await this.reqRepo.findOne({
       where: { employeeId, tenantId, status: ResignationStatus.PENDING },
@@ -100,7 +123,14 @@ export class ResignationsService {
       throw new NotFoundException('لا يوجد طلب استقالة معلق لإلغائه');
 
     request.status = ResignationStatus.CANCELLED;
-    return this.reqRepo.save(request);
+    const saved = await this.reqRepo.save(request);
+    this.events.emit('resignation.cancelled', {
+      tenantId,
+      actorUserId,
+      requestId: saved.id,
+      employeeId,
+    });
+    return saved;
   }
 
   async findAll(

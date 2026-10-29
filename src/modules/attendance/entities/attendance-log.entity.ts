@@ -22,6 +22,16 @@ export enum PunchType {
   LEAVE = 'leave', // ✅ جديد — تسجيل إجازة بدل حضور/انصراف
 }
 
+export const PUNCH_TYPE_LABELS_AR: Record<PunchType, string> = {
+  [PunchType.CHECK_IN]: 'حضور',
+  [PunchType.CHECK_OUT]: 'انصراف',
+  [PunchType.BREAK_OUT]: 'خروج استراحة',
+  [PunchType.BREAK_IN]: 'عودة من استراحة',
+  [PunchType.OVERTIME_IN]: 'بداية إضافي',
+  [PunchType.OVERTIME_OUT]: 'نهاية إضافي',
+  [PunchType.LEAVE]: 'إجازة',
+};
+
 export enum VerifyMode {
   FINGERPRINT = 'fingerprint',
   CARD = 'card',

@@ -190,7 +190,7 @@ export class ReportService {
       : 'STB ERP System';
     const headerTagline = company
       ? 'تقرير صادر عبر نظام STB ERP'
-      : 'نظام إدارة الموارد البشرية والمؤسسات';
+      : 'نظام إدارة المؤسسات';
 
     const tableHeaders = columns
       .map((c) => `<th>${escapeHtml(c.header)}</th>`)

@@ -4,7 +4,6 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
-  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository, In, EntityManager } from 'typeorm';
@@ -33,9 +32,7 @@ import {
   resolveUserBranches,
 } from '../branches/branches.util';
 
-// ✅ استيراد خدمة الإشعارات
-import { NotificationsService } from '../notifications/notifications.service';
-import { NotificationCategory } from '../notifications/entities/notification.entity';
+import { DomainEvents } from '../../common/events/domain-events';
 
 export interface OnboardingResult {
   employee: Employee;
@@ -47,15 +44,12 @@ export interface OnboardingResult {
 
 @Injectable()
 export class EmployeesOnboardingService {
-  private readonly logger = new Logger(EmployeesOnboardingService.name);
-
   constructor(
     private readonly dataSource: DataSource,
     @InjectRepository(Employee)
     private readonly employeeRepo: Repository<Employee>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-    // ✅ حقن خدمة الإشعارات
-    private readonly notificationsService: NotificationsService,
+    private readonly events: DomainEvents,
   ) {}
 
   async onboard(
@@ -247,22 +241,13 @@ export class EmployeesOnboardingService {
       },
     );
 
-    // ✅ إرسال الإشعار بعد نجاح الـ Transaction
-    // هذا يضمن أن الموظف محفوظ فعلاً في قاعدة البيانات
-    try {
-      await this.notificationsService.create({
-        recipientId: currentUser.id, // الشخص الذي قام بالتشغيل
-        title: 'تم تشغيل موظف جديد بنجاح',
-        message: `تم تسجيل الموظف "${result.employee.fullName}" (${result.employee.employeeCode}) بنجاح في النظام`,
-        category: NotificationCategory.CUSTOM,
-        referenceId: result.employee.id,
-        referenceType: 'employee',
-        actionUrl: `/employees/${result.employee.id}`,
-      });
-    } catch (error) {
-      // ⚠️ لا نفشل العملية بسبب خطأ في الإشعار
-      this.logger.error('Failed to send onboarding notification', error);
-    }
+    // بعد نجاح المعاملة: الموظف محفوظ فعلاً
+    this.events.emit('employee.onboarded', {
+      tenantId,
+      actorUserId: currentUser.id,
+      employeeId: result.employee.id,
+      userId: result.user?.id ?? null,
+    });
 
     return result;
   }

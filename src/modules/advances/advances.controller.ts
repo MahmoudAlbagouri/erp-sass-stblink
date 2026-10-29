@@ -73,7 +73,7 @@ export class AdvancesController {
   ) {
     if (!user.employeeId)
       throw new NotFoundException('حسابك غير مرتبط بملف موظف');
-    return this.advancesService.create(dto, user.employeeId, tenantId);
+    return this.advancesService.create(dto, user.employeeId, tenantId, user.id);
   }
 
   /** تسجيل سلفة لموظف (من الإدارة) */
@@ -85,8 +85,9 @@ export class AdvancesController {
     @Param('employeeId') employeeId: string,
     @CurrentTenantId() tenantId: string,
     @Body() dto: CreateAdvanceDto,
+    @CurrentUser() user: CurrentUserData,
   ) {
-    return this.advancesService.create(dto, employeeId, tenantId);
+    return this.advancesService.create(dto, employeeId, tenantId, user.id);
   }
 
   // ✅ مسار التصدير الجماعي للسلف
@@ -215,7 +216,8 @@ export class AdvancesController {
     @Param('id') id: string,
     @Body('status') status: AdvanceStatus,
     @CurrentTenantId() tenantId: string,
+    @CurrentUser() user: CurrentUserData,
   ) {
-    return this.advancesService.updateStatus(id, status, tenantId);
+    return this.advancesService.updateStatus(id, status, tenantId, user.id);
   }
 }

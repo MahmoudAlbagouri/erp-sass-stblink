@@ -77,6 +77,7 @@ import {
   getCountry,
   getCurrencyDecimals,
 } from '../../common/constants/countries';
+import { DomainEvents } from '../../common/events/domain-events';
 
 /** صنف كما يخزّنه جهاز الكاشير محلياً (ما يحتاجه للبيع فقط) */
 export interface PosProduct {
@@ -255,6 +256,7 @@ export class PosService {
     private readonly delivery: DeliveryService,
     private readonly restaurant: RestaurantService,
     private readonly subscriptions: SubscriptionManagerService,
+    private readonly events: DomainEvents,
   ) {}
 
   // ══════════════════════════ الأجهزة ══════════════════════════
@@ -1043,6 +1045,7 @@ export class PosService {
     const figures = (await this.shiftFigures(device.tenantId, [shift])).get(
       shift.id,
     )!;
+    const cashDifference = sumMoney([op.closingCash, -figures.expectedCash]);
     await this.shifts.update(
       { id: shift.id },
       {
@@ -1052,9 +1055,19 @@ export class PosService {
         closingCash: op.closingCash,
         note: op.note ?? null,
         drawerOpens: op.drawerOpens ?? 0,
-        cashDifference: sumMoney([op.closingCash, -figures.expectedCash]),
+        cashDifference,
       },
     );
+    this.events.emit('pos.shift_closed', {
+      tenantId: device.tenantId,
+      actorUserId: shift.userId ?? null,
+      shiftId: shift.id,
+      deviceId: device.id,
+      cashierName: shift.cashierName ?? null,
+      expectedCash: Number(figures.expectedCash),
+      closingCash: Number(op.closingCash),
+      cashDifference: Number(cashDifference),
+    });
     return false;
   }
 

@@ -12,6 +12,7 @@ import { CreateBonusDto } from './dto/create-bonus.dto';
 import { UpdateBonusDto } from './dto/update-bonus.dto';
 import { Employee } from '../employees/entities/employee.entity';
 import { isPaidViaDisbursedPayroll } from '../payroll/utils/disbursed-payroll.util';
+import { DomainEvents } from '../../common/events/domain-events';
 
 const BONUS_STATUS_LABEL: Record<BonusStatus, string> = {
   [BonusStatus.PENDING]: 'معلّقة',
@@ -26,6 +27,7 @@ export class BonusesService {
     @InjectRepository(Bonus) private bonusRepo: Repository<Bonus>,
     @InjectRepository(Employee) private empRepo: Repository<Employee>,
     @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly events: DomainEvents,
   ) {}
 
   async create(dto: CreateBonusDto, tenantId: string): Promise<Bonus> {
@@ -44,7 +46,21 @@ export class BonusesService {
       tenantId,
     });
 
-    return this.bonusRepo.save(bonus);
+    const saved = await this.bonusRepo.save(bonus);
+    if (saved.status === BonusStatus.APPROVED) this.emitApproved(saved);
+    return saved;
+  }
+
+  /** المكافأة اعتُمدت: يُبلَّغ الموظف */
+  private emitApproved(bonus: Bonus): void {
+    this.events.emit('bonus.approved', {
+      tenantId: bonus.tenantId,
+      bonusId: bonus.id,
+      employeeId: bonus.employeeId,
+      amount: Number(bonus.amount),
+      payoutDate: bonus.payoutDate,
+      reason: bonus.notes ?? null,
+    });
   }
 
   async findAll(tenantId: string): Promise<Bonus[]> {
@@ -102,8 +118,13 @@ export class BonusesService {
       BONUS_STATUS_LABEL,
     );
 
+    const wasApproved = bonus.status === BonusStatus.APPROVED;
     bonus.status = status;
-    return this.bonusRepo.save(bonus);
+    const saved = await this.bonusRepo.save(bonus);
+    if (!wasApproved && status === BonusStatus.APPROVED) {
+      this.emitApproved(saved);
+    }
+    return saved;
   }
 
   /**
@@ -149,7 +170,15 @@ export class BonusesService {
     bonus.disbursedById = userId;
     bonus.disbursedAt = new Date();
 
-    return this.bonusRepo.save(bonus);
+    const saved = await this.bonusRepo.save(bonus);
+    this.events.emit('bonus.disbursed', {
+      tenantId,
+      actorUserId: userId,
+      bonusId: saved.id,
+      employeeId: saved.employeeId,
+      amount: Number(saved.amount),
+    });
+    return saved;
   }
 
   async remove(id: string, tenantId: string): Promise<void> {

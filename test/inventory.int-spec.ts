@@ -1,4 +1,5 @@
 import { DataSource } from 'typeorm';
+import type { DomainEvents } from '../src/common/events/domain-events';
 import { CatalogSettingsService } from '../src/modules/catalog/catalog-settings.service';
 import { ProductBarcode } from '../src/modules/catalog/entities/product-barcode.entity';
 import { ProductCategory } from '../src/modules/catalog/entities/product-category.entity';
@@ -113,6 +114,7 @@ describe('inventory module', () => {
       stock,
       warehouses,
       dataSource,
+      { emit: jest.fn() } as unknown as DomainEvents,
     );
     stocktakes = new StocktakesService(
       dataSource.getRepository(Stocktake),

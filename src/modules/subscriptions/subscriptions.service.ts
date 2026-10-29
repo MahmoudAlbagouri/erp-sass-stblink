@@ -11,6 +11,10 @@ import { Plan } from '../plans/entities/plan.entity';
 import { SubscriptionStatus } from '../../common/enums/subscription.enums';
 import { PlansService } from '../plans/plans.service';
 import { UpdateSubscriptionStatusDto } from './dto/update-subscription-status.dto';
+import {
+  DomainEvents,
+  type DomainEventMap,
+} from '../../common/events/domain-events';
 
 @Injectable()
 export class SubscriptionsService {
@@ -23,7 +27,26 @@ export class SubscriptionsService {
 
     @InjectEntityManager()
     private readonly entityManager: EntityManager,
+    private readonly events: DomainEvents,
   ) {}
+
+  /** تغيّر اشتراك الشركة بيد مالك النظام: يُبلَّغ مديروها */
+  private async announce(
+    subscription: Subscription,
+    action: DomainEventMap['subscription.updated']['action'],
+  ): Promise<Subscription> {
+    const plan = await this.entityManager.findOne(Plan, {
+      where: { id: subscription.planId },
+    });
+    this.events.emit('subscription.updated', {
+      tenantId: subscription.tenantId,
+      action,
+      status: subscription.status,
+      planName: plan?.nameAr ?? null,
+      endDate: subscription.endDate ?? null,
+    });
+    return subscription;
+  }
 
   async createTrialSubscription(
     tenantId: string,
@@ -53,7 +76,7 @@ export class SubscriptionsService {
     newPlanId: string,
     options: { durationDays?: number; autoRenew?: boolean } = {},
   ): Promise<Subscription> {
-    return this.entityManager.transaction(async (manager) => {
+    const saved = await this.entityManager.transaction(async (manager) => {
       const subRepo = manager.getRepository(Subscription);
 
       // ⚠️ هام: داخل الترانزكشن نستخدم manager.getRepository لضمان العزل
@@ -87,6 +110,7 @@ export class SubscriptionsService {
 
       return subRepo.save(newSub);
     });
+    return this.announce(saved, 'plan_changed');
   }
 
   async renew(tenantId: string, extraDays: number = 30): Promise<Subscription> {
@@ -107,14 +131,17 @@ export class SubscriptionsService {
     );
     subscription.status = SubscriptionStatus.ACTIVE;
 
-    return this.subscriptionRepo.save(subscription);
+    return this.announce(
+      await this.subscriptionRepo.save(subscription),
+      'renewed',
+    );
   }
 
   async updateSubscriptionStatus(
     tenantId: string,
     dto: UpdateSubscriptionStatusDto,
   ): Promise<Subscription> {
-    return this.entityManager.transaction(async (manager) => {
+    const saved = await this.entityManager.transaction(async (manager) => {
       const subRepo = manager.getRepository(Subscription);
 
       const subscription = await subRepo.findOne({
@@ -150,6 +177,12 @@ export class SubscriptionsService {
       subscription.status = dto.newStatus;
       return subRepo.save(subscription);
     });
+    return this.announce(
+      saved,
+      saved.status === SubscriptionStatus.CANCELLED
+        ? 'cancelled'
+        : 'status_changed',
+    );
   }
 
   // ✅ دالة مساعدة لمنع التحولات غير المنطقية

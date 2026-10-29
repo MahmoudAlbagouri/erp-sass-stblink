@@ -5,6 +5,7 @@ import { assertStatusTransition } from '../../common/utils/status-transition.uti
 import { scopedEmployeeWhere } from '../branches/branch-scope';
 import { Loan, LoanStatus } from './entities/loan.entity';
 import { CreateLoanDto } from './dto/create-loan.dto';
+import { DomainEvents } from '../../common/events/domain-events';
 
 const LOAN_STATUS_LABEL: Record<LoanStatus, string> = {
   [LoanStatus.PENDING]: 'معلّق',
@@ -15,9 +16,17 @@ const LOAN_STATUS_LABEL: Record<LoanStatus, string> = {
 
 @Injectable()
 export class LoansService {
-  constructor(@InjectRepository(Loan) private repo: Repository<Loan>) {}
+  constructor(
+    @InjectRepository(Loan) private repo: Repository<Loan>,
+    private readonly events: DomainEvents,
+  ) {}
 
-  async create(dto: CreateLoanDto, employeeId: string, tenantId: string) {
+  async create(
+    dto: CreateLoanDto,
+    employeeId: string,
+    tenantId: string,
+    actorUserId?: string,
+  ) {
     const monthlyInstallment =
       Number(dto.totalAmount) / Number(dto.installmentsCount);
 
@@ -30,7 +39,16 @@ export class LoansService {
       paidInstallments: 0, // تهيئة القيمة افتراضياً
     });
 
-    return await this.repo.save(loan);
+    const saved = await this.repo.save(loan);
+    this.events.emit('loan.requested', {
+      tenantId,
+      actorUserId,
+      loanId: saved.id,
+      employeeId,
+      amount: Number(dto.totalAmount),
+      installments: Number(dto.installmentsCount),
+    });
+    return saved;
   }
 
   async findAll(tenantId: string) {
@@ -54,7 +72,12 @@ export class LoansService {
    * اعتماد أو رفض قرض معلّق فقط. "مكتمل" يضعه المسير عند آخر قسط. وقت
    * الاعتماد يُحفظ: به يُقيَّد تسليم مبلغ القرض في المحاسبة.
    */
-  async updateStatus(id: string, status: LoanStatus, tenantId: string) {
+  async updateStatus(
+    id: string,
+    status: LoanStatus,
+    tenantId: string,
+    actorUserId?: string,
+  ) {
     const loan = await this.repo.findOne({ where: { id, tenantId } });
     if (!loan) throw new NotFoundException('القرض غير موجود');
     assertStatusTransition(
@@ -66,6 +89,16 @@ export class LoansService {
 
     loan.status = status;
     if (status === LoanStatus.APPROVED) loan.approvedAt = new Date();
-    return await this.repo.save(loan);
+    const saved = await this.repo.save(loan);
+    this.events.emit('loan.decided', {
+      tenantId,
+      actorUserId,
+      loanId: saved.id,
+      employeeId: saved.employeeId,
+      status,
+      amount: Number(saved.totalAmount),
+      monthlyInstallment: Number(saved.monthlyInstallment),
+    });
+    return saved;
   }
 }

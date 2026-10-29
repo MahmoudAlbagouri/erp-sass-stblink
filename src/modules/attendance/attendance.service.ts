@@ -28,6 +28,7 @@ import {
 } from './entities/biometric-device.entity';
 import {
   AttendanceLog,
+  PUNCH_TYPE_LABELS_AR,
   PunchType,
   VerifyMode,
 } from './entities/attendance-log.entity';
@@ -42,14 +43,13 @@ import { CreateManualAttendanceLogDto } from './dto/create-manual-attendance-log
 import { CurrentUserData } from '../../common/decorators/current-user.decorator';
 import { Employee } from '../employees/entities/employee.entity';
 import { User } from '../users/entities/user.entity';
-import { NotificationsService } from '../notifications/notifications.service';
-import { NotificationCategory } from '../notifications/entities/notification.entity';
+import { DomainEvents } from '../../common/events/domain-events';
 import {
   ReportService,
   type ReportColumn,
   type ReportRow,
 } from '../../common/reports/report.service';
-import { formatDate, formatDateTime } from '../../common/utils/format.util';
+import { formatDateTime } from '../../common/utils/format.util';
 import {
   dayKeyInZone,
   dayOffsetInZone,
@@ -117,16 +117,6 @@ export interface DailySummaryRow {
   logs: AttendanceLog[];
 }
 
-const PUNCH_TYPE_LABELS_AR: Record<PunchType, string> = {
-  [PunchType.CHECK_IN]: 'حضور',
-  [PunchType.CHECK_OUT]: 'انصراف',
-  [PunchType.BREAK_OUT]: 'خروج استراحة',
-  [PunchType.BREAK_IN]: 'عودة من استراحة',
-  [PunchType.OVERTIME_IN]: 'بداية إضافي',
-  [PunchType.OVERTIME_OUT]: 'نهاية إضافي',
-  [PunchType.LEAVE]: 'إجازة',
-};
-
 @Injectable()
 export class AttendanceService {
   constructor(
@@ -135,8 +125,8 @@ export class AttendanceService {
     @InjectRepository(AttendanceLog)
     private readonly logRepo: Repository<AttendanceLog>,
     private readonly dataSource: DataSource,
-    private readonly notificationsService: NotificationsService,
     private readonly reportService: ReportService,
+    private readonly events: DomainEvents,
   ) {}
 
   /** منطقة الشركة الزمنية: بها تُحدَّد الأيام والورديات وتُعرض الأوقات */
@@ -367,33 +357,6 @@ export class AttendanceService {
   }
 
   // ==========================================================
-  // ✅ إشعار الموظف عند إضافة/تعديل بصمة (لو عنده حساب مستخدم مرتبط)
-  // ==========================================================
-
-  private async notifyEmployeeAboutLog(
-    employeeId: string,
-    tenantId: string,
-    title: string,
-    message: string,
-  ): Promise<void> {
-    const employee = await this.dataSource.getRepository(Employee).findOne({
-      where: { id: employeeId, tenantId },
-      relations: ['user'],
-    });
-
-    if (!employee?.user?.id) return; // الموظف مالوش حساب مستخدم مرتبط — تخطي بأمان
-
-    await this.notificationsService.create({
-      recipientId: employee.user.id,
-      title,
-      message,
-      category: NotificationCategory.CUSTOM,
-      referenceId: employeeId,
-      referenceType: 'attendance',
-    });
-  }
-
-  // ==========================================================
   // ✅ 1) تعديل وقت/نوع بصمة موجودة — مرة واحدة فقط خلال 24 ساعة
   // ==========================================================
 
@@ -456,13 +419,18 @@ export class AttendanceService {
     }
 
     if (saved.employeeId) {
-      const zone = await this.zoneOf(user.tenantId);
-      await this.notifyEmployeeAboutLog(
-        saved.employeeId,
-        user.tenantId,
-        'تم تعديل بصمة حضور',
-        `تم تعديل بصمة "${PUNCH_TYPE_LABELS_AR[saved.punchType]}" الخاصة بك إلى ${formatDateTime(saved.punchTime, zone)} بواسطة ${log.editedByName ?? 'الإدارة'}`,
-      );
+      this.events.emit('attendance.punch_changed', {
+        tenantId: user.tenantId,
+        actorUserId: user.id,
+        logId: saved.id,
+        employeeId: saved.employeeId,
+        change: 'edited',
+        punchType: saved.punchType,
+        punchTime: saved.punchTime,
+        previousPunchTime: previous.punchTime,
+        byName: log.editedByName ?? null,
+        leaveReason: saved.leaveReason ?? null,
+      });
     }
 
     return this.logRepo.findOneOrFail({ where: { id: saved.id } });
@@ -521,17 +489,17 @@ export class AttendanceService {
     const saved = await this.logRepo.save(log);
     await this.recalculateAround(saved);
 
-    const zone = await this.zoneOf(user.tenantId);
-    await this.notifyEmployeeAboutLog(
-      employee.id,
-      user.tenantId,
-      saved.punchType === PunchType.LEAVE
-        ? 'تم تسجيل إجازة'
-        : 'تم تسجيل بصمة يدوية',
-      saved.punchType === PunchType.LEAVE
-        ? `تم تسجيل إجازة لك بتاريخ ${formatDate(saved.punchTime, zone)}${dto.leaveReason ? ` — السبب: ${dto.leaveReason}` : ''}`
-        : `تم تسجيل بصمة "${PUNCH_TYPE_LABELS_AR[saved.punchType]}" يدويًا لك بتاريخ ${formatDateTime(saved.punchTime, zone)}`,
-    );
+    this.events.emit('attendance.punch_changed', {
+      tenantId: user.tenantId,
+      actorUserId: user.id,
+      logId: saved.id,
+      employeeId: employee.id,
+      change: 'manual',
+      punchType: saved.punchType,
+      punchTime: saved.punchTime,
+      byName: saved.createdByName ?? null,
+      leaveReason: saved.leaveReason ?? null,
+    });
 
     return this.logRepo.findOneOrFail({
       where: { id: saved.id },

@@ -15,7 +15,6 @@ import { EmployeesController } from './employees.controller';
 import { ReportService } from '../../common/reports/report.service';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { EmployeesQuotaResolver } from './employees-quota.resolver';
-import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -29,7 +28,6 @@ import { NotificationsModule } from '../notifications/notifications.module';
       Department, // ✅
     ]),
     SubscriptionsModule,
-    NotificationsModule,
   ],
   controllers: [EmployeesController],
   providers: [

@@ -61,7 +61,7 @@ export class LeavesController {
   ) {
     if (!user.employeeId)
       throw new NotFoundException('حسابك غير مرتبط بملف موظف');
-    return this.leavesService.create(dto, user.employeeId, tenantId);
+    return this.leavesService.create(dto, user.employeeId, tenantId, user.id);
   }
 
   /** تفاصيل استحقاق إجازات موظف */
@@ -139,8 +139,9 @@ export class LeavesController {
     @Param('employeeId') employeeId: string,
     @CurrentTenantId() tenantId: string,
     @Body() dto: CreateLeaveDto,
+    @CurrentUser() user: CurrentUserData,
   ) {
-    return this.leavesService.create(dto, employeeId, tenantId);
+    return this.leavesService.create(dto, employeeId, tenantId, user.id);
   }
 
   // ✅ مسار التصدير الجماعي للإجازات
@@ -284,7 +285,8 @@ export class LeavesController {
     @Param('id') id: string,
     @Body('status') status: LeaveStatus,
     @CurrentTenantId() tenantId: string,
+    @CurrentUser() user: CurrentUserData,
   ) {
-    return this.leavesService.updateStatus(id, status, tenantId);
+    return this.leavesService.updateStatus(id, status, tenantId, user.id);
   }
 }

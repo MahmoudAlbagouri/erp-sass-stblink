@@ -32,6 +32,7 @@ import {
   isWarehouseAllowed,
   scopedWarehouseIds,
 } from '../branches/branch-scope';
+import { DomainEvents } from '../../common/events/domain-events';
 
 const REFERENCE_TYPE = 'transfer';
 const NUMBER_PREFIX = 'TR-';
@@ -50,6 +51,7 @@ export class TransfersService {
     private readonly stock: StockService,
     private readonly warehouses: WarehousesService,
     private readonly dataSource: DataSource,
+    private readonly events: DomainEvents,
   ) {}
 
   // ══════════════════════════ القراءة ══════════════════════════
@@ -250,7 +252,16 @@ export class TransfersService {
       );
     });
 
-    return this.findOne(id, tenantId);
+    const sent = await this.findOne(id, tenantId);
+    this.events.emit('stock.transfer_sent', {
+      tenantId,
+      actorUserId: userId,
+      transferId: sent.id,
+      number: sent.number,
+      fromWarehouseId: sent.fromWarehouseId,
+      toWarehouseId: sent.toWarehouseId,
+    });
+    return sent;
   }
 
   /**
@@ -263,6 +274,7 @@ export class TransfersService {
     tenantId: string,
     userId?: string,
   ): Promise<StockTransfer> {
+    let shortLines = 0;
     await this.dataSource.transaction(async (manager) => {
       const transfer = await this.lock(manager, id, tenantId);
       assertStatus(transfer, StockTransferStatus.IN_TRANSIT, 'استلام');
@@ -286,6 +298,7 @@ export class TransfersService {
         }
         return { line, quantity };
       });
+      shortLines = received.filter((r) => r.quantity < r.line.quantity).length;
 
       await this.stock.apply(
         manager,
@@ -331,7 +344,17 @@ export class TransfersService {
       );
     });
 
-    return this.findOne(id, tenantId);
+    const received = await this.findOne(id, tenantId);
+    this.events.emit('stock.transfer_received', {
+      tenantId,
+      actorUserId: userId,
+      transferId: received.id,
+      number: received.number,
+      fromWarehouseId: received.fromWarehouseId,
+      toWarehouseId: received.toWarehouseId,
+      shortLines,
+    });
+    return received;
   }
 
   /** إلغاء مسودة، أو إلغاء تحويل في الطريق مع إعادة البضاعة للمرسِل */

@@ -10,6 +10,7 @@ import { assertStatusTransition } from '../../common/utils/status-transition.uti
 import { Advance, AdvanceStatus } from './entities/advance.entity';
 import { CreateAdvanceDto } from './dto/create-advance.dto';
 import { SalariesService } from '../salaries/salaries.service';
+import { DomainEvents } from '../../common/events/domain-events';
 
 const ADVANCE_STATUS_LABEL: Record<AdvanceStatus, string> = {
   [AdvanceStatus.PENDING]: 'معلّقة',
@@ -23,9 +24,15 @@ export class AdvancesService {
   constructor(
     @InjectRepository(Advance) private repo: Repository<Advance>,
     private salariesService: SalariesService,
+    private readonly events: DomainEvents,
   ) {}
 
-  async create(dto: CreateAdvanceDto, employeeId: string, tenantId: string) {
+  async create(
+    dto: CreateAdvanceDto,
+    employeeId: string,
+    tenantId: string,
+    actorUserId?: string,
+  ) {
     const salary = await this.salariesService.findByEmployee(
       employeeId,
       tenantId,
@@ -68,7 +75,16 @@ export class AdvancesService {
       repaymentDate: new Date(dto.repaymentDate),
     });
 
-    return await this.repo.save(advance);
+    const saved = await this.repo.save(advance);
+    this.events.emit('advance.requested', {
+      tenantId,
+      actorUserId,
+      advanceId: saved.id,
+      employeeId,
+      amount: Number(saved.amount),
+      repaymentDate: dto.repaymentDate,
+    });
+    return saved;
   }
 
   // ✅ تحديث findAll لجلب بيانات الموظف
@@ -94,7 +110,12 @@ export class AdvancesService {
    * اعتماد أو رفض سلفة معلّقة، أو التراجع عن اعتماد سلفة لم تُسلَّم بعد.
    * سلفة سُلّمت للموظف لا تُرفض (المال خرج فعلاً)، و"مدفوعة" لا تُوضع يدوياً.
    */
-  async updateStatus(id: string, status: AdvanceStatus, tenantId: string) {
+  async updateStatus(
+    id: string,
+    status: AdvanceStatus,
+    tenantId: string,
+    actorUserId?: string,
+  ) {
     const advance = await this.repo.findOne({ where: { id, tenantId } });
     if (!advance) throw new NotFoundException('السلفة غير موجودة');
     assertStatusTransition(
@@ -113,7 +134,16 @@ export class AdvancesService {
     );
 
     advance.status = status;
-    return await this.repo.save(advance);
+    const saved = await this.repo.save(advance);
+    this.events.emit('advance.decided', {
+      tenantId,
+      actorUserId,
+      advanceId: saved.id,
+      employeeId: saved.employeeId,
+      status,
+      amount: Number(saved.amount),
+    });
+    return saved;
   }
 
   /**
@@ -143,6 +173,14 @@ export class AdvancesService {
     advance.disbursedById = userId;
     advance.disbursedAt = new Date();
 
-    return await this.repo.save(advance);
+    const saved = await this.repo.save(advance);
+    this.events.emit('advance.disbursed', {
+      tenantId,
+      actorUserId: userId,
+      advanceId: saved.id,
+      employeeId: saved.employeeId,
+      amount: Number(saved.amount),
+    });
+    return saved;
   }
 }

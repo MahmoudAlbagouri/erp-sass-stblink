@@ -23,6 +23,7 @@ import { SetLeaveBalanceDto } from './dto/set-leave-balance.dto';
 import { ContractsService } from '../contracts/contracts.service';
 import { LeaveAccrualService } from './leave-accrual.service';
 import { DateUtils } from '../../common/utils/date.utils';
+import { DomainEvents } from '../../common/events/domain-events';
 
 // ✅ شكل بيانات كل طلب إجازة داخل ملخص صفحة الموظف
 export interface EmployeeLeaveRequestSummary {
@@ -58,6 +59,7 @@ export class LeavesService {
     private readonly contractsService: ContractsService,
     private readonly accrualService: LeaveAccrualService,
     private readonly dateUtils: DateUtils,
+    private readonly events: DomainEvents,
   ) {}
 
   async getAccrualDetails(employeeId: string, tenantId: string) {
@@ -207,7 +209,12 @@ export class LeavesService {
     return await this.balanceRepo.save(balance);
   }
 
-  async create(dto: CreateLeaveDto, employeeId: string, tenantId: string) {
+  async create(
+    dto: CreateLeaveDto,
+    employeeId: string,
+    tenantId: string,
+    actorUserId?: string,
+  ) {
     const start = new Date(dto.startDate);
     const end = new Date(dto.endDate);
     if (end < start)
@@ -256,7 +263,17 @@ export class LeavesService {
       tenantId,
       status: LeaveStatus.PENDING,
     });
-    return await this.repo.save(leave);
+    const saved = await this.repo.save(leave);
+    this.events.emit('leave.requested', {
+      tenantId,
+      actorUserId,
+      leaveId: saved.id,
+      employeeId,
+      leaveType: saved.type,
+      startDate: dto.startDate,
+      endDate: dto.endDate,
+    });
+    return saved;
   }
 
   // ✅ تحديث findAll لجلب بيانات الموظف
@@ -282,7 +299,12 @@ export class LeavesService {
    * اعتماد أو رفض طلب معلّق، أو إلغاء اعتماد (الرصيد يُحسب من الإجازات المعتمدة
    * فيعود تلقائياً). المرفوض لا يُعتمد بعد ذلك — يُقدَّم طلب جديد.
    */
-  async updateStatus(id: string, status: LeaveStatus, tenantId: string) {
+  async updateStatus(
+    id: string,
+    status: LeaveStatus,
+    tenantId: string,
+    actorUserId?: string,
+  ) {
     const leave = await this.repo.findOne({ where: { id, tenantId } });
     if (!leave) throw new NotFoundException('طلب الإجازة غير موجود في مؤسستك');
     assertStatusTransition(
@@ -308,7 +330,18 @@ export class LeavesService {
     }
 
     leave.status = status;
-    return await this.repo.save(leave);
+    const saved = await this.repo.save(leave);
+    this.events.emit('leave.decided', {
+      tenantId,
+      actorUserId,
+      leaveId: saved.id,
+      employeeId: saved.employeeId,
+      status,
+      leaveType: saved.type,
+      startDate: saved.startDate,
+      endDate: saved.endDate,
+    });
+    return saved;
   }
 
   async setBalance(dto: SetLeaveBalanceDto, tenantId: string) {

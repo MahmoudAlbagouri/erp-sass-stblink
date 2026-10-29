@@ -63,7 +63,7 @@ export class LoansController {
       throw new NotFoundException(
         'حسابك غير مرتبط بملف موظف، لا يمكنك طلب قرض',
       );
-    return this.loansService.create(dto, user.employeeId, tenantId);
+    return this.loansService.create(dto, user.employeeId, tenantId, user.id);
   }
 
   // ✅ مسار جديد: إنشاء قرض لموظف من قبل المدير
@@ -76,8 +76,9 @@ export class LoansController {
     @Param('employeeId') employeeId: string,
     @CurrentTenantId() tenantId: string,
     @Body() dto: CreateLoanDto,
+    @CurrentUser() user: CurrentUserData,
   ) {
-    return this.loansService.create(dto, employeeId, tenantId);
+    return this.loansService.create(dto, employeeId, tenantId, user.id);
   }
 
   // ✅ مسار التصدير الجماعي للقروض
@@ -215,7 +216,8 @@ export class LoansController {
     @Param('id') id: string,
     @Body('status') status: LoanStatus,
     @CurrentTenantId() tenantId: string,
+    @CurrentUser() user: CurrentUserData,
   ) {
-    return this.loansService.updateStatus(id, status, tenantId);
+    return this.loansService.updateStatus(id, status, tenantId, user.id);
   }
 }
