@@ -17,6 +17,12 @@ import {
 } from '../branches/branch-scope';
 import { resolveBranchId } from '../branches/branches.util';
 import { FilesService } from '../files/files.service';
+import {
+  assertPinFree,
+  employeePin,
+  pinKey,
+  relinkPunches,
+} from '../attendance/utils/attendance-pin';
 
 /** ما تعرضه بطاقة الموظف في القائمة، ومنه ملفاته (تصل بروابط موقَّعة) */
 const CARD_RELATIONS = [
@@ -80,6 +86,10 @@ export class EmployeesService {
   async create(dto: CreateEmployeeDto, tenantId: string): Promise<Employee> {
     await this.checkNationalIdUniqueness(dto.nationalId, tenantId);
     await this.files.assertOwned(employeeFileIds(dto), tenantId);
+    const attendancePin = cleanAttendancePin(dto.attendancePin);
+    if (attendancePin) {
+      await assertPinFree(this.repo.manager, tenantId, attendancePin);
+    }
 
     let user: User | null = null;
     if (dto.userId) {
@@ -109,6 +119,7 @@ export class EmployeesService {
         ...dto,
         branchId,
         employeeCode,
+        attendancePin,
         user: user ?? undefined,
         tenantId,
         iqamaExpiryDate: dto.iqamaExpiryDate
@@ -119,6 +130,13 @@ export class EmployeesService {
 
       try {
         const saved = await this.repo.save(employee);
+        // بصمات وصلت بهذا الرقم قبل إضافة الموظف تُنسب له
+        await relinkPunches(
+          this.repo.manager,
+          tenantId,
+          saved.id,
+          employeePin(saved),
+        );
         return await this.findForCard(saved.id, tenantId);
       } catch (error: unknown) {
         const pgError = error as { code?: string; detail?: string };
@@ -293,9 +311,24 @@ export class EmployeesService {
 
     // ✅ الحقول ذات المعالجة الخاصة تُفصل عن باقي الـ DTO حتى لا يعيد
     // Object.assign الكتابة فوق قيمها المُعالَجة (كان يُرجع educations الخام)
-    const { educations, iqamaExpiryDate, ...rest } = dto;
+    const { educations, iqamaExpiryDate, attendancePin, ...rest } = dto;
     delete rest.userId; // الربط بالمستخدم تم أعلاه عبر employee.user
+    // الكود يولّده النظام وبه تتعرف عليه أجهزة البصمة: لا يُعدَّل
+    delete rest.employeeCode;
     Object.assign(employee, rest);
+
+    // غياب الحقل = لا تغيير، وقيمة فارغة/null = يعود الجهاز يعرفه بكوده
+    let pinChanged = false;
+    if (attendancePin !== undefined) {
+      const pin = cleanAttendancePin(attendancePin);
+      const effective =
+        pin && pinKey(pin) === pinKey(employee.employeeCode) ? null : pin;
+      if (effective) {
+        await assertPinFree(this.repo.manager, tenantId, effective, id);
+      }
+      pinChanged = effective !== (employee.attendancePin ?? null);
+      employee.attendancePin = effective;
+    }
 
     if (educations !== undefined) {
       employee.educations = educations.map((edu) => ({
@@ -313,6 +346,14 @@ export class EmployeesService {
     }
 
     await this.repo.save(employee);
+    if (pinChanged) {
+      await relinkPunches(
+        this.repo.manager,
+        tenantId,
+        employee.id,
+        employeePin(employee),
+      );
+    }
     return this.findForCard(employee.id, tenantId);
   }
 
@@ -320,4 +361,9 @@ export class EmployeesService {
     const employee = await this.findOne(id, tenantId);
     await this.repo.softRemove(employee);
   }
+}
+
+/** رقم البصمة كما يُحفظ: بلا مسافات، والفارغ null */
+function cleanAttendancePin(pin?: string | null): string | null {
+  return pin?.trim() || null;
 }

@@ -47,6 +47,18 @@ export class Employee {
   @Column({ unique: true, length: 50 })
   employeeCode!: string;
 
+  /**
+   * رقم الموظف على جهاز البصمة إن اختلف عن كوده (موظفون سُجّلوا على الجهاز
+   * قبل النظام). فارغ = الجهاز يعرفه بكوده.
+   */
+  @Column({
+    name: 'attendance_pin',
+    type: 'varchar',
+    length: 20,
+    nullable: true,
+  })
+  attendancePin?: string | null;
+
   @Column({
     type: 'enum',
     enum: NationalityType,

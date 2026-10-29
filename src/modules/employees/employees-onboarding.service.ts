@@ -35,6 +35,11 @@ import {
 import { DomainEvents } from '../../common/events/domain-events';
 import { FilesService } from '../files/files.service';
 import { employeeFileIds } from './employees.service';
+import {
+  assertPinFree,
+  employeePin,
+  relinkPunches,
+} from '../attendance/utils/attendance-pin';
 
 export interface OnboardingResult {
   employee: Employee;
@@ -157,6 +162,10 @@ export class EmployeesOnboardingService {
           manager.getRepository(Employee),
           tenantId,
         );
+        const attendancePin = dto.attendancePin?.trim() || null;
+        if (attendancePin) {
+          await assertPinFree(manager, tenantId, attendancePin);
+        }
 
         const processedEducations = dto.educations?.map((edu) => ({
           ...edu,
@@ -178,12 +187,20 @@ export class EmployeesOnboardingService {
           shiftId: dto.shiftId,
           status: dto.status ?? 'active',
           employeeCode,
+          attendancePin,
           tenantId,
           user,
           educations: processedEducations,
         });
         const savedEmployee = await manager.save(Employee, newEmployee);
         result.employee = savedEmployee;
+        // بصمات وصلت برقمه على الجهاز قبل إضافته تُنسب له
+        await relinkPunches(
+          manager,
+          tenantId,
+          savedEmployee.id,
+          employeePin(savedEmployee),
+        );
 
         if (dto.contract) {
           const startDate = new Date(dto.contract.startDate);

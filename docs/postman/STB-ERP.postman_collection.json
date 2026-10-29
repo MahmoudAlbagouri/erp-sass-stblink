@@ -6320,7 +6320,7 @@
             "description": "تهيئة موظف جديد دفعة واحدة: ملفه، حسابه، عقده، راتبه\n\n**الصلاحيات:** EMPLOYEE_ONBOARD",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"fullName\": \"اسم تجريبي\",\n  \"nationalityType\": \"saudi\",\n  \"educations\": [\n    {\n      \"id\": \"00000000-0000-4000-8000-000000000000\",\n      \"degree\": \"\",\n      \"certificateNumber\": \"\",\n      \"issuingAuthority\": \"\",\n      \"expiryDate\": \"2026-10-12\",\n      \"attachmentFileId\": \"00000000-0000-4000-8000-000000000000\"\n    }\n  ],\n  \"iqamaExpiryDate\": \"2026-10-12\",\n  \"nationalId\": \"\",\n  \"nationalIdCardFileId\": \"00000000-0000-4000-8000-000000000000\",\n  \"phone\": \"0500000000\",\n  \"jobTitle\": \"\",\n  \"branchId\": \"00000000-0000-4000-8000-000000000000\",\n  \"departmentId\": \"{{departmentId}}\",\n  \"shiftId\": \"{{shiftId}}\",\n  \"status\": \"\",\n  \"user\": {\n    \"username\": \"اسم تجريبي\",\n    \"email\": \"user@example.com\",\n    \"password\": \"P@ssw0rd123\",\n    \"roleId\": \"{{roleId}}\",\n    \"roleName\": \"\",\n    \"permissionIds\": [\n      \"\"\n    ]\n  },\n  \"contract\": {\n    \"contractType\": \"دائم\",\n    \"startDate\": \"2026-10-12\",\n    \"endDate\": \"2026-10-12\",\n    \"annualLeaveDays\": 1,\n    \"contractDurationMonths\": 1,\n    \"ticketType\": \"بدون\",\n    \"probationPeriod\": \"بدون\",\n    \"medicalInsurance\": \"بدون\",\n    \"nationality\": \"\",\n    \"notes\": \"\",\n    \"attachmentFileIds\": [\n      \"00000000-0000-4000-8000-000000000000\"\n    ]\n  },\n  \"salary\": {\n    \"basicSalary\": 100,\n    \"housingAllowance\": 1,\n    \"transportAllowance\": 1,\n    \"otherAllowances\": 1,\n    \"paymentMethod\": \"CASH\",\n    \"iban\": \"SA0380000000608010167519\"\n  }\n}",
+              "raw": "{\n  \"fullName\": \"اسم تجريبي\",\n  \"nationalityType\": \"saudi\",\n  \"educations\": [\n    {\n      \"id\": \"00000000-0000-4000-8000-000000000000\",\n      \"degree\": \"\",\n      \"certificateNumber\": \"\",\n      \"issuingAuthority\": \"\",\n      \"expiryDate\": \"2026-10-12\",\n      \"attachmentFileId\": \"00000000-0000-4000-8000-000000000000\"\n    }\n  ],\n  \"iqamaExpiryDate\": \"2026-10-12\",\n  \"nationalId\": \"\",\n  \"nationalIdCardFileId\": \"00000000-0000-4000-8000-000000000000\",\n  \"phone\": \"0500000000\",\n  \"jobTitle\": \"\",\n  \"branchId\": \"00000000-0000-4000-8000-000000000000\",\n  \"departmentId\": \"{{departmentId}}\",\n  \"shiftId\": \"{{shiftId}}\",\n  \"attendancePin\": \"\",\n  \"status\": \"\",\n  \"user\": {\n    \"username\": \"اسم تجريبي\",\n    \"email\": \"user@example.com\",\n    \"password\": \"P@ssw0rd123\",\n    \"roleId\": \"{{roleId}}\",\n    \"roleName\": \"\",\n    \"permissionIds\": [\n      \"\"\n    ]\n  },\n  \"contract\": {\n    \"contractType\": \"دائم\",\n    \"startDate\": \"2026-10-12\",\n    \"endDate\": \"2026-10-12\",\n    \"annualLeaveDays\": 1,\n    \"contractDurationMonths\": 1,\n    \"ticketType\": \"بدون\",\n    \"probationPeriod\": \"بدون\",\n    \"medicalInsurance\": \"بدون\",\n    \"nationality\": \"\",\n    \"notes\": \"\",\n    \"attachmentFileIds\": [\n      \"00000000-0000-4000-8000-000000000000\"\n    ]\n  },\n  \"salary\": {\n    \"basicSalary\": 100,\n    \"housingAllowance\": 1,\n    \"transportAllowance\": 1,\n    \"otherAllowances\": 1,\n    \"paymentMethod\": \"CASH\",\n    \"iban\": \"SA0380000000608010167519\"\n  }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -6351,7 +6351,7 @@
             "description": "إضافة موظف\n\n**الصلاحيات:** EMPLOYEE_CREATE",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"fullName\": \"اسم تجريبي\",\n  \"employeeCode\": \"\",\n  \"nationalityType\": \"saudi\",\n  \"educations\": [\n    {\n      \"id\": \"00000000-0000-4000-8000-000000000000\",\n      \"degree\": \"\",\n      \"certificateNumber\": \"\",\n      \"issuingAuthority\": \"\",\n      \"expiryDate\": \"2026-10-12\",\n      \"attachmentFileId\": \"00000000-0000-4000-8000-000000000000\"\n    }\n  ],\n  \"iqamaExpiryDate\": \"2026-10-12\",\n  \"nationalId\": \"\",\n  \"nationalIdCardFileId\": \"00000000-0000-4000-8000-000000000000\",\n  \"phone\": \"0500000000\",\n  \"shiftId\": \"{{shiftId}}\",\n  \"jobTitle\": \"\",\n  \"branchId\": \"00000000-0000-4000-8000-000000000000\",\n  \"departmentId\": \"{{departmentId}}\",\n  \"status\": \"\",\n  \"userId\": \"\"\n}",
+              "raw": "{\n  \"fullName\": \"اسم تجريبي\",\n  \"employeeCode\": \"\",\n  \"attendancePin\": \"\",\n  \"nationalityType\": \"saudi\",\n  \"educations\": [\n    {\n      \"id\": \"00000000-0000-4000-8000-000000000000\",\n      \"degree\": \"\",\n      \"certificateNumber\": \"\",\n      \"issuingAuthority\": \"\",\n      \"expiryDate\": \"2026-10-12\",\n      \"attachmentFileId\": \"00000000-0000-4000-8000-000000000000\"\n    }\n  ],\n  \"iqamaExpiryDate\": \"2026-10-12\",\n  \"nationalId\": \"\",\n  \"nationalIdCardFileId\": \"00000000-0000-4000-8000-000000000000\",\n  \"phone\": \"0500000000\",\n  \"shiftId\": \"{{shiftId}}\",\n  \"jobTitle\": \"\",\n  \"branchId\": \"00000000-0000-4000-8000-000000000000\",\n  \"departmentId\": \"{{departmentId}}\",\n  \"status\": \"\",\n  \"userId\": \"\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -6622,7 +6622,7 @@
             "description": "تعديل موظف\n\n**الصلاحيات:** EMPLOYEE_UPDATE",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"fullName\": \"اسم تجريبي\",\n  \"employeeCode\": \"\",\n  \"nationalityType\": \"saudi\",\n  \"educations\": [\n    {\n      \"id\": \"00000000-0000-4000-8000-000000000000\",\n      \"degree\": \"\",\n      \"certificateNumber\": \"\",\n      \"issuingAuthority\": \"\",\n      \"expiryDate\": \"2026-10-12\",\n      \"attachmentFileId\": \"00000000-0000-4000-8000-000000000000\"\n    }\n  ],\n  \"iqamaExpiryDate\": \"2026-10-12\",\n  \"nationalId\": \"\",\n  \"nationalIdCardFileId\": \"00000000-0000-4000-8000-000000000000\",\n  \"phone\": \"0500000000\",\n  \"shiftId\": \"{{shiftId}}\",\n  \"jobTitle\": \"\",\n  \"branchId\": \"00000000-0000-4000-8000-000000000000\",\n  \"departmentId\": \"{{departmentId}}\",\n  \"status\": \"\",\n  \"userId\": \"\"\n}",
+              "raw": "{\n  \"fullName\": \"اسم تجريبي\",\n  \"employeeCode\": \"\",\n  \"attendancePin\": \"\",\n  \"nationalityType\": \"saudi\",\n  \"educations\": [\n    {\n      \"id\": \"00000000-0000-4000-8000-000000000000\",\n      \"degree\": \"\",\n      \"certificateNumber\": \"\",\n      \"issuingAuthority\": \"\",\n      \"expiryDate\": \"2026-10-12\",\n      \"attachmentFileId\": \"00000000-0000-4000-8000-000000000000\"\n    }\n  ],\n  \"iqamaExpiryDate\": \"2026-10-12\",\n  \"nationalId\": \"\",\n  \"nationalIdCardFileId\": \"00000000-0000-4000-8000-000000000000\",\n  \"phone\": \"0500000000\",\n  \"shiftId\": \"{{shiftId}}\",\n  \"jobTitle\": \"\",\n  \"branchId\": \"00000000-0000-4000-8000-000000000000\",\n  \"departmentId\": \"{{departmentId}}\",\n  \"status\": \"\",\n  \"userId\": \"\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -7308,7 +7308,10 @@
                 }
               ]
             },
-            "description": "التعريف: الجهاز يطلب إعدادات المزامنة"
+            "description": "التعريف: الجهاز يطلب إعدادات المزامنة",
+            "auth": {
+              "type": "noauth"
+            }
           }
         },
         {
@@ -7340,10 +7343,18 @@
                   "key": "Stamp",
                   "value": "",
                   "disabled": true
+                },
+                {
+                  "key": "OpStamp",
+                  "value": "",
+                  "disabled": true
                 }
               ]
             },
-            "description": "رفع البيانات: البصمات (ATTLOG)، وغيرها يُقبل بلا معالجة"
+            "description": "رفع البيانات: البصمات (ATTLOG)، والمستخدمون وقوالب بصماتهم (OPERLOG /\nBIODATA) لنسخها بين الأجهزة. غيرها (الصور…) يُقبل بلا معالجة.",
+            "auth": {
+              "type": "noauth"
+            }
           }
         },
         {
@@ -7368,7 +7379,10 @@
                 }
               ]
             },
-            "description": "سؤال الجهاز الدوري عن أوامره (وهو أيضاً نبض الاتصال)"
+            "description": "سؤال الجهاز الدوري عن أوامره (وهو أيضاً نبض الاتصال)",
+            "auth": {
+              "type": "noauth"
+            }
           }
         },
         {
@@ -7393,7 +7407,10 @@
                 }
               ]
             },
-            "description": "نتيجة تنفيذ الأوامر"
+            "description": "نتيجة تنفيذ الأوامر",
+            "auth": {
+              "type": "noauth"
+            }
           }
         },
         {
@@ -7411,7 +7428,181 @@
                 "ping"
               ]
             },
-            "description": "بعض الإصدارات تفحص الاتصال بهذا المسار"
+            "description": "بعض الإصدارات تفحص الاتصال بهذا المسار",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "GET /attendance/settings",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/settings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "settings"
+              ]
+            },
+            "description": "سياسة الحضور: أيام الراحة، ربط الحضور بالمسير، نسخ البصمات\n\n**الصلاحيات:** ATTENDANCE_SUMMARY_VIEW"
+          }
+        },
+        {
+          "name": "PATCH /attendance/settings",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/settings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "settings"
+              ]
+            },
+            "description": "تعديل سياسة الحضور. إيقاف نسخ البصمات يحذف كل القوالب المحفوظة\n\n**الصلاحيات:** ATTENDANCE_SETTINGS_MANAGE",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"weeklyOffDays\": [\n    1\n  ],\n  \"deductAbsence\": true,\n  \"deductLateness\": true,\n  \"payOvertime\": true,\n  \"overtimeRatePercent\": 1,\n  \"overtimeMinMinutes\": 1,\n  \"syncBiometrics\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /attendance/holidays",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/holidays",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "holidays"
+              ],
+              "query": [
+                {
+                  "key": "year",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "العطلات الرسمية (لسنة إن حُددت)\n\n**الصلاحيات:** ATTENDANCE_SUMMARY_VIEW"
+          }
+        },
+        {
+          "name": "POST /attendance/holidays",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/holidays",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "holidays"
+              ]
+            },
+            "description": "إضافة عطلة رسمية (يوم أو فترة)\n\n**الصلاحيات:** ATTENDANCE_SETTINGS_MANAGE",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"اسم تجريبي\",\n  \"startDate\": \"2026-10-12\",\n  \"endDate\": \"2026-10-12\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PATCH /attendance/holidays/:id",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/holidays/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "holidays",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "تعديل عطلة رسمية\n\n**الصلاحيات:** ATTENDANCE_SETTINGS_MANAGE",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"اسم تجريبي\",\n  \"startDate\": \"2026-10-12\",\n  \"endDate\": \"2026-10-12\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "DELETE /attendance/holidays/:id",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/holidays/:id",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "holidays",
+                ":id"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "حذف عطلة رسمية\n\n**الصلاحيات:** ATTENDANCE_SETTINGS_MANAGE"
           }
         },
         {
@@ -7437,7 +7628,7 @@
             "description": "إضافة جهاز بصمة\n\n**الصلاحيات:** BIOMETRIC_DEVICE_CREATE",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"serialNumber\": \"\",\n  \"alias\": \"\",\n  \"location\": \"\",\n  \"model\": \"\",\n  \"timezone\": \"\",\n  \"branchId\": \"00000000-0000-4000-8000-000000000000\"\n}",
+              "raw": "{\n  \"serialNumber\": \"\",\n  \"alias\": \"\",\n  \"location\": \"\",\n  \"model\": \"\",\n  \"protocol\": \"zk_adms\",\n  \"allowedIps\": \"\",\n  \"timezone\": \"\",\n  \"branchId\": \"00000000-0000-4000-8000-000000000000\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -7474,7 +7665,99 @@
                 }
               ]
             },
-            "description": "إرسال موظف إلى جهاز البصمة ليُسجَّل عليه\n\n**الصلاحيات:** BIOMETRIC_DEVICE_SYNC"
+            "description": "إرسال موظف (وبصماته المحفوظة) إلى جهاز ZKTeco ليُسجَّل عليه\n\n**الصلاحيات:** BIOMETRIC_DEVICE_SYNC"
+          }
+        },
+        {
+          "name": "POST /attendance/devices/:id/sync-users",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/devices/:id/sync-users",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "devices",
+                ":id",
+                "sync-users"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "إرسال كل الموظفين النشطين (وبصماتهم المحفوظة) لجهاز ZKTeco\n\n**الصلاحيات:** BIOMETRIC_DEVICE_SYNC",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"branchOnly\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "GET /attendance/devices/:id/setup",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/devices/:id/setup",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "devices",
+                ":id",
+                "setup"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "ما يُكتب في إعدادات الجهاز ليتصل بالسيرفر\n\n**الصلاحيات:** BIOMETRIC_DEVICE_VIEW"
+          }
+        },
+        {
+          "name": "POST /attendance/devices/:id/regenerate-key",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/devices/:id/regenerate-key",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "devices",
+                ":id",
+                "regenerate-key"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "مفتاح إرسال جديد لجهاز Hikvision أو API (القديم يتوقف فوراً)\n\n**الصلاحيات:** BIOMETRIC_DEVICE_UPDATE"
           }
         },
         {
@@ -7550,7 +7833,7 @@
             "description": "تعديل جهاز بصمة أو إيقافه\n\n**الصلاحيات:** BIOMETRIC_DEVICE_UPDATE",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"serialNumber\": \"\",\n  \"alias\": \"\",\n  \"location\": \"\",\n  \"model\": \"\",\n  \"timezone\": \"\",\n  \"branchId\": \"00000000-0000-4000-8000-000000000000\",\n  \"status\": \"online\",\n  \"isActive\": true\n}",
+              "raw": "{\n  \"serialNumber\": \"\",\n  \"alias\": \"\",\n  \"location\": \"\",\n  \"model\": \"\",\n  \"protocol\": \"zk_adms\",\n  \"allowedIps\": \"\",\n  \"timezone\": \"\",\n  \"branchId\": \"00000000-0000-4000-8000-000000000000\",\n  \"status\": \"online\",\n  \"isActive\": true\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -7784,6 +8067,108 @@
           }
         },
         {
+          "name": "GET /attendance/unlinked-pins",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/unlinked-pins",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "unlinked-pins"
+              ]
+            },
+            "description": "أرقام وصلت منها بصمات ولا يقابلها موظف\n\n**الصلاحيات:** ATTENDANCE_LOGS_VIEW"
+          }
+        },
+        {
+          "name": "POST /attendance/unlinked-pins/link",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/unlinked-pins/link",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "unlinked-pins",
+                "link"
+              ]
+            },
+            "description": "ربط رقم على الجهاز بموظف، ومعه كل البصمات التي وصلت به من قبل\n\n**الصلاحيات:** ATTENDANCE_LOGS_UPDATE",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pin\": \"\",\n  \"employeeId\": \"{{employeeId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "POST /attendance/import/preview",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/import/preview",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "import",
+                "preview"
+              ]
+            },
+            "description": "معاينة ملف بصمات (Excel/CSV): أعمدته وأول صفوفه وتخمين معانيها\n\n**الصلاحيات:** ATTENDANCE_LOGS_IMPORT\n\n**رفع ملف:** هذا الطلب يستقبل `multipart/form-data` — غيّر الـ Body إلى form-data وأضف الملف."
+          }
+        },
+        {
+          "name": "POST /attendance/import",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/import",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "import"
+              ]
+            },
+            "description": "استيراد بصمات من ملف صدّره برنامج أي جهاز بصمة\n\n**الصلاحيات:** ATTENDANCE_LOGS_IMPORT\n\n**رفع ملف:** هذا الطلب يستقبل `multipart/form-data` — غيّر الـ Body إلى form-data وأضف الملف.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pinColumn\": 1,\n  \"dateTimeColumn\": 1,\n  \"dateColumn\": 1,\n  \"timeColumn\": 1,\n  \"typeColumn\": 1,\n  \"headerRow\": 1,\n  \"dateOrder\": \"\",\n  \"deviceId\": \"{{deviceId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "GET /attendance/logs/employee/:employeeId",
           "request": {
             "method": "GET",
@@ -7915,6 +8300,129 @@
             },
             "description": "تقرير حضور موظف لشهر\n\n**الصلاحيات:** ATTENDANCE_REPORTS_VIEW"
           }
+        },
+        {
+          "name": "GET /attendance-push/hikvision/:deviceId/:key",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attendance-push/hikvision/:deviceId/:key",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance-push",
+                "hikvision",
+                ":deviceId",
+                ":key"
+              ],
+              "variable": [
+                {
+                  "key": "deviceId",
+                  "value": "{{deviceId}}"
+                },
+                {
+                  "key": "key",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "فحص الرابط من المتصفح أو من زر \"اختبار\" في الجهاز",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "POST /attendance-push/hikvision/:deviceId/:key",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/attendance-push/hikvision/:deviceId/:key",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance-push",
+                "hikvision",
+                ":deviceId",
+                ":key"
+              ],
+              "variable": [
+                {
+                  "key": "deviceId",
+                  "value": "{{deviceId}}"
+                },
+                {
+                  "key": "key",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "أحداث جهاز Hikvision (HTTP Listening): JSON أو multipart بحقل event_log.\nيرد 200 على كل حدث مقبول — بصمةً كان أو غيره — فلا يعيد الجهاز إرساله.\n\n**رفع ملف:** هذا الطلب يستقبل `multipart/form-data` — غيّر الـ Body إلى form-data وأضف الملف.",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "POST /attendance-push/api",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Device-Id",
+                "value": "{{deviceId}}"
+              },
+              {
+                "key": "X-Device-Key",
+                "value": "{{deviceKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/attendance-push/api",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance-push",
+                "api"
+              ]
+            },
+            "description": "بصمات من أي جهاز أو برنامج وسيط: حتى 1000 بصمة في الطلب. الجهاز يُعرَّف\nبترويستي X-Device-Id و X-Device-Key.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"punches\": [\n    {\n      \"pin\": \"\",\n      \"time\": \"\",\n      \"type\": \"\",\n      \"verifyMode\": \"\",\n      \"id\": \"\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
         }
       ]
     },
@@ -7943,7 +8451,7 @@
             "description": "إضافة وقت دوام\n\n**الصلاحيات:** SHIFT_CREATE",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"اسم تجريبي\",\n  \"startTime\": \"\",\n  \"endTime\": \"\",\n  \"gracePeriod\": 1\n}",
+              "raw": "{\n  \"name\": \"اسم تجريبي\",\n  \"startTime\": \"\",\n  \"endTime\": \"\",\n  \"gracePeriod\": 1,\n  \"offDays\": [\n    1\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -7998,7 +8506,7 @@
             "description": "تعديل وقت دوام\n\n**الصلاحيات:** SHIFT_UPDATE",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"اسم تجريبي\",\n  \"startTime\": \"\",\n  \"endTime\": \"\",\n  \"gracePeriod\": 1\n}",
+              "raw": "{\n  \"name\": \"اسم تجريبي\",\n  \"startTime\": \"\",\n  \"endTime\": \"\",\n  \"gracePeriod\": 1,\n  \"offDays\": [\n    1\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"

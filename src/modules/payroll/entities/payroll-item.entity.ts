@@ -158,6 +158,37 @@ export class PayrollItem {
   })
   otherDeductions!: number;
 
+  // ===================== من الحضور (حسب سياسة الحضور للشركة) =====================
+  /** أيام الغياب في الشهر (أيام عمل بلا بصمة ولا إجازة) */
+  @Column({ name: 'absence_days', type: 'int', default: 0 })
+  absenceDays!: number;
+
+  @Column({
+    name: 'absence_deduction',
+    type: 'decimal',
+    precision: 13,
+    scale: 3,
+    default: 0,
+  })
+  absenceDeduction!: number;
+
+  /** دقائق التأخير والانصراف المبكر (بعد فترة السماح) */
+  @Column({ name: 'late_minutes', type: 'int', default: 0 })
+  lateMinutes!: number;
+
+  @Column({
+    name: 'late_deduction',
+    type: 'decimal',
+    precision: 13,
+    scale: 3,
+    default: 0,
+  })
+  lateDeduction!: number;
+
+  /** دقائق العمل الإضافي (أجرها في overtimeAmount) */
+  @Column({ name: 'overtime_minutes', type: 'int', default: 0 })
+  overtimeMinutes!: number;
+
   // ===================== الصافي =====================
   @Column({ type: 'decimal', precision: 13, scale: 3 })
   netSalary!: number;

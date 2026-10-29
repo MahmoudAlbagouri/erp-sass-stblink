@@ -93,7 +93,7 @@ export const FEATURES = {
   },
   BIOMETRIC_INTEGRATION: {
     name: 'biometric_integration',
-    labelAr: 'ربط أجهزة البصمة (ZKTeco)',
+    labelAr: 'ربط أجهزة البصمة (ZKTeco وHikvision وغيرها)',
   },
   MULTI_BRANCH: {
     name: 'multi_branch',

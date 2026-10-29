@@ -22,6 +22,7 @@ import { PayrollListener } from './listeners/payroll.listener';
 import { EmployeesListener } from './listeners/employees.listener';
 import { OperationsListener } from './listeners/operations.listener';
 import { PlatformListener } from './listeners/platform.listener';
+import { AttendanceDevicesListener } from './listeners/attendance-devices.listener';
 import { AlertStatesService } from './scanners/alert-states.service';
 import { HrExpiryScanner } from './scanners/hr-expiry.scanner';
 import { SubscriptionExpiryScanner } from './scanners/subscription-expiry.scanner';
@@ -60,6 +61,7 @@ import { NotificationChecksService } from './scanners/notification-checks.servic
     EmployeesListener,
     OperationsListener,
     PlatformListener,
+    AttendanceDevicesListener,
     // الفحوص الدورية
     AlertStatesService,
     HrExpiryScanner,

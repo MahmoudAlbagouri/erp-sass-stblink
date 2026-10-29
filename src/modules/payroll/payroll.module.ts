@@ -13,6 +13,7 @@ import { LeaveRequest } from '../leaves/entities/leave-request.entity';
 import { Employee } from '../employees/entities/employee.entity';
 import { SalariesModule } from '../salaries/salaries.module'; // ✅ استيراد الموديول
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { AttendanceModule } from '../attendance/attendance.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
     // 2. استيراد الموديولات الخارجية هنا (خارج forFeature)
     SalariesModule,
     SubscriptionsModule, // استيراد موديول الاشتراكات
+    AttendanceModule, // الغياب والتأخير والإضافي في المسير
   ],
   controllers: [PayrollController],
   providers: [PayrollService, ReportService],

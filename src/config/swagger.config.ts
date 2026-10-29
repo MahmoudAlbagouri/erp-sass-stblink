@@ -108,6 +108,10 @@ export const API_TAGS = {
     'أجهزة البصمة (ADMS)',
     'بروتوكول ZKTeco: تستدعيه أجهزة البصمة نفسها، لا الواجهة',
   ],
+  DEVICE_PUSH: [
+    'أجهزة البصمة (Hikvision / API)',
+    'تستدعيها أجهزة Hikvision والبرامج الوسيطة بمفتاح الجهاز، لا الواجهة',
+  ],
 } as const satisfies Record<
   string,
   readonly [name: string, description: string]
@@ -153,6 +157,7 @@ const PUBLIC_PATHS = [
   '/auth/reset-password',
 ];
 const ADMS_PREFIX = '/iclock';
+const DEVICE_PUSH_PREFIX = '/attendance-push';
 const POS_DEVICE_PREFIX = '/pos/device';
 const DRIVER_PREFIX = '/delivery/driver';
 
@@ -215,7 +220,11 @@ function enrich(document: OpenAPIObject): OpenAPIObject {
         ];
       } else if (path.startsWith(DRIVER_PREFIX)) {
         operation.security = [{ [DRIVER_AGENT]: [], [DRIVER_KEY]: [] }];
-      } else if (path.startsWith(ADMS_PREFIX) || PUBLIC_PATHS.includes(path)) {
+      } else if (
+        path.startsWith(ADMS_PREFIX) ||
+        path.startsWith(DEVICE_PUSH_PREFIX) ||
+        PUBLIC_PATHS.includes(path)
+      ) {
         operation.security = [];
       }
     }

@@ -12,8 +12,10 @@ import {
   FindOptionsWhere,
   DataSource,
   EntityManager,
+  IsNull,
   LessThanOrEqual,
   MoreThanOrEqual,
+  Not,
 } from 'typeorm';
 import {
   assertBranchVisible,
@@ -24,6 +26,7 @@ import {
 import { resolveBranchId } from '../branches/branches.util';
 import {
   BiometricDevice,
+  DeviceProtocol,
   DeviceStatus,
 } from './entities/biometric-device.entity';
 import {
@@ -34,14 +37,15 @@ import {
 } from './entities/attendance-log.entity';
 import { DeviceCommand } from './entities/device-command.entity';
 import { Shift } from '../shifts/entities/shift.entity';
-import { getShiftWindow } from '../shifts/utils/shift-time.util';
 import { CreateDeviceDto } from './dto/create-device.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { AttendanceQueryDto } from './dto/attendance-query.dto';
 import { UpdateAttendanceLogDto } from './dto/update-attendance-log.dto';
 import { CreateManualAttendanceLogDto } from './dto/create-manual-attendance-log.dto';
+import { LinkPinDto } from './dto/link-pin.dto';
 import { CurrentUserData } from '../../common/decorators/current-user.decorator';
 import { Employee } from '../employees/entities/employee.entity';
+import { Contract } from '../contracts/entities/contract.entity';
 import { User } from '../users/entities/user.entity';
 import { DomainEvents } from '../../common/events/domain-events';
 import {
@@ -56,11 +60,35 @@ import {
   startOfDayInZone,
   tenantTimezoneOf,
 } from '../../common/utils/timezone.util';
+import { AttendanceSettingsService } from './attendance-settings.service';
+import { BiometricSyncService } from './biometric-sync.service';
+import {
+  type AttendanceCalendar,
+  type AttendanceStatus,
+  type DayAttendance,
+  DAY_MINUTES,
+  addDays,
+  daysBetween,
+  evaluateDay,
+  planDay,
+  shiftDayOf,
+  shiftDayRange,
+  toDayKey,
+  toHours,
+} from './attendance-days';
+import {
+  assertPinFree,
+  employeePin,
+  pinKey,
+  pinKeySql,
+  relinkPunches,
+} from './utils/attendance-pin';
+import { parseAllowedIps } from './utils/ip-allowlist';
+import { generateDeviceKey, hashDeviceKey } from '../pos/utils/pos-crypto.util';
 
 const EDIT_WINDOW_HOURS = 24;
 const MANUAL_ENTRY_WINDOW_HOURS = 24;
 const HOUR_MS = 60 * 60 * 1000;
-const DAY_MINUTES = 24 * 60;
 
 /**
  * الجهاز يسأل السيرفر كل ~10 ثوانٍ: غيابه أطول من هذا يعني أنه غير متصل.
@@ -68,37 +96,13 @@ const DAY_MINUTES = 24 * 60;
  */
 const ONLINE_WINDOW_MS = 2 * 60 * 1000;
 
-/**
- * "يوم الوردية" يبدأ قبل موعد بدايتها بهذه المدة ويستمر 24 ساعة: فكل بصمة
- * تنتمي ليوم واحد بالضبط — من جاء مبكراً أو انصرف متأخراً يُحسب ليومه.
- */
-const SHIFT_DAY_LEAD_MINUTES = 4 * 60;
-
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
-type AttendanceStatus =
-  | 'present'
-  | 'late'
-  | 'early_leave'
-  | 'late_and_early_leave'
-  | 'incomplete' // بصمة واحدة بس (حضور بدون انصراف أو العكس)
-  | 'absent'
-  | 'on_leave' // ✅ يوم إجازة
-  | 'unclassified'; // مفيش شيفت متعين للموظف أصلاً
+export type { AttendanceStatus };
 
-interface AttendanceEvaluation {
-  lateMinutes: number;
-  earlyLeaveMinutes: number;
-  status: AttendanceStatus;
-}
-
-/** حضور موظف في يوم واحد */
-interface DayAttendance extends AttendanceEvaluation {
-  checkIn: AttendanceLog | null;
-  checkOut: AttendanceLog | null;
-  minutes: number;
-  leaveReason?: string;
-  logs: AttendanceLog[];
+/** يوم حضور موظف (بتقويم الشركة) */
+export interface EmployeeDay extends DayAttendance {
+  date: string;
 }
 
 export interface DailySummaryRow {
@@ -112,9 +116,43 @@ export interface DailySummaryRow {
   totalMinutes: number;
   lateMinutes: number;
   earlyLeaveMinutes: number;
+  overtimeMinutes: number;
   status: AttendanceStatus;
   leaveReason?: string;
+  holidayName?: string;
   logs: AttendanceLog[];
+}
+
+export interface UnlinkedPin {
+  pin: string;
+  punches: number;
+  firstPunch: Date;
+  lastPunch: Date;
+  devices: string[];
+}
+
+/** الجهاز ومفتاح إرساله (يُعرض مرة واحدة عند إنشائه أو تجديده) */
+export type DeviceWithKey = BiometricDevice & { pushKey?: string };
+
+export interface DeviceSetup {
+  protocol: DeviceProtocol;
+  serialNumber: string;
+  /** ZKTeco: ما يُكتب في إعدادات "Cloud Server" على الجهاز */
+  zk?: {
+    serverAddress: string;
+    serverPort: number;
+    https: boolean;
+    path: string;
+  };
+  /** Hikvision: ما يُكتب في HTTP Listening؛ المفتاح يُعرض عند توليده فقط */
+  hikvision?: {
+    host: string;
+    port: number;
+    https: boolean;
+    urlPath: string;
+  };
+  /** API: الرابط والترويسات */
+  api?: { url: string; deviceIdHeader: string; deviceKeyHeader: string };
 }
 
 @Injectable()
@@ -127,6 +165,8 @@ export class AttendanceService {
     private readonly dataSource: DataSource,
     private readonly reportService: ReportService,
     private readonly events: DomainEvents,
+    private readonly settings: AttendanceSettingsService,
+    private readonly sync: BiometricSyncService,
   ) {}
 
   /** منطقة الشركة الزمنية: بها تُحدَّد الأيام والورديات وتُعرض الأوقات */
@@ -135,225 +175,147 @@ export class AttendanceService {
   }
 
   // ==========================================================
-  // ✅ منطق ضبط الحضور/الانصراف حسب الشيفت (مع دعم الشيفت الليلي)
+  // ✅ أيام الحضور — أساس الملخص والتقرير الشهري ومسير الرواتب
   // ==========================================================
 
   /**
-   * حدود "اليوم" لموظف: من قبل بداية ورديته بمهلة حتى نفس اللحظة من اليوم
-   * التالي (النهاية غير مشمولة). بلا وردية: اليوم التقويمي بتوقيت الشركة.
+   * أيام حضور موظفين من `fromDay` إلى `toDay` (شاملة، بتقويم الشركة).
+   * الموظفون محمَّلون بورديتهم (relations: shift).
    */
-  private getShiftDayRange(
-    day: string,
-    zone: string,
-    shift?: Shift | null,
-  ): { start: Date; end: Date } {
-    const lead = shift
-      ? getShiftWindow(shift).startMinutes - SHIFT_DAY_LEAD_MINUTES
-      : 0;
-    return {
-      start: dayOffsetInZone(day, lead, zone),
-      end: dayOffsetInZone(day, lead + DAY_MINUTES, zone),
-    };
-  }
+  async attendanceDays(
+    tenantId: string,
+    employees: Employee[],
+    fromDay: string,
+    toDay: string,
+    manager: EntityManager = this.dataSource.manager,
+  ): Promise<Map<string, EmployeeDay[]>> {
+    const result = new Map<string, EmployeeDay[]>();
+    if (employees.length === 0 || toDay < fromDay) return result;
+    const ids = employees.map((e) => e.id);
 
-  /** التأخير والانصراف المبكر مقارنةً بموعدَي الوردية في ذلك اليوم */
-  private evaluateAttendanceStatus(
-    checkIn: Date,
-    checkOut: Date,
-    shift: Shift,
-    day: string,
-    zone: string,
-  ): AttendanceEvaluation {
-    const { startMinutes, endMinutes, isOvernight, graceMinutes } =
-      getShiftWindow(shift);
-
-    const shiftStart = dayOffsetInZone(day, startMinutes, zone);
-    const shiftEnd = dayOffsetInZone(
-      day,
-      endMinutes + (isOvernight ? DAY_MINUTES : 0),
-      zone,
+    const calendar = await this.settings.loadCalendar(
+      tenantId,
+      fromDay,
+      toDay,
+      ids,
+      manager,
     );
+    const [logs, starts] = await Promise.all([
+      manager.find(AttendanceLog, {
+        where: {
+          tenantId,
+          employeeId: In(ids),
+          punchTime: Between(
+            dayOffsetInZone(fromDay, -DAY_MINUTES, calendar.zone),
+            dayOffsetInZone(toDay, 2 * DAY_MINUTES, calendar.zone),
+          ),
+        },
+        order: { punchTime: 'ASC' },
+      }),
+      this.employmentStarts(tenantId, employees, calendar.zone, manager),
+    ]);
 
-    const lateRaw = minutesBetween(shiftStart, checkIn);
-    const lateMinutes = lateRaw > graceMinutes ? lateRaw : 0;
-
-    const earlyRaw = minutesBetween(checkOut, shiftEnd);
-    const earlyLeaveMinutes = earlyRaw > graceMinutes ? earlyRaw : 0;
-
-    let status: AttendanceStatus = 'present';
-    if (lateMinutes > 0 && earlyLeaveMinutes > 0)
-      status = 'late_and_early_leave';
-    else if (lateMinutes > 0) status = 'late';
-    else if (earlyLeaveMinutes > 0) status = 'early_leave';
-
-    return { lateMinutes, earlyLeaveMinutes, status };
+    const logsOf = groupBy(logs, (log) => log.employeeId!);
+    const days = daysBetween(fromDay, toDay);
+    for (const employee of employees) {
+      result.set(
+        employee.id,
+        days.map((day) => ({
+          date: day,
+          ...this.evaluateFor(
+            employee,
+            day,
+            logsOf.get(employee.id) ?? [],
+            calendar,
+            starts.get(employee.id),
+          ),
+        })),
+      );
+    }
+    return result;
   }
 
-  /** يلخّص بصمات موظف في يوم واحد (مرتبة زمنياً وضمن حدود يومه) */
-  private summarizeDay(
-    dayLogs: AttendanceLog[],
-    shift: Shift | null | undefined,
+  private evaluateFor(
+    employee: Pick<Employee, 'id' | 'shift'>,
     day: string,
-    zone: string,
+    personLogs: AttendanceLog[],
+    calendar: AttendanceCalendar,
+    startDay: string | undefined,
   ): DayAttendance {
-    const none = { lateMinutes: 0, earlyLeaveMinutes: 0 };
-
-    if (dayLogs.length === 0) {
+    const { start, end } = shiftDayRange(day, calendar.zone, employee.shift);
+    const dayLogs = personLogs.filter(
+      (l) => l.punchTime >= start && l.punchTime < end,
+    );
+    if (startDay && day < startDay && dayLogs.length === 0) {
       return {
-        ...none,
-        status: 'absent',
+        status: 'not_employed',
         checkIn: null,
         checkOut: null,
         minutes: 0,
-        logs: dayLogs,
+        lateMinutes: 0,
+        earlyLeaveMinutes: 0,
+        overtimeMinutes: 0,
+        logs: [],
       };
     }
-
-    const leaveLog = dayLogs.find((l) => l.punchType === PunchType.LEAVE);
-    if (leaveLog) {
-      return {
-        ...none,
-        status: 'on_leave',
-        checkIn: null,
-        checkOut: null,
-        minutes: 0,
-        leaveReason: leaveLog.leaveReason,
-        logs: dayLogs,
-      };
-    }
-
-    const checkIn = dayLogs[0];
-    const checkOut = dayLogs[dayLogs.length - 1];
-
-    let evaluation: AttendanceEvaluation = { ...none, status: 'unclassified' };
-    if (dayLogs.length < 2) {
-      evaluation = { ...none, status: 'incomplete' };
-    } else if (shift) {
-      evaluation = this.evaluateAttendanceStatus(
-        checkIn.punchTime,
-        checkOut.punchTime,
-        shift,
-        day,
-        zone,
-      );
-    }
-
-    return {
-      ...evaluation,
-      checkIn,
-      checkOut,
-      minutes: minutesBetween(checkIn.punchTime, checkOut.punchTime),
-      logs: dayLogs,
-    };
+    return evaluateDay(
+      dayLogs,
+      employee.shift,
+      day,
+      calendar.zone,
+      planDay(calendar, employee.id, employee.shift, day),
+      calendar.overtimeMinMinutes,
+    );
   }
 
-  // ==========================================================
-  // ✅ ساعات العمل والإضافي (تُحسب وتُخزَّن على بصمة "الانصراف")
-  // ==========================================================
-
   /**
-   * يبحث عن أقرب بصمة "حضور" سابقة لنفس الموظف خلال آخر 24 ساعة قبل
-   * بصمة الانصراف، ويحسب عدد ساعات العمل والإضافي بناءً عليها.
-   * يقبل EntityManager اختياري عشان يشتغل داخل transaction (مثلاً أثناء
-   * استقبال بيانات الجهاز في AdmsService) بدل ما يفتح اتصال منفصل.
+   * أول يوم يُحاسب فيه الموظف: بداية عقده (وإلا يوم تسجيله في النظام)، أو
+   * أول بصمة له إن سبقت ذلك — فلا يُحسب غائباً قبل أن يلتحق.
    */
-  async recalculateWorkHours(
-    checkOutLog: AttendanceLog,
-    manager?: EntityManager,
-  ): Promise<void> {
-    if (checkOutLog.punchType !== PunchType.CHECK_OUT) return;
-    if (!checkOutLog.employeeId) return;
-
-    const logRepo = manager
-      ? manager.getRepository(AttendanceLog)
-      : this.logRepo;
-    const employeeRepo = manager
-      ? manager.getRepository(Employee)
-      : this.dataSource.getRepository(Employee);
-
-    const windowStart = new Date(
-      checkOutLog.punchTime.getTime() - 24 * HOUR_MS,
+  private async employmentStarts(
+    tenantId: string,
+    employees: Employee[],
+    zone: string,
+    manager: EntityManager,
+  ): Promise<Map<string, string>> {
+    const ids = employees.map((e) => e.id);
+    const [contracts, firstPunches] = await Promise.all([
+      manager.find(Contract, {
+        where: { employeeId: In(ids) },
+        select: { employeeId: true, startDate: true },
+      }),
+      manager.query<{ employeeId: string; first: Date }[]>(
+        `SELECT "employee_id" AS "employeeId", MIN("punch_time") AS "first"
+           FROM attendance_logs
+          WHERE "tenant_id" = $1 AND "employee_id" = ANY($2::uuid[])
+          GROUP BY "employee_id"`,
+        [tenantId, ids],
+      ),
+    ]);
+    const contractStart = new Map(
+      contracts
+        .filter((c) => c.startDate)
+        .map((c) => [c.employeeId, toDayKey(c.startDate)]),
+    );
+    const firstPunch = new Map(
+      firstPunches.map((r) => [r.employeeId, dayKeyInZone(r.first, zone)]),
     );
 
-    const checkIn = await logRepo.findOne({
-      where: {
-        employeeId: checkOutLog.employeeId,
-        tenantId: checkOutLog.tenantId,
-        punchType: PunchType.CHECK_IN,
-        punchTime: Between(windowStart, checkOutLog.punchTime),
-      },
-      order: { punchTime: 'DESC' },
-    });
-
-    if (!checkIn) {
-      // ✅ مفيش بصمة حضور مقابلة — نصفّر القيم بدل ما نسيبها بقيمة قديمة غلط
-      // (null وليس undefined: TypeORM يتجاهل undefined فيفشل الـ UPDATE لعدم وجود قيم)
-      await logRepo.update(checkOutLog.id, {
-        workHours: null,
-        overtimeHours: null,
-      });
-      return;
+    const starts = new Map<string, string>();
+    for (const employee of employees) {
+      const declared =
+        contractStart.get(employee.id) ??
+        (employee.createdAt ? dayKeyInZone(employee.createdAt, zone) : null);
+      const punched = firstPunch.get(employee.id);
+      const start =
+        declared && punched
+          ? declared < punched
+            ? declared
+            : punched
+          : (declared ?? punched);
+      if (start) starts.set(employee.id, start);
     }
-
-    const rawHours =
-      (checkOutLog.punchTime.getTime() - checkIn.punchTime.getTime()) / HOUR_MS;
-    const workHours = Math.round(rawHours * 100) / 100;
-
-    let overtimeHours: number | null = null;
-    const employee = await employeeRepo.findOne({
-      where: { id: checkOutLog.employeeId },
-      relations: ['shift'],
-    });
-
-    if (employee?.shift) {
-      const { durationMinutes } = getShiftWindow(employee.shift);
-      const standardHours = durationMinutes / 60;
-      overtimeHours = Math.max(
-        0,
-        Math.round((workHours - standardHours) * 100) / 100,
-      );
-    }
-
-    await logRepo.update(checkOutLog.id, { workHours, overtimeHours });
-  }
-
-  /**
-   * يعيد حساب ساعات العمل المتأثرة ببصمة أُضيفت أو عُدّلت: الانصراف نفسه، أو
-   * أول انصراف يلي بصمة حضور (حضور يُسجَّل أو يُعدَّل بعد الانصراف يغيّر ساعاته).
-   */
-  async recalculateAround(
-    log: AttendanceLog,
-    manager?: EntityManager,
-  ): Promise<void> {
-    if (!log.employeeId) return;
-    const logRepo = manager
-      ? manager.getRepository(AttendanceLog)
-      : this.logRepo;
-
-    if (log.punchType === PunchType.CHECK_OUT) {
-      await this.recalculateWorkHours(log, manager);
-      return;
-    }
-
-    // بصمة لم تعد انصرافاً (عُدّل نوعها): لا تحمل ساعات عمل
-    if (log.workHours != null || log.overtimeHours != null) {
-      await logRepo.update(log.id, { workHours: null, overtimeHours: null });
-    }
-    if (log.punchType !== PunchType.CHECK_IN) return;
-
-    const nextCheckOut = await logRepo.findOne({
-      where: {
-        employeeId: log.employeeId,
-        tenantId: log.tenantId,
-        punchType: PunchType.CHECK_OUT,
-        punchTime: Between(
-          log.punchTime,
-          new Date(log.punchTime.getTime() + 24 * HOUR_MS),
-        ),
-      },
-      order: { punchTime: 'ASC' },
-    });
-    if (nextCheckOut) await this.recalculateWorkHours(nextCheckOut, manager);
+    return starts;
   }
 
   // ==========================================================
@@ -399,8 +361,7 @@ export class AttendanceService {
       .getRepository(User)
       .findOne({ where: { id: user.id } });
 
-    // بصمة الانصراف التي كانت تُحسب على هذه البصمة قبل تحريكها
-    const previous = { ...log };
+    const previousPunchTime = log.punchTime;
 
     log.punchTime = punchTime;
     log.punchType = punchType;
@@ -412,12 +373,6 @@ export class AttendanceService {
 
     const saved = await this.logRepo.save(log);
 
-    await this.recalculateAround(saved);
-    if (previous.punchType === PunchType.CHECK_IN) {
-      // الحضور تحرّك أو تغيّر نوعه: الانصراف الذي كان يليه يُعاد حسابه
-      await this.recalculateAround(previous);
-    }
-
     if (saved.employeeId) {
       this.events.emit('attendance.punch_changed', {
         tenantId: user.tenantId,
@@ -427,13 +382,15 @@ export class AttendanceService {
         change: 'edited',
         punchType: saved.punchType,
         punchTime: saved.punchTime,
-        previousPunchTime: previous.punchTime,
+        previousPunchTime,
         byName: log.editedByName ?? null,
         leaveReason: saved.leaveReason ?? null,
       });
     }
 
-    return this.logRepo.findOneOrFail({ where: { id: saved.id } });
+    const fresh = await this.logRepo.findOneOrFail({ where: { id: saved.id } });
+    await this.annotateDayHours(user.tenantId, [fresh]);
+    return fresh;
   }
 
   // ==========================================================
@@ -473,7 +430,7 @@ export class AttendanceService {
 
     const log = this.logRepo.create({
       employeeId: employee.id,
-      deviceUserId: employee.employeeCode,
+      deviceUserId: employeePin(employee),
       tenantId: user.tenantId,
       punchTime,
       originalPunchTime: punchTime,
@@ -487,7 +444,6 @@ export class AttendanceService {
     });
 
     const saved = await this.logRepo.save(log);
-    await this.recalculateAround(saved);
 
     this.events.emit('attendance.punch_changed', {
       tenantId: user.tenantId,
@@ -501,61 +457,79 @@ export class AttendanceService {
       leaveReason: saved.leaveReason ?? null,
     });
 
-    return this.logRepo.findOneOrFail({
+    const fresh = await this.logRepo.findOneOrFail({
       where: { id: saved.id },
       relations: ['employee', 'device'],
     });
+    await this.annotateDayHours(user.tenantId, [fresh]);
+    return fresh;
   }
 
   // ==========================================================
   // إدارة الأجهزة
   // ==========================================================
 
-  /** يضع أمر تسجيل الموظف في طابور الجهاز: ينفّذه عند سؤاله التالي عن أوامره */
+  /** يضع أمر تسجيل الموظف (وبصماته المحفوظة) في طابور جهاز ZKTeco */
   async pushUserToDevice(
     deviceId: string,
     employeeId: string,
     user: CurrentUserData,
-  ) {
-    const device = await this.findOneDevice(deviceId, user);
-    if (device.status === DeviceStatus.DISABLED) {
-      throw new BadRequestException('الجهاز موقوف: فعّله أولاً لإرسال الأوامر');
-    }
-
+  ): Promise<{ queued: number }> {
+    const device = await this.commandableDevice(deviceId, user);
     const employee = await this.dataSource.getRepository(Employee).findOne({
       where: { id: employeeId, tenantId: user.tenantId },
     });
     if (!employee) throw new NotFoundException('الموظف غير موجود');
 
-    // حقول الأمر يفصلها tab وينتهي بسطر جديد: محرف منها داخل الاسم يكسر الأمر
-    const name = employee.fullName.replace(/[\t\r\n]+/g, ' ').trim();
-    const command = `DATA USER PIN=${employee.employeeCode}\tName=${name}\tPri=0\tPass=0`;
+    const commands = await this.sync.queueEmployee(device, employee);
+    return { queued: commands.length };
+  }
 
-    const commands = this.dataSource.getRepository(DeviceCommand);
-    const pending = await commands.findOne({
-      where: { deviceId: device.id, command, isExecuted: false },
-    });
-    // نفس الأمر ما زال بانتظار الجهاز: لا يُكرَّر
-    if (pending) return pending;
+  /** كل الموظفين النشطين (أو موظفو فرع الجهاز) إلى جهاز ZKTeco */
+  async syncAllUsersToDevice(
+    deviceId: string,
+    branchOnly: boolean,
+    user: CurrentUserData,
+  ): Promise<{ employees: number }> {
+    const device = await this.commandableDevice(deviceId, user);
+    const employees = await this.sync.queueAllEmployees(
+      device,
+      branchOnly ? device.branchId : null,
+    );
+    return { employees };
+  }
 
-    return commands.save({
-      deviceId: device.id,
-      command,
-      isExecuted: false,
-      tenantId: user.tenantId,
-    });
+  private async commandableDevice(
+    deviceId: string,
+    user: CurrentUserData,
+  ): Promise<BiometricDevice> {
+    const device = await this.findOneDevice(deviceId, user);
+    if (device.status === DeviceStatus.DISABLED) {
+      throw new BadRequestException('الجهاز موقوف: فعّله أولاً لإرسال الأوامر');
+    }
+    if (device.protocol !== DeviceProtocol.ZK_ADMS) {
+      throw new BadRequestException(
+        'إرسال الموظفين للجهاز متاح لأجهزة ZKTeco فقط؛ سجّل الموظف على الجهاز برقمه',
+      );
+    }
+    return device;
   }
 
   async createDevice(
     dto: CreateDeviceDto,
     user: CurrentUserData,
-  ): Promise<BiometricDevice> {
+  ): Promise<DeviceWithKey> {
     const serialNumber = dto.serialNumber.trim();
     await this.assertSerialFree(serialNumber);
+    const protocol = dto.protocol ?? DeviceProtocol.ZK_ADMS;
+    const pushKey = usesPushKey(protocol) ? generateDeviceKey() : undefined;
 
     const device = this.deviceRepo.create({
       ...dto,
       serialNumber,
+      protocol,
+      allowedIps: cleanAllowedIps(dto.allowedIps),
+      pushKeyHash: pushKey ? hashDeviceKey(pushKey) : null,
       tenantId: user.tenantId,
       branchId: await resolveBranchId(
         this.dataSource.manager,
@@ -563,7 +537,25 @@ export class AttendanceService {
         dto.branchId,
       ),
     });
-    return withLiveStatus(await this.deviceRepo.save(device));
+    const saved = withLiveStatus(await this.deviceRepo.save(device));
+    delete saved.pushKeyHash;
+    return pushKey ? { ...saved, pushKey } : saved;
+  }
+
+  /** مفتاح إرسال جديد (Hikvision / API): القديم يتوقف فوراً */
+  async regeneratePushKey(
+    id: string,
+    user: CurrentUserData,
+  ): Promise<DeviceWithKey> {
+    const device = await this.findOneDevice(id, user);
+    if (!usesPushKey(device.protocol)) {
+      throw new BadRequestException('أجهزة ZKTeco لا تستخدم مفتاحاً');
+    }
+    const pushKey = generateDeviceKey();
+    await this.deviceRepo.update(device.id, {
+      pushKeyHash: hashDeviceKey(pushKey),
+    });
+    return { ...device, pushKey };
   }
 
   async findAllDevices(user: CurrentUserData): Promise<BiometricDevice[]> {
@@ -591,11 +583,65 @@ export class AttendanceService {
     return withLiveStatus(device);
   }
 
+  /**
+   * ما يُكتب في الجهاز ليتصل بالسيرفر. `origin` أصل الـ API العام. أجهزة
+   * ZKTeco كثيرة لا تدعم HTTPS: عنوانها DEVICE_SERVER_URL إن ضُبط، وإلا نفس
+   * الدومين على HTTP (المنفذ 80).
+   */
+  async deviceSetup(
+    id: string,
+    user: CurrentUserData,
+    origin: string,
+  ): Promise<DeviceSetup> {
+    const device = await this.findOneDevice(id, user);
+    const api = new URL(origin);
+    const base = {
+      protocol: device.protocol,
+      serialNumber: device.serialNumber,
+    };
+
+    if (device.protocol === DeviceProtocol.ZK_ADMS) {
+      const server = new URL(
+        process.env.DEVICE_SERVER_URL?.trim() || `http://${api.hostname}`,
+      );
+      const https = server.protocol === 'https:';
+      return {
+        ...base,
+        zk: {
+          serverAddress: server.hostname,
+          serverPort: Number(server.port) || (https ? 443 : 80),
+          https,
+          path: '/iclock/cdata',
+        },
+      };
+    }
+    if (device.protocol === DeviceProtocol.HIKVISION) {
+      const https = api.protocol === 'https:';
+      return {
+        ...base,
+        hikvision: {
+          host: api.hostname,
+          port: Number(api.port) || (https ? 443 : 80),
+          https,
+          urlPath: `/attendance-push/hikvision/${device.id}/<المفتاح>`,
+        },
+      };
+    }
+    return {
+      ...base,
+      api: {
+        url: `${origin}/attendance-push/api`,
+        deviceIdHeader: `X-Device-Id: ${device.id}`,
+        deviceKeyHeader: 'X-Device-Key: <المفتاح>',
+      },
+    };
+  }
+
   async updateDevice(
     id: string,
     dto: UpdateDeviceDto,
     user: CurrentUserData,
-  ): Promise<BiometricDevice> {
+  ): Promise<DeviceWithKey> {
     const device = await this.deviceRepo.findOne({
       where: { id, tenantId: user.tenantId },
     });
@@ -621,7 +667,11 @@ export class AttendanceService {
       dto.isActive === true ||
       (dto.status !== undefined && dto.status !== DeviceStatus.DISABLED);
 
-    Object.assign(device, dto, serialNumber ? { serialNumber } : {});
+    const { allowedIps, ...rest } = dto;
+    Object.assign(device, rest, serialNumber ? { serialNumber } : {});
+    if (allowedIps !== undefined) {
+      device.allowedIps = cleanAllowedIps(allowedIps);
+    }
     if (disabled) {
       device.isActive = false;
       device.status = DeviceStatus.DISABLED;
@@ -631,7 +681,22 @@ export class AttendanceService {
       device.status = DeviceStatus.OFFLINE;
     }
 
-    return withLiveStatus(await this.deviceRepo.save(device));
+    // تحويل الجهاز إلى نوع بمفتاح يعطيه مفتاحاً
+    let pushKey: string | undefined;
+    if (usesPushKey(device.protocol)) {
+      const { pushKeyHash } = await this.deviceRepo.findOneOrFail({
+        where: { id: device.id },
+        select: { id: true, pushKeyHash: true },
+      });
+      if (!pushKeyHash) {
+        pushKey = generateDeviceKey();
+        device.pushKeyHash = hashDeviceKey(pushKey);
+      }
+    }
+
+    const saved = withLiveStatus(await this.deviceRepo.save(device));
+    delete saved.pushKeyHash;
+    return pushKey ? { ...saved, pushKey } : saved;
   }
 
   async removeDevice(id: string, user: CurrentUserData): Promise<void> {
@@ -659,7 +724,82 @@ export class AttendanceService {
   }
 
   // ==========================================================
-  // ✅ 7) عرض السجلات مع الفلترة (نوع البصمة / الموظف / التاريخ)
+  // أرقام البصمة غير المربوطة بموظفين
+  // ==========================================================
+
+  /**
+   * أرقام وصلت منها بصمات ولا يقابلها موظف: موظفون مسجّلون على الجهاز بأرقام
+   * غير أكوادهم، أو لم يُضافوا للنظام بعد.
+   */
+  async findUnlinkedPins(user: CurrentUserData): Promise<UnlinkedPin[]> {
+    const allowed = scopedBranchIds();
+    const rows = await this.dataSource.query<
+      {
+        pin: string;
+        punches: number;
+        firstPunch: Date;
+        lastPunch: Date;
+        devices: string[] | null;
+      }[]
+    >(
+      `SELECT MIN(l."device_user_id") AS "pin",
+              COUNT(*)::int AS "punches",
+              MIN(l."punch_time") AS "firstPunch",
+              MAX(l."punch_time") AS "lastPunch",
+              array_agg(DISTINCT COALESCE(d."alias", d."serialNumber"))
+                FILTER (WHERE d."id" IS NOT NULL) AS "devices"
+         FROM attendance_logs l
+         LEFT JOIN biometric_devices d ON d."id" = l."device_id"
+        WHERE l."tenant_id" = $1 AND l."employee_id" IS NULL
+          AND l."punch_type" <> 'leave'
+          AND ($2::uuid[] IS NULL OR d."branch_id" = ANY($2::uuid[]))
+        GROUP BY ${pinKeySql('l."device_user_id"')}
+        ORDER BY MAX(l."punch_time") DESC
+        LIMIT 200`,
+      [user.tenantId, allowed],
+    );
+    return rows.map((row) => ({ ...row, devices: row.devices ?? [] }));
+  }
+
+  /**
+   * يربط رقماً على الجهاز بموظف: يصبح رقمه على الأجهزة، وتُنسب له كل البصمات
+   * التي وصلت بهذا الرقم من قبل.
+   */
+  async linkPin(
+    dto: LinkPinDto,
+    user: CurrentUserData,
+  ): Promise<{
+    employeeId: string;
+    attendancePin: string | null;
+    linked: number;
+  }> {
+    return this.dataSource.transaction(async (manager) => {
+      const employee = await manager.findOne(Employee, {
+        where: { id: dto.employeeId, tenantId: user.tenantId },
+      });
+      if (!employee) throw new NotFoundException('الموظف غير موجود');
+      assertBranchVisible(employee.branchId, 'الموظف غير موجود');
+
+      const pin = dto.pin.trim();
+      // رقمه هو كوده: لا حاجة لرقم خاص
+      const attendancePin =
+        pinKey(pin) === pinKey(employee.employeeCode) ? null : pin;
+      if (attendancePin) {
+        await assertPinFree(manager, user.tenantId, pin, employee.id);
+      }
+      await manager.update(Employee, employee.id, { attendancePin });
+      const linked = await relinkPunches(
+        manager,
+        user.tenantId,
+        employee.id,
+        pin,
+      );
+      return { employeeId: employee.id, attendancePin, linked };
+    });
+  }
+
+  // ==========================================================
+  // ✅ عرض السجلات مع الفلترة (نوع البصمة / الموظف / التاريخ)
   // ==========================================================
 
   /**
@@ -740,6 +880,7 @@ export class AttendanceService {
       .skip((page - 1) * limit);
 
     const [data, total] = await qb.getManyAndCount();
+    await this.annotateDayHours(user.tenantId, data);
     return { data, total, page, limit };
   }
 
@@ -760,11 +901,92 @@ export class AttendanceService {
     else if (from) where.punchTime = MoreThanOrEqual(from);
     else if (to) where.punchTime = LessThanOrEqual(to);
 
-    return this.logRepo.find({
+    const logs = await this.logRepo.find({
       where,
       relations: ['device'],
       order: { punchTime: 'ASC' },
     });
+    await this.annotateDayHours(user.tenantId, logs);
+    return logs;
+  }
+
+  /**
+   * ساعات العمل والإضافي على آخر بصمة في كل يوم وردية (وغيرها null) —
+   * محسوبة من أول بصمة وآخرها في يومها، أيّاً كان نوعهما.
+   */
+  private async annotateDayHours(
+    tenantId: string,
+    logs: AttendanceLog[],
+  ): Promise<void> {
+    for (const log of logs) {
+      log.workHours = null;
+      log.overtimeHours = null;
+    }
+    const linked = logs.filter(
+      (l) => l.employeeId && l.punchType !== PunchType.LEAVE,
+    );
+    if (linked.length === 0) return;
+
+    const employeeIds = [...new Set(linked.map((l) => l.employeeId!))];
+    const [zone, employees] = await Promise.all([
+      this.zoneOf(tenantId),
+      this.dataSource.getRepository(Employee).find({
+        where: { id: In(employeeIds) },
+        relations: { shift: true },
+        withDeleted: true,
+      }),
+    ]);
+    const byId = new Map(employees.map((e) => [e.id, e]));
+
+    const wanted = new Map<string, { employee: Employee; day: string }>();
+    for (const log of linked) {
+      const employee = byId.get(log.employeeId!);
+      if (!employee) continue;
+      const day = shiftDayOf(log.punchTime, zone, employee.shift);
+      wanted.set(`${employee.id}|${day}`, { employee, day });
+    }
+    if (wanted.size === 0) return;
+
+    const days = [...wanted.values()].map((w) => w.day).sort();
+    const [fromDay, toDay] = [days[0], days[days.length - 1]];
+    const calendar = await this.settings.loadCalendar(
+      tenantId,
+      fromDay,
+      toDay,
+      employeeIds,
+    );
+    const dayLogs = await this.logRepo.find({
+      where: {
+        tenantId,
+        employeeId: In(employeeIds),
+        punchTime: Between(
+          dayOffsetInZone(fromDay, -DAY_MINUTES, zone),
+          dayOffsetInZone(toDay, 2 * DAY_MINUTES, zone),
+        ),
+      },
+      order: { punchTime: 'ASC' },
+    });
+    const logsOf = groupBy(dayLogs, (log) => log.employeeId!);
+
+    const hoursByLog = new Map<string, DayAttendance>();
+    for (const { employee, day } of wanted.values()) {
+      const result = this.evaluateFor(
+        employee,
+        day,
+        logsOf.get(employee.id) ?? [],
+        calendar,
+        undefined,
+      );
+      if (result.checkOut && result.checkIn !== result.checkOut) {
+        hoursByLog.set(result.checkOut.id, result);
+      }
+    }
+    for (const log of linked) {
+      const day = hoursByLog.get(log.id);
+      if (!day) continue;
+      log.workHours = toHours(day.minutes);
+      log.overtimeHours = toHours(day.overtimeMinutes);
+    }
   }
 
   // ✅ تصدير نتائج الفلترة PDF / Excel
@@ -777,10 +999,11 @@ export class AttendanceService {
     const logs = await (await this.buildLogsQuery(query, user))
       .orderBy('log.punchTime', 'DESC')
       .getMany();
+    await this.annotateDayHours(user.tenantId, logs);
 
     const columns: ReportColumn[] = [
       { header: 'الموظف', key: 'employeeName' },
-      { header: 'كود الموظف', key: 'employeeCode' },
+      { header: 'رقم البصمة', key: 'employeeCode' },
       { header: 'النوع', key: 'punchTypeLabel' },
       { header: 'وقت البصمة', key: 'punchTime' },
       { header: 'ساعات العمل', key: 'workHours' },
@@ -796,7 +1019,7 @@ export class AttendanceService {
       // بتوقيت الشركة، لا بتوقيت السيرفر
       punchTime: formatDateTime(l.punchTime, zone),
       workHours: l.workHours != null ? String(l.workHours) : '—',
-      overtimeHours: l.overtimeHours != null ? String(l.overtimeHours) : '—',
+      overtimeHours: l.overtimeHours ? String(l.overtimeHours) : '—',
       leaveReason: l.leaveReason ?? '—',
       editedLabel: l.isEdited ? `نعم (${l.editedByName ?? '-'})` : 'لا',
     }));
@@ -814,7 +1037,8 @@ export class AttendanceService {
 
   /**
    * حضور كل الموظفين النشطين في يوم (YYYY-MM-DD بتوقيت الشركة)، ومعهم من بصم
-   * برقم غير مربوط بموظف. من لم يبصم يظهر غائباً — إلا في يوم لم يبدأ بعد.
+   * برقم غير مربوط بموظف. من لم يبصم يظهر غائباً — إلا في يوم راحة أو عطلة
+   * أو إجازة معتمدة، أو يوم لم يبدأ بعد.
    */
   async getDailySummary(
     dateStr: string,
@@ -828,16 +1052,18 @@ export class AttendanceService {
     const day = dayKeyInZone(dayStart, zone);
 
     const allowed = scopedBranchIds();
-    const [employees, logs] = await Promise.all([
-      this.dataSource.getRepository(Employee).find({
-        where: {
-          tenantId: user.tenantId,
-          status: 'active',
-          ...(allowed ? { branchId: In(allowed) } : {}),
-        },
-        relations: ['shift'],
-        order: { fullName: 'ASC' },
-      }),
+    const employees = await this.dataSource.getRepository(Employee).find({
+      where: {
+        tenantId: user.tenantId,
+        status: 'active',
+        ...(allowed ? { branchId: In(allowed) } : {}),
+      },
+      relations: ['shift'],
+      order: { fullName: 'ASC' },
+    });
+    const ids = employees.map((e) => e.id);
+    const [calendar, logs, starts] = await Promise.all([
+      this.settings.loadCalendar(user.tenantId, day, day, ids),
       // يوم وردية أي موظف يقع ضمن يوم قبل ويومين بعد بداية اليوم التقويمي
       this.logRepo.find({
         where: {
@@ -851,15 +1077,20 @@ export class AttendanceService {
         relations: ['employee', 'employee.shift'],
         order: { punchTime: 'ASC' },
       }),
+      ids.length
+        ? this.employmentStarts(
+            user.tenantId,
+            employees,
+            zone,
+            this.dataSource.manager,
+          )
+        : new Map<string, string>(),
     ]);
 
-    const grouped = new Map<string, AttendanceLog[]>();
-    for (const log of logs) {
-      const key = log.employeeId ?? `pin:${log.deviceUserId}`;
-      if (!grouped.has(key)) grouped.set(key, []);
-      grouped.get(key)!.push(log);
-    }
-
+    const grouped = groupBy(
+      logs,
+      (log) => log.employeeId ?? `pin:${pinKey(log.deviceUserId)}`,
+    );
     const dayHasStarted = dayStart.getTime() <= Date.now();
     const results: DailySummaryRow[] = [];
 
@@ -871,15 +1102,17 @@ export class AttendanceService {
       shift: Shift | null | undefined,
       personLogs: AttendanceLog[],
     ) => {
-      const { start, end } = this.getShiftDayRange(day, zone, shift);
-      const dayLogs = personLogs.filter(
-        (l) => l.punchTime >= start && l.punchTime < end,
+      const summary = this.evaluateFor(
+        { id: identity.employeeId ?? '', shift: shift ?? undefined },
+        day,
+        personLogs,
+        calendar,
+        identity.employeeId ? starts.get(identity.employeeId) : undefined,
       );
-      if (dayLogs.length === 0 && (!identity.employeeId || !dayHasStarted)) {
-        return;
-      }
+      const hasPunches = summary.logs.length > 0;
+      if (summary.status === 'not_employed') return;
+      if (!hasPunches && (!identity.employeeId || !dayHasStarted)) return;
 
-      const summary = this.summarizeDay(dayLogs, shift, day, zone);
       results.push({
         ...identity,
         shiftName: shift?.name,
@@ -888,9 +1121,11 @@ export class AttendanceService {
         totalMinutes: summary.minutes,
         lateMinutes: summary.lateMinutes,
         earlyLeaveMinutes: summary.earlyLeaveMinutes,
+        overtimeMinutes: summary.overtimeMinutes,
         status: summary.status,
         leaveReason: summary.leaveReason,
-        logs: dayLogs,
+        holidayName: summary.holidayName,
+        logs: summary.logs,
       });
     };
 
@@ -898,7 +1133,7 @@ export class AttendanceService {
       addRow(
         {
           employeeId: employee.id,
-          employeeCode: employee.employeeCode,
+          employeeCode: employeePin(employee),
           employeeName: employee.fullName,
         },
         employee.shift,
@@ -953,96 +1188,109 @@ export class AttendanceService {
     assertBranchVisible(employee.branchId, 'الموظف غير موجود');
 
     const zone = await this.zoneOf(user.tenantId);
-    const shift = employee.shift;
-    const dayKey = (d: number) =>
-      `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-
+    const first = `${year}-${String(month).padStart(2, '0')}-01`;
     const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const last = addDays(first, daysInMonth - 1);
     const today = dayKeyInZone(new Date(), zone);
-    // مقارنة نصية: صيغة YYYY-MM-DD تُرتَّب أبجدياً كما تُرتَّب زمنياً
-    const elapsedDays = Array.from(
-      { length: daysInMonth },
-      (_, i) => i + 1,
-    ).filter((d) => dayKey(d) <= today).length;
+    const until = last < today ? last : today;
 
-    const logs =
-      elapsedDays === 0
+    const days =
+      until < first
         ? []
-        : await this.logRepo.find({
-            where: {
-              tenantId: user.tenantId,
-              employeeId,
-              punchTime: Between(
-                this.getShiftDayRange(dayKey(1), zone, shift).start,
-                this.getShiftDayRange(dayKey(elapsedDays), zone, shift).end,
-              ),
-            },
-            order: { punchTime: 'ASC' },
-          });
+        : ((
+            await this.attendanceDays(user.tenantId, [employee], first, until)
+          ).get(employee.id) ?? []);
 
-    const dailyBreakdown = Array.from({ length: elapsedDays }, (_, i) => {
-      const day = dayKey(i + 1);
-      const { start, end } = this.getShiftDayRange(day, zone, shift);
-      const summary = this.summarizeDay(
-        logs.filter((l) => l.punchTime >= start && l.punchTime < end),
-        shift,
-        day,
-        zone,
-      );
+    const dailyBreakdown = days.map((d) => ({
+      date: d.date,
+      checkIn: d.checkIn?.punchTime ?? null,
+      checkOut: d.checkOut?.punchTime ?? null,
+      minutes: d.minutes,
+      lateMinutes: d.lateMinutes,
+      earlyLeaveMinutes: d.earlyLeaveMinutes,
+      overtimeMinutes: d.overtimeMinutes,
+      status: d.status,
+      leaveReason: d.leaveReason,
+      holidayName: d.holidayName,
+      workHours: d.minutes > 0 ? toHours(d.minutes) : undefined,
+      overtimeHours:
+        d.overtimeMinutes > 0 ? toHours(d.overtimeMinutes) : undefined,
+    }));
 
-      return {
-        date: day,
-        checkIn: summary.checkIn?.punchTime ?? null,
-        checkOut: summary.checkOut?.punchTime ?? null,
-        minutes: summary.minutes,
-        lateMinutes: summary.lateMinutes,
-        earlyLeaveMinutes: summary.earlyLeaveMinutes,
-        status: summary.status,
-        leaveReason: summary.leaveReason,
-        // ساعات العمل مخزّنة على بصمات الانصراف: يوم بأكثر من فترة يُجمع
-        workHours: sumHours(summary.logs.map((l) => l.workHours)),
-        overtimeHours: sumHours(summary.logs.map((l) => l.overtimeHours)),
-      };
-    });
-
-    const presentDays = dailyBreakdown.filter((d) => d.checkIn !== null).length;
-    const leaveDays = dailyBreakdown.filter(
-      (d) => d.status === 'on_leave',
-    ).length;
-    const total = (pick: (d: (typeof dailyBreakdown)[number]) => number) =>
-      Math.round(dailyBreakdown.reduce((s, d) => s + pick(d), 0) * 100) / 100;
+    const count = (...statuses: AttendanceStatus[]) =>
+      days.filter((d) => statuses.includes(d.status)).length;
+    const sum = (pick: (d: EmployeeDay) => number) =>
+      days.reduce((total, d) => total + pick(d), 0);
+    const totalMinutes = sum((d) => d.minutes);
+    const totalOvertimeMinutes = sum((d) => d.overtimeMinutes);
 
     return {
       employeeId,
       month,
       year,
-      shiftName: shift?.name,
+      shiftName: employee.shift?.name,
       totalDays: daysInMonth,
       /** الأيام التي مرّت من الشهر (يساوي totalDays لشهر انتهى) */
-      elapsedDays,
-      presentDays,
-      leaveDays,
-      absentDays: elapsedDays - presentDays - leaveDays,
-      totalMinutes: total((d) => d.minutes),
-      totalLateMinutes: total((d) => d.lateMinutes),
-      totalEarlyLeaveMinutes: total((d) => d.earlyLeaveMinutes),
-      totalWorkHours: total((d) => d.workHours ?? 0),
-      totalOvertimeHours: total((d) => d.overtimeHours ?? 0),
+      elapsedDays: days.length,
+      /** أيام قبل التحاقه (لا تُحسب) */
+      notEmployedDays: count('not_employed'),
+      offDays: count('off_day'),
+      holidayDays: count('holiday'),
+      /** أيام العمل المطلوبة: ما مرّ عدا الراحة والعطلات وما قبل التحاقه */
+      workingDays: days.length - count('off_day', 'holiday', 'not_employed'),
+      presentDays: days.filter((d) => d.checkIn !== null).length,
+      leaveDays: count('on_leave'),
+      absentDays: count('absent'),
+      incompleteDays: count('incomplete'),
+      totalMinutes,
+      totalLateMinutes: sum((d) => d.lateMinutes),
+      totalEarlyLeaveMinutes: sum((d) => d.earlyLeaveMinutes),
+      totalOvertimeMinutes,
+      totalWorkHours: toHours(totalMinutes),
+      totalOvertimeHours: toHours(totalOvertimeMinutes),
       dailyBreakdown,
     };
   }
+
+  /** موظفو الشركة النشطون الذين لهم وردية — من يُحاسَب بالحضور */
+  activeShiftEmployees(
+    tenantId: string,
+    manager: EntityManager = this.dataSource.manager,
+  ): Promise<Employee[]> {
+    return manager.find(Employee, {
+      where: { tenantId, status: 'active', shiftId: Not(IsNull()) },
+      relations: ['shift'],
+    });
+  }
 }
 
-/** دقائق من `from` إلى `to` (سالبة إن كان `to` قبله) */
-function minutesBetween(from: Date, to: Date): number {
-  return Math.round((to.getTime() - from.getTime()) / 60000);
+function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const item of items) {
+    const k = key(item);
+    const list = map.get(k);
+    if (list) list.push(item);
+    else map.set(k, [item]);
+  }
+  return map;
 }
 
-/** مجموع ساعات مخزّنة؛ undefined إن لم تُسجَّل أي قيمة */
-function sumHours(values: (number | null | undefined)[]): number | undefined {
-  const present = values.filter((v) => v != null).map(Number);
-  if (present.length === 0) return undefined;
-  return Math.round(present.reduce((s, v) => s + v, 0) * 100) / 100;
+function usesPushKey(protocol: DeviceProtocol): boolean {
+  return (
+    protocol === DeviceProtocol.HIKVISION || protocol === DeviceProtocol.API
+  );
+}
+
+/** قائمة العناوين منظَّفة (أو null)؛ عنوان غير صالح يُرفض برسالة */
+function cleanAllowedIps(raw?: string | null): string | null {
+  try {
+    const entries = parseAllowedIps(raw);
+    return entries.length > 0 ? entries.join(', ') : null;
+  } catch (err) {
+    throw new BadRequestException(
+      `عنوان IP غير صالح: ${(err as Error).message}`,
+    );
+  }
 }
 
 /**

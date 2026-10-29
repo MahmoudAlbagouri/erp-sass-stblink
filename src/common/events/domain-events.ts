@@ -143,6 +143,21 @@ export interface DomainEventMap {
     byName?: string | null;
     leaveReason?: string | null;
   };
+  /** جهاز بصمة اتصل من عنوان IP غير الذي اعتاده */
+  'attendance.device_ip_changed': TenantEvent & {
+    deviceId: string;
+    deviceName: string;
+    branchId?: string | null;
+    previousIp: string;
+    ip: string;
+  };
+  /** اتصال برقم جهاز مقفول على عناوين أخرى: رُفض */
+  'attendance.device_blocked': TenantEvent & {
+    deviceId: string;
+    deviceName: string;
+    branchId?: string | null;
+    ip: string | null;
+  };
 
   // ─── المخزون ونقاط البيع ──────────────────────────
   'stock.transfer_sent': TenantEvent & {

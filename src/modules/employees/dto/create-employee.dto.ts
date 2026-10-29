@@ -10,6 +10,7 @@ import {
   Matches,
   ValidateNested,
   IsArray,
+  MaxLength,
 } from 'class-validator';
 import { NationalityType } from '../entities/employee.entity';
 import { EducationDto } from './education.dto';
@@ -23,6 +24,17 @@ export class CreateEmployeeDto {
   @IsString()
   @IsOptional()
   employeeCode?: string;
+
+  /**
+   * رقم الموظف على جهاز البصمة إن اختلف عن كوده (موظف مسجّل على الجهاز من
+   * قبل). فارغ/null = الجهاز يعرفه بكوده.
+   */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== '')
+  @IsString()
+  @MaxLength(20)
+  @Matches(/^[A-Za-z0-9]+$/, { message: 'رقم البصمة حروف وأرقام فقط' })
+  attendancePin?: string | null;
 
   @IsEnum(NationalityType)
   @IsNotEmpty({ message: 'نوع الجنسية مطلوب' })

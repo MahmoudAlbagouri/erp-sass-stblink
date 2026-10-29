@@ -1,6 +1,7 @@
 // src/modules/attendance/adms.controller.ts
 // نقاط بروتوكول ADMS / Push التي تتصل بها أجهزة ZKTeco. الردود نص عادي بصيغة
-// يفهمها الجهاز، لا JSON؛ والجهاز يُعرَّف برقمه التسلسلي (SN) المسجّل مسبقاً.
+// يفهمها الجهاز، لا JSON؛ والجهاز يُعرَّف برقمه التسلسلي (SN) المسجّل مسبقاً،
+// ومن عنوان IP مسموح إن قُفل عليه.
 import { Controller, Get, Post, Query, Req, Res, Logger } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { apiTag } from '../../config/swagger.config';
@@ -30,7 +31,8 @@ export class AdmsController {
 
     try {
       const options = await this.admsService.handleDeviceInit(sn, {
-        ip: req.ip ?? req.socket?.remoteAddress,
+        ip: clientIp(req),
+        pushVersion: pushver,
       });
       if (options === null) return send(res, 403, REJECTED);
 
@@ -42,18 +44,40 @@ export class AdmsController {
     }
   }
 
-  /** رفع البيانات: البصمات (ATTLOG)، وغيرها يُقبل بلا معالجة */
+  /**
+   * رفع البيانات: البصمات (ATTLOG)، والمستخدمون وقوالب بصماتهم (OPERLOG /
+   * BIODATA) لنسخها بين الأجهزة. غيرها (الصور…) يُقبل بلا معالجة.
+   */
   @Post('cdata')
   async handleAttendanceData(
     @Query('SN') sn: string,
     @Query('table') table: string,
     @Query('Stamp') stamp: string,
+    @Query('OpStamp') opStamp: string,
     @Req() req: RawBodyRequest<Request>,
     @Res() res: Response,
   ): Promise<void> {
     if (!sn) return send(res, 400, 'ERROR: Missing SN');
+    const meta = { ip: clientIp(req) };
 
-    // ما لا نعالجه (سجل العمليات، الصور…) نقرّ باستلامه حتى لا يعيد الجهاز رفعه
+    if (table === 'OPERLOG' || table === 'BIODATA') {
+      try {
+        const count = await this.admsService.processOperationLog(
+          sn,
+          bodyText(req),
+          table === 'OPERLOG' ? (opStamp ?? stamp) : undefined,
+          meta,
+        );
+        if (count === null) return send(res, 403, REJECTED);
+        send(res, 200, `OK: ${count}`);
+      } catch (err) {
+        this.logger.error(`Failed to process ${table} from SN=${sn}`, err);
+        send(res, 500, 'ERROR: Failed to process data');
+      }
+      return;
+    }
+
+    // ما لا نعالجه (الصور…) نقرّ باستلامه حتى لا يعيد الجهاز رفعه
     if (table !== 'ATTLOG') return send(res, 200, 'OK: 0');
 
     try {
@@ -61,6 +85,7 @@ export class AdmsController {
         sn,
         bodyText(req),
         stamp,
+        meta,
       );
       if (count === null) return send(res, 403, REJECTED);
 
@@ -79,12 +104,15 @@ export class AdmsController {
   @Get('getrequest')
   async handleGetRequest(
     @Query('SN') sn: string,
+    @Req() req: Request,
     @Res() res: Response,
   ): Promise<void> {
     if (!sn) return send(res, 400, 'ERROR: Missing SN');
 
     try {
-      const command = await this.admsService.getPendingCommand(sn);
+      const command = await this.admsService.getPendingCommand(sn, {
+        ip: clientIp(req),
+      });
       send(res, 200, command ?? 'OK');
     } catch (err) {
       this.logger.error(`Failed to get command for SN=${sn}`, err);
@@ -105,6 +133,7 @@ export class AdmsController {
       const confirmed = await this.admsService.confirmCommands(
         sn,
         bodyText(req),
+        { ip: clientIp(req) },
       );
       if (confirmed > 0) {
         this.logger.log(`SN=${sn} confirmed ${confirmed} command(s)`);
@@ -125,6 +154,11 @@ export class AdmsController {
 function send(res: Response, status: number, body: string): void {
   res.setHeader('Content-Type', 'text/plain');
   res.status(status).send(body);
+}
+
+/** عنوان الجهاز الحقيقي (خلف nginx: من X-Forwarded-For — انظر trust proxy) */
+function clientIp(req: Request): string | null {
+  return req.ip ?? req.socket?.remoteAddress ?? null;
 }
 
 function bodyText(req: RawBodyRequest<Request>): string {

@@ -8,12 +8,17 @@ import {
   Body,
   Param,
   Query,
+  Req,
   Res,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiConsumes, ApiTags } from '@nestjs/swagger';
+import { memoryStorage } from 'multer';
 import { apiTag } from '../../config/swagger.config';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { AttendanceService } from './attendance.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../common/guards/permissions.guard';
@@ -28,6 +33,14 @@ import { UpdateDeviceDto } from './dto/update-device.dto';
 import { AttendanceQueryDto } from './dto/attendance-query.dto';
 import { UpdateAttendanceLogDto } from './dto/update-attendance-log.dto';
 import { CreateManualAttendanceLogDto } from './dto/create-manual-attendance-log.dto';
+import { LinkPinDto } from './dto/link-pin.dto';
+import { SyncUsersDto } from './dto/sync-users.dto';
+import { ImportPunchesDto } from './dto/import-punches.dto';
+import {
+  AttendanceImportService,
+  IMPORT_MAX_BYTES,
+} from './attendance-import.service';
+import { publicOrigin } from '../files/file-url.interceptor';
 import { PERMS } from '../../common/constants/permissions';
 import { FEATURES } from '../../common/constants/features';
 import {
@@ -35,11 +48,19 @@ import {
   sendReportBuffer,
 } from '../../common/reports/report.service';
 
+const importUpload = FileInterceptor('file', {
+  storage: memoryStorage(),
+  limits: { fileSize: IMPORT_MAX_BYTES, files: 1 },
+});
+
 @ApiTags(apiTag('ATTENDANCE'))
 @Controller('attendance')
 @UseGuards(JwtAuthGuard, SubscriptionGuard)
 export class AttendanceController {
-  constructor(private readonly attendanceService: AttendanceService) {}
+  constructor(
+    private readonly attendanceService: AttendanceService,
+    private readonly importService: AttendanceImportService,
+  ) {}
 
   /** إضافة جهاز بصمة */
   @Post('devices')
@@ -54,7 +75,7 @@ export class AttendanceController {
     return this.attendanceService.createDevice(dto, user);
   }
 
-  /** إرسال موظف إلى جهاز البصمة ليُسجَّل عليه */
+  /** إرسال موظف (وبصماته المحفوظة) إلى جهاز ZKTeco ليُسجَّل عليه */
   @Post('devices/:id/push-user/:employeeId')
   @Permissions(PERMS.BIOMETRIC_DEVICE_SYNC)
   @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION)
@@ -65,6 +86,45 @@ export class AttendanceController {
     @CurrentUser() user: CurrentUserData,
   ) {
     return this.attendanceService.pushUserToDevice(id, employeeId, user);
+  }
+
+  /** إرسال كل الموظفين النشطين (وبصماتهم المحفوظة) لجهاز ZKTeco */
+  @Post('devices/:id/sync-users')
+  @Permissions(PERMS.BIOMETRIC_DEVICE_SYNC)
+  @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION)
+  @UseGuards(PermissionsGuard)
+  syncAllUsers(
+    @Param('id') id: string,
+    @Body() dto: SyncUsersDto,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.attendanceService.syncAllUsersToDevice(
+      id,
+      dto.branchOnly ?? false,
+      user,
+    );
+  }
+
+  /** ما يُكتب في إعدادات الجهاز ليتصل بالسيرفر */
+  @Get('devices/:id/setup')
+  @Permissions(PERMS.BIOMETRIC_DEVICE_VIEW)
+  @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION)
+  @UseGuards(PermissionsGuard)
+  deviceSetup(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.attendanceService.deviceSetup(id, user, publicOrigin(req));
+  }
+
+  /** مفتاح إرسال جديد لجهاز Hikvision أو API (القديم يتوقف فوراً) */
+  @Post('devices/:id/regenerate-key')
+  @Permissions(PERMS.BIOMETRIC_DEVICE_UPDATE)
+  @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION)
+  @UseGuards(PermissionsGuard)
+  regenerateKey(@Param('id') id: string, @CurrentUser() user: CurrentUserData) {
+    return this.attendanceService.regeneratePushKey(id, user);
   }
 
   /** قائمة أجهزة البصمة وحالة اتصالها */
@@ -121,7 +181,6 @@ export class AttendanceController {
     return this.attendanceService.findLogs(query, user);
   }
 
-  // ⚠️ لازم تضيف PERMS.ATTENDANCE_LOGS_CREATE في ملف الصلاحيات عندك
   /** تسجيل بصمة يدوياً لموظف */
   @Post('logs')
   @Permissions(PERMS.ATTENDANCE_LOGS_CREATE)
@@ -134,7 +193,6 @@ export class AttendanceController {
     return this.attendanceService.createManualLog(dto, user);
   }
 
-  // ⚠️ لازم تضيف PERMS.ATTENDANCE_LOGS_UPDATE في ملف الصلاحيات عندك
   /** تصحيح وقت بصمة أو نوعها */
   @Patch('logs/:id')
   @Permissions(PERMS.ATTENDANCE_LOGS_UPDATE)
@@ -162,6 +220,50 @@ export class AttendanceController {
     assertReportFormat(type);
     const buffer = await this.attendanceService.exportLogs(query, type, user);
     sendReportBuffer(res, type, 'attendance_logs', buffer);
+  }
+
+  /** أرقام وصلت منها بصمات ولا يقابلها موظف */
+  @Get('unlinked-pins')
+  @Permissions(PERMS.ATTENDANCE_LOGS_VIEW)
+  @RequiresFeature(FEATURES.ATTENDANCE_MODULE)
+  @UseGuards(PermissionsGuard)
+  findUnlinkedPins(@CurrentUser() user: CurrentUserData) {
+    return this.attendanceService.findUnlinkedPins(user);
+  }
+
+  /** ربط رقم على الجهاز بموظف، ومعه كل البصمات التي وصلت به من قبل */
+  @Post('unlinked-pins/link')
+  @Permissions(PERMS.ATTENDANCE_LOGS_UPDATE)
+  @RequiresFeature(FEATURES.ATTENDANCE_MODULE)
+  @UseGuards(PermissionsGuard)
+  linkPin(@Body() dto: LinkPinDto, @CurrentUser() user: CurrentUserData) {
+    return this.attendanceService.linkPin(dto, user);
+  }
+
+  /** معاينة ملف بصمات (Excel/CSV): أعمدته وأول صفوفه وتخمين معانيها */
+  @Post('import/preview')
+  @ApiConsumes('multipart/form-data')
+  @Permissions(PERMS.ATTENDANCE_LOGS_IMPORT)
+  @RequiresFeature(FEATURES.ATTENDANCE_MODULE)
+  @UseGuards(PermissionsGuard)
+  @UseInterceptors(importUpload)
+  previewImport(@UploadedFile() file?: Express.Multer.File) {
+    return this.importService.preview(file);
+  }
+
+  /** استيراد بصمات من ملف صدّره برنامج أي جهاز بصمة */
+  @Post('import')
+  @ApiConsumes('multipart/form-data')
+  @Permissions(PERMS.ATTENDANCE_LOGS_IMPORT)
+  @RequiresFeature(FEATURES.ATTENDANCE_MODULE)
+  @UseGuards(PermissionsGuard)
+  @UseInterceptors(importUpload)
+  importLogs(
+    @Body() dto: ImportPunchesDto,
+    @CurrentUser() user: CurrentUserData,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    return this.importService.import(file, dto, user);
   }
 
   /** سجلات حضور موظف واحد */

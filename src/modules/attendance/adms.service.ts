@@ -3,19 +3,18 @@
 // بالسيرفر — يعرّف نفسه، يرفع البصمات، ويسأل دورياً عن أوامر تخصه.
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In, Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import {
   BiometricDevice,
+  DeviceProtocol,
   DeviceStatus,
 } from './entities/biometric-device.entity';
-import {
-  AttendanceLog,
-  PunchType,
-  VerifyMode,
-} from './entities/attendance-log.entity';
+import { PunchType, VerifyMode } from './entities/attendance-log.entity';
 import { DeviceCommand } from './entities/device-command.entity';
-import { Employee } from '../employees/entities/employee.entity';
-import { AttendanceService } from './attendance.service';
+import { AttendanceSettingsService } from './attendance-settings.service';
+import { BiometricSyncService } from './biometric-sync.service';
+import { type IncomingPunch, PunchIngestService } from './punch-ingest.service';
+import { isLegacyPush } from './utils/zk-protocol';
 import {
   isValidTimezone,
   tenantTimezoneOf,
@@ -32,12 +31,15 @@ const STATUS_TO_PUNCH_TYPE: Record<number, PunchType> = {
   5: PunchType.OVERTIME_OUT,
 };
 
+/** طريقة التحقق كما ترسلها أجهزة ZKTeco (الأرقام المركّبة الأخرى = "أخرى") */
 const VERIFY_TO_MODE: Record<number, VerifyMode> = {
+  0: VerifyMode.PASSWORD,
   1: VerifyMode.FINGERPRINT,
-  2: VerifyMode.PASSWORD,
-  3: VerifyMode.CARD,
-  4: VerifyMode.FACE,
-  15: VerifyMode.FINGERPRINT_CARD,
+  2: VerifyMode.CARD,
+  3: VerifyMode.PASSWORD,
+  4: VerifyMode.CARD,
+  15: VerifyMode.FACE,
+  25: VerifyMode.PALM,
 };
 
 /** الجهاز يسأل عن أوامره كل بضع ثوانٍ: لا نكتب "آخر ظهور" مع كل سؤال */
@@ -49,12 +51,23 @@ const UUID_PATTERN =
 /** بصمة تاريخها أبعد من هذا في المستقبل تعني ساعة جهاز غير مضبوطة */
 const CLOCK_SKEW_WARNING_MS = 10 * 60 * 1000;
 
-interface ParsedPunch {
-  pin: string;
-  punchTime: Date;
+/** أوامر في الرد الواحد على سؤال الجهاز (الأجهزة القديمة: أمر واحد) */
+const COMMANDS_PER_POLL = 10;
+const MAX_POLL_RESPONSE_CHARS = 60_000;
+
+/** ما يطلب الجهاز رفعه: البصمات، ومع نسخ البصمات سجل المستخدمين وقوالبهم */
+const TRANS_FLAG_ATTENDANCE = 'TransData AttLog';
+const TRANS_FLAG_WITH_TEMPLATES =
+  'TransData AttLog OpLog EnrollUser ChgUser EnrollFP ChgFP FACE';
+
+export interface DeviceRequestMeta {
+  ip?: string | null;
+  pushVersion?: string | null;
+}
+
+interface ParsedPunch extends IncomingPunch {
   status: number;
   verify: number;
-  rawLogId: string;
 }
 
 @Injectable()
@@ -65,14 +78,16 @@ export class AdmsService {
     @InjectRepository(BiometricDevice)
     private readonly deviceRepo: Repository<BiometricDevice>,
     private readonly dataSource: DataSource,
-    private readonly attendanceService: AttendanceService,
+    private readonly ingest: PunchIngestService,
+    private readonly sync: BiometricSyncService,
+    private readonly settings: AttendanceSettingsService,
   ) {}
 
   // ══════════════════════════ التعريف (handshake) ══════════════════════════
 
   /**
    * أول اتصال من الجهاز: نعيد له إعدادات المزامنة. يعيد null لجهاز غير مسجّل
-   * أو موقوف.
+   * أو موقوف أو يتصل من عنوان غير مسموح.
    *
    * `TimeZone` هي ما يضبط ساعة الجهاز: الجهاز يأخذ الوقت من ترويسة Date في
    * ردودنا (دائماً UTC) ويضيف إليها هذا الفرق — فتعرض شاشته توقيت الشركة،
@@ -80,35 +95,35 @@ export class AdmsService {
    */
   async handleDeviceInit(
     sn: string,
-    meta: { ip?: string } = {},
+    meta: DeviceRequestMeta = {},
   ): Promise<string | null> {
-    const device = await this.findActiveDevice(sn);
-    if (!device) {
-      this.logger.warn(
-        `Rejected device SN=${sn} from ${meta.ip ?? 'unknown'} (not registered or disabled)`,
-      );
-      return null;
-    }
+    const device = await this.admitted(sn, meta);
+    if (!device) return null;
 
+    const pushVersion = meta.pushVersion?.trim().slice(0, 20) || null;
     await this.deviceRepo.update(device.id, {
       status: DeviceStatus.ONLINE,
       lastSeenAt: new Date(),
-      ipAddress: meta.ip,
+      ...(pushVersion ? { pushVersion } : {}),
     });
 
-    const zone = await this.deviceZone(device);
+    const [zone, policy] = await Promise.all([
+      this.deviceZone(device),
+      this.settings.getPolicy(device.tenantId),
+    ]);
     return [
       `GET OPTION FROM: ${sn}`,
       // آخر ما استلمناه: الجهاز يرفع ما بعده فقط (الصيغتان لاختلاف الإصدارات)
       `Stamp=${device.lastLogIndex}`,
       `ATTLOGStamp=${device.lastLogIndex}`,
-      `OPERLOGStamp=9999`,
+      // سجل المستخدمين والبصمات يُطلب فقط حين تنسخ الشركة البصمات بين أجهزتها
+      `OPERLOGStamp=${policy.syncBiometrics ? device.operLogStamp : 9999}`,
       `ATTPHOTOStamp=None`,
       `ErrorDelay=30`, // ثوانٍ قبل إعادة المحاولة بعد فشل
       `Delay=10`, // ثوانٍ بين كل سؤال عن الأوامر
       `TransTimes=00:00;14:05`, // رفع احتياطي مجدول، فوق الرفع الفوري
       `TransInterval=1`,
-      `TransFlag=TransData AttLog`,
+      `TransFlag=${policy.syncBiometrics ? TRANS_FLAG_WITH_TEMPLATES : TRANS_FLAG_ATTENDANCE}`,
       `TimeZone=${toDeviceTimeZone(utcOffsetMinutes(zone))}`,
       `Realtime=1`, // كل بصمة تُرفع لحظة تسجيلها
       `Encrypt=None`,
@@ -119,8 +134,8 @@ export class AdmsService {
   // ══════════════════════════ رفع البصمات ══════════════════════════
 
   /**
-   * يحفظ دفعة بصمات ويعيد عدد الجديد منها. يعيد null لجهاز غير مسجّل أو
-   * موقوف — فيحتفظ الجهاز بالدفعة ويعيد رفعها لاحقاً.
+   * يحفظ دفعة بصمات ويعيد عدد الجديد منها. يعيد null لجهاز مرفوض — فيحتفظ
+   * الجهاز بالدفعة ويعيد رفعها لاحقاً.
    *
    * إعادة رفع نفس البصمة لا تكرّرها: كل بصمة تُعرَّف بـ (الجهاز، الموظف، وقتها).
    */
@@ -128,22 +143,24 @@ export class AdmsService {
     sn: string,
     rawData: string,
     stamp?: string,
+    meta: DeviceRequestMeta = {},
   ): Promise<number | null> {
-    const device = await this.findActiveDevice(sn);
+    const device = await this.admitted(sn, meta);
     if (!device) return null;
 
     const zone = await this.deviceZone(device);
     const punches = this.parseBatch(rawData, zone, sn);
 
-    const saved = await this.dataSource.transaction(async (manager) => {
-      // دفعتان متزامنتان من نفس الجهاز (رفع فوري + مجدول) تتواليان هنا، فلا
-      // تريان معاً أن البصمة "غير موجودة" وتحفظانها مرتين
-      await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
-        `adms:${sn}`,
-      ]);
-
-      const fresh = await this.withoutKnown(manager, sn, punches);
-      const logs = await this.saveLogs(manager, device, fresh);
+    return this.dataSource.transaction(async (manager) => {
+      const { saved } = await this.ingest.save(
+        {
+          tenantId: device.tenantId,
+          deviceId: device.id,
+          sourceKey: device.serialNumber,
+        },
+        punches,
+        manager,
+      );
 
       const lastLogIndex = parseStamp(stamp);
       await manager.update(BiometricDevice, device.id, {
@@ -151,15 +168,31 @@ export class AdmsService {
         lastSeenAt: new Date(),
         ...(lastLogIndex === null ? {} : { lastLogIndex }),
       });
-
-      // بعد حفظ الدفعة كلها: بصمة الحضور المقابلة قد تكون في نفس الدفعة
-      for (const log of logs) {
-        await this.attendanceService.recalculateAround(log, manager);
-      }
-      return logs.length;
+      return saved.length;
     });
+  }
 
-    return saved;
+  /**
+   * سجل العمليات (OPERLOG) أو قوالب BIODATA: المستخدمون وبصماتهم كما سُجّلت
+   * على الجهاز. يعيد عدد الأسطر المستلمة، أو null لجهاز مرفوض.
+   */
+  async processOperationLog(
+    sn: string,
+    body: string,
+    stamp?: string,
+    meta: DeviceRequestMeta = {},
+  ): Promise<number | null> {
+    const device = await this.admitted(sn, meta);
+    if (!device) return null;
+
+    const count = await this.sync.receive(device, body);
+    const operLogStamp = parseStamp(stamp);
+    await this.deviceRepo.update(device.id, {
+      status: DeviceStatus.ONLINE,
+      lastSeenAt: new Date(),
+      ...(operLogStamp === null ? {} : { operLogStamp }),
+    });
+    return count;
   }
 
   /** أسطر الدفعة الصالحة، بلا تكرار داخل الدفعة نفسها */
@@ -192,82 +225,60 @@ export class AdmsService {
     return [...byRawId.values()];
   }
 
-  private async withoutKnown(
-    manager: EntityManager,
-    sn: string,
-    punches: ParsedPunch[],
-  ): Promise<ParsedPunch[]> {
-    if (punches.length === 0) return [];
-
-    const known = await manager.find(AttendanceLog, {
-      where: { deviceSn: sn, rawLogId: In(punches.map((p) => p.rawLogId)) },
-      select: { id: true, rawLogId: true },
-    });
-    const knownIds = new Set(known.map((log) => log.rawLogId));
-    return punches.filter((p) => !knownIds.has(p.rawLogId));
-  }
-
-  private async saveLogs(
-    manager: EntityManager,
-    device: BiometricDevice,
-    punches: ParsedPunch[],
-  ): Promise<AttendanceLog[]> {
-    if (punches.length === 0) return [];
-
-    // رقم الموظف على الجهاز (PIN) هو كود الموظف في النظام
-    const pins = [...new Set(punches.map((p) => p.pin))];
-    const employees = await manager.find(Employee, {
-      where: { tenantId: device.tenantId, employeeCode: In(pins) },
-      select: { id: true, employeeCode: true },
-    });
-    const employeeIdByPin = new Map(
-      employees.map((e) => [e.employeeCode, e.id]),
-    );
-
-    return manager.save(
-      punches.map((punch) =>
-        manager.create(AttendanceLog, {
-          deviceUserId: punch.pin,
-          // بصمة لرقم غير معروف تُحفظ بلا موظف: تظهر في السجل ليُراجَع الربط
-          employeeId: employeeIdByPin.get(punch.pin),
-          deviceId: device.id,
-          tenantId: device.tenantId,
-          punchTime: punch.punchTime,
-          // مرجع مهلة التعديل (24 ساعة) حتى بعد تعديل punchTime
-          originalPunchTime: punch.punchTime,
-          punchType: STATUS_TO_PUNCH_TYPE[punch.status] ?? PunchType.CHECK_IN,
-          verifyMode: VERIFY_TO_MODE[punch.verify] ?? VerifyMode.FINGERPRINT,
-          deviceSn: device.serialNumber,
-          rawLogId: punch.rawLogId,
-          isManualEntry: false,
-        }),
-      ),
-      { chunk: 500 },
-    );
-  }
-
   // ══════════════════════════ الأوامر ══════════════════════════
 
-  /** سؤال الجهاز الدوري: الأمر التالي بصيغة `C:<id>:<command>`، أو null */
-  async getPendingCommand(sn: string): Promise<string | null> {
-    const device = await this.findActiveDevice(sn);
+  /**
+   * سؤال الجهاز الدوري: أوامره التالية بصيغة `C:<id>:<command>` (سطر لكل
+   * أمر؛ أمر واحد للأجهزة القديمة)، أو null إن لم يكن له شيء.
+   */
+  async getPendingCommand(
+    sn: string,
+    meta: DeviceRequestMeta = {},
+  ): Promise<string | null> {
+    const device = await this.admitted(sn, meta);
     if (!device) return null;
 
     await this.touch(device);
 
-    const command = await this.dataSource.getRepository(DeviceCommand).findOne({
+    const commands = this.dataSource.getRepository(DeviceCommand);
+    const pending = await commands.find({
       where: { deviceId: device.id, isExecuted: false },
       order: { createdAt: 'ASC' },
+      take: isLegacyPush(device.pushVersion) ? 1 : COMMANDS_PER_POLL,
     });
-    return command ? `C:${command.id}:${command.command}` : null;
+
+    const lines: string[] = [];
+    let size = 0;
+    for (const command of pending) {
+      const text = await this.sync.render(command.command, device);
+      if (text === null) {
+        // قالب حُذف (أوقفت الشركة النسخ): لا شيء يُرسل
+        await commands.update(command.id, {
+          isExecuted: true,
+          executedAt: new Date(),
+        });
+        continue;
+      }
+      const line = `C:${command.id}:${text}`;
+      if (lines.length > 0 && size + line.length > MAX_POLL_RESPONSE_CHARS) {
+        break;
+      }
+      lines.push(line);
+      size += line.length;
+    }
+    return lines.length > 0 ? lines.join('\n') : null;
   }
 
   /**
    * نتيجة تنفيذ الأوامر كما يرسلها الجهاز: سطر لكل أمر بصيغة
    * `ID=<id>&Return=<code>&CMD=<name>`. يعيد عدد الأوامر المؤكَّدة.
    */
-  async confirmCommands(sn: string, body: string): Promise<number> {
-    const device = await this.findActiveDevice(sn);
+  async confirmCommands(
+    sn: string,
+    body: string,
+    meta: DeviceRequestMeta = {},
+  ): Promise<number> {
+    const device = await this.admitted(sn, meta);
     if (!device) return 0;
 
     let confirmed = 0;
@@ -299,10 +310,24 @@ export class AdmsService {
 
   // ══════════════════════════ داخلي ══════════════════════════
 
-  private async findActiveDevice(sn: string): Promise<BiometricDevice | null> {
+  /** جهاز ZKTeco مسجّل ومفعّل، ويتصل من عنوان مسموح */
+  private async admitted(
+    sn: string,
+    meta: DeviceRequestMeta,
+  ): Promise<BiometricDevice | null> {
     const device = await this.deviceRepo.findOneBy({ serialNumber: sn });
-    if (!device || !device.isActive) return null;
-    return device.status === DeviceStatus.DISABLED ? null : device;
+    if (
+      !device ||
+      !device.isActive ||
+      device.status === DeviceStatus.DISABLED ||
+      device.protocol !== DeviceProtocol.ZK_ADMS
+    ) {
+      this.logger.warn(
+        `Rejected device SN=${sn} from ${meta.ip ?? 'unknown'} (not registered, disabled or not ZKTeco)`,
+      );
+      return null;
+    }
+    return (await this.ingest.admit(device, meta.ip)) ? device : null;
   }
 
   /** منطقة ساعة الجهاز: المحددة عليه، وإلا منطقة شركته */
@@ -344,11 +369,16 @@ export function parseAttlogLine(
   const punchTime = zonedTimeToUtc(dateTime, zone);
   if (!punchTime) return null;
 
+  const statusCode = toInt(status, 0);
+  const verifyCode = toInt(verify, 1);
   return {
     pin,
     punchTime,
-    status: toInt(status, 0),
-    verify: toInt(verify, 1),
+    status: statusCode,
+    verify: verifyCode,
+    // بلا زر حالة ترسل بعض الأجهزة 255: حضور، والحساب بأول بصمة وآخرها
+    punchType: STATUS_TO_PUNCH_TYPE[statusCode] ?? PunchType.CHECK_IN,
+    verifyMode: VERIFY_TO_MODE[verifyCode] ?? VerifyMode.OTHER,
     // معرّف البصمة على الجهاز: نفس الموظف لا يبصم مرتين في نفس الثانية
     rawLogId: `${pin}_${dateTime.replace(/[: ]/g, '')}`,
   };

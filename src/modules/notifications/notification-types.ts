@@ -77,6 +77,7 @@ export const NOTIFICATION_TYPES = {
   // الحضور
   attendance_change: type('تعديل الحضور', 'attendance', 'fingerprint'),
   device_offline: type('جهاز بصمة منقطع', 'attendance', 'wifi-off'),
+  device_security: type('أمان أجهزة البصمة', 'attendance', 'shield-alert'),
 
   // المخزون
   low_stock: type('نقص المخزون', 'inventory', 'package-x'),

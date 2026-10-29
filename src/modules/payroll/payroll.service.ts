@@ -38,6 +38,24 @@ import {
   roundMoney as roundMoneyTo,
 } from '../../common/utils/money.util';
 import { DomainEvents } from '../../common/events/domain-events';
+import { AttendanceService } from '../attendance/attendance.service';
+import {
+  type AttendancePolicy,
+  AttendanceSettingsService,
+} from '../attendance/attendance-settings.service';
+import { addDays } from '../attendance/attendance-days';
+import { getShiftWindow } from '../shifts/utils/shift-time.util';
+import { tenantCalendarOf } from '../../common/utils/timezone.util';
+
+/** أثر الحضور على مسير موظف في الشهر */
+interface AttendanceFigures {
+  absentDays: number;
+  /** التأخير + الانصراف المبكر (بعد فترة السماح) */
+  lateMinutes: number;
+  overtimeMinutes: number;
+  /** مدة ورديته: بها يُحسب أجر الدقيقة */
+  shiftMinutes: number;
+}
 
 /** دالة تقريب مالي لخانات عملة الشركة (2 أو 3) — انظر money.util */
 async function moneyRounder(
@@ -88,7 +106,66 @@ export class PayrollService {
     @InjectRepository(Payroll) private payrollRepo: Repository<Payroll>,
     private dataSource: DataSource,
     private readonly events: DomainEvents,
+    private readonly attendance: AttendanceService,
+    private readonly attendanceSettings: AttendanceSettingsService,
   ) {}
+
+  /**
+   * الغياب والتأخير والإضافي من الحضور، حسب سياسة الشركة — لموظفي الورديات
+   * فقط (من لا وردية له لا يُحاسب بالبصمة). الأيام حتى اليوم إن كان الشهر
+   * جارياً، وأيام الراحة والعطلات والإجازات المعتمدة لا تُحسب غياباً.
+   */
+  private async attendanceFigures(
+    tenantId: string,
+    employeeIds: string[],
+    month: number,
+    year: number,
+  ): Promise<{
+    policy: AttendancePolicy;
+    figures: Map<string, AttendanceFigures>;
+  }> {
+    const policy = await this.attendanceSettings.getPolicy(tenantId);
+    const figures = new Map<string, AttendanceFigures>();
+    if (
+      !policy.deductAbsence &&
+      !policy.deductLateness &&
+      !policy.payOvertime
+    ) {
+      return { policy, figures };
+    }
+
+    const { today } = await tenantCalendarOf(this.dataSource.manager, tenantId);
+    const first = `${year}-${String(month).padStart(2, '0')}-01`;
+    const last = addDays(
+      first,
+      new Date(Date.UTC(year, month, 0)).getUTCDate() - 1,
+    );
+    const until = last < today ? last : today;
+
+    const ids = new Set(employeeIds);
+    const tracked = (
+      await this.attendance.activeShiftEmployees(tenantId)
+    ).filter((e) => ids.has(e.id));
+    const days = await this.attendance.attendanceDays(
+      tenantId,
+      tracked,
+      first,
+      until,
+    );
+    for (const employee of tracked) {
+      const list = days.get(employee.id) ?? [];
+      figures.set(employee.id, {
+        absentDays: list.filter((d) => d.status === 'absent').length,
+        lateMinutes: list.reduce(
+          (sum, d) => sum + d.lateMinutes + d.earlyLeaveMinutes,
+          0,
+        ),
+        overtimeMinutes: list.reduce((sum, d) => sum + d.overtimeMinutes, 0),
+        shiftMinutes: getShiftWindow(employee.shift!).durationMinutes,
+      });
+    }
+    return { policy, figures };
+  }
 
   /**
    * ✅ توليد مسودة المسير الشهري فقط — بدون أي أثر جانبي مالي.
@@ -205,6 +282,13 @@ export class PayrollService {
       }),
     ]);
 
+    const { policy, figures } = await this.attendanceFigures(
+      tenantId,
+      employeeIds,
+      month,
+      year,
+    );
+
     // ================= تجميع كل شيء في Maps بمفتاح employeeId =================
     const salaryMap = new Map(salaries.map((s) => [s.employeeId, s]));
 
@@ -317,8 +401,29 @@ export class PayrollService {
 
       const otherDeductions = deductionMap.get(emp.id) || 0;
 
-      // Net Salary = (Basic + Allowances + Bonuses/Settlements/EOS)
-      //            - (Loans + Advances + UnpaidLeave + OtherDeductions + Prepaid)
+      // من الحضور: أجر الدقيقة = أجر اليوم ÷ مدة الوردية
+      const attendance = figures.get(emp.id);
+      const minuteRate =
+        attendance && attendance.shiftMinutes > 0
+          ? dailyRate / attendance.shiftMinutes
+          : 0;
+      const absenceDays = policy.deductAbsence
+        ? (attendance?.absentDays ?? 0)
+        : 0;
+      const absenceDeduction = absenceDays * dailyRate;
+      const lateMinutes = policy.deductLateness
+        ? (attendance?.lateMinutes ?? 0)
+        : 0;
+      const lateDeduction = lateMinutes * minuteRate;
+      const overtimeMinutes = policy.payOvertime
+        ? (attendance?.overtimeMinutes ?? 0)
+        : 0;
+      const overtimeAmount =
+        (overtimeMinutes * minuteRate * policy.overtimeRatePercent) / 100;
+
+      // Net Salary = (Basic + Allowances + Overtime + Bonuses/Settlements/EOS)
+      //            - (Loans + Advances + UnpaidLeave + Absence + Lateness
+      //               + OtherDeductions + Prepaid)
       // ملاحظة: bonusesAmount/settlementsAmount يشملان كامل المستحق
       // (مصروف سلفاً + غير مصروف) للشفافية في القسيمة، ثم يُخصم الجزء
       // المصروف سلفاً (prepaid) فوراً من الصافي لمنع ازدواجية الصرف.
@@ -330,6 +435,7 @@ export class PayrollService {
         housingAllowance +
         transportAllowance +
         otherAllowances +
+        overtimeAmount +
         bonusesAmount +
         settlementsAmount +
         eosAmount;
@@ -338,6 +444,8 @@ export class PayrollService {
         loanDeduction +
         advanceDeduction +
         unpaidLeaveDeduction +
+        absenceDeduction +
+        lateDeduction +
         otherDeductions +
         prepaidBonuses +
         prepaidSettlements;
@@ -350,7 +458,7 @@ export class PayrollService {
         housingAllowance: roundMoney(housingAllowance),
         transportAllowance: roundMoney(transportAllowance),
         otherAllowances: roundMoney(otherAllowances),
-        overtimeAmount: 0,
+        overtimeAmount: roundMoney(overtimeAmount),
         bonusesAmount: roundMoney(bonusesAmount),
         settlementsAmount: roundMoney(settlementsAmount),
         eosAmount: roundMoney(eosAmount),
@@ -361,6 +469,11 @@ export class PayrollService {
         advanceDeduction: roundMoney(advanceDeduction),
         unpaidLeaveDeduction: roundMoney(unpaidLeaveDeduction),
         otherDeductions: roundMoney(otherDeductions),
+        absenceDays,
+        absenceDeduction: roundMoney(absenceDeduction),
+        lateMinutes,
+        lateDeduction: roundMoney(lateDeduction),
+        overtimeMinutes,
         netSalary: net,
       });
 

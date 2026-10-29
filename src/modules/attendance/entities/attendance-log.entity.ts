@@ -39,6 +39,9 @@ export enum VerifyMode {
   FACE = 'face',
   FINGERPRINT_CARD = 'fingerprint_card',
   MANUAL = 'manual', // ✅ جديد — بصمة/سجل تم إدخاله يدويًا من لوحة التحكم
+  PALM = 'palm',
+  /** طريقة لا نعرفها، أو بصمة مستوردة من ملف */
+  OTHER = 'other',
 }
 
 @Entity('attendance_logs')
@@ -139,24 +142,12 @@ export class AttendanceLog {
   @Column({ name: 'leave_reason', nullable: true, type: 'text' })
   leaveReason?: string;
 
-  // ✅ عدد ساعات العمل — يُحسب ويُخزَّن على سجل "الانصراف" فقط
-  @Column({
-    name: 'work_hours',
-    nullable: true,
-    type: 'decimal',
-    precision: 6,
-    scale: 2,
-  })
+  /**
+   * ساعات عمل اليوم والإضافي فيه: تُحسب عند القراءة (لا تُخزَّن) وتظهر على
+   * آخر بصمة في يوم الوردية فقط — أيّاً كان نوعها، فالجهاز بلا زر حالة يرسل
+   * كل البصمات "حضوراً".
+   */
   workHours?: number | null;
-
-  // ✅ ساعات العمل الإضافي (الفرق بين ساعات العمل الفعلية ومدة الشيفت المقررة)
-  @Column({
-    name: 'overtime_hours',
-    nullable: true,
-    type: 'decimal',
-    precision: 6,
-    scale: 2,
-  })
   overtimeHours?: number | null;
 
   @CreateDateColumn({ name: 'created_at' })

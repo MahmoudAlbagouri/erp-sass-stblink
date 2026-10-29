@@ -54,6 +54,9 @@ const MODULE_LABELS = {
 /** ترتيب المجلدات: المصادقة أولاً ثم الإدارة ثم التجارة ثم الموارد البشرية */
 const MODULE_ORDER = Object.keys(MODULE_LABELS);
 
+/** مسارات تستدعيها أجهزة البصمة نفسها (بلا توكن) */
+const DEVICE_PREFIXES = ["/iclock", "/attendance-push"];
+
 /** طلبات لا تحتاج توكن */
 const PUBLIC_PATHS = new Set([
   "POST /auth/login",
@@ -369,6 +372,16 @@ const toRequest = (endpoint) => {
     };
   }
   if (PUBLIC_PATHS.has(key)) item.request.auth = { type: "noauth" };
+  // أجهزة البصمة تتصل بلا جلسة: ZKTeco برقمها، وغيرها بمفتاح الجهاز
+  if (DEVICE_PREFIXES.some((prefix) => endpoint.path.startsWith(prefix))) {
+    item.request.auth = { type: "noauth" };
+  }
+  if (key === "POST /attendance-push/api") {
+    item.request.header.push(
+      { key: "X-Device-Id", value: "{{deviceId}}" },
+      { key: "X-Device-Key", value: "{{deviceKey}}" },
+    );
+  }
   // تجديد الجلسة يُرسل توكن التجديد لا توكن الوصول
   if (key === "POST /auth/refresh") {
     item.request.auth = {
@@ -428,6 +441,8 @@ const environment = {
     { key: "password", value: "", type: "secret", enabled: true },
     { key: "accessToken", value: "", type: "secret", enabled: true },
     { key: "refreshToken", value: "", type: "secret", enabled: true },
+    // مفتاح جهاز بصمة (Hikvision / API) كما ظهر عند إضافته
+    { key: "deviceKey", value: "", type: "secret", enabled: true },
     ...[...ID_VARIABLES].map((key) => ({ key, value: "", enabled: true })),
   ],
   _postman_variable_scope: "environment",

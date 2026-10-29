@@ -182,12 +182,20 @@ describe('Localization (e2e)', () => {
       const heartbeat = await api().get('/iclock/getrequest').query({ SN });
       expect(heartbeat.text).toBe('OK');
 
+      // سجل العمليات يُقَرّ باستلام أسطره (يُحفظ منه شيء فقط مع نسخ البصمات)
       const operlog = await api()
         .post('/iclock/cdata')
         .query({ SN, table: 'OPERLOG' })
         .set('Content-Type', 'text/plain')
         .send('OPLOG 4\t0\t2026-01-12 08:00:00\t0\t0\t0\t0\n');
-      expect(operlog.text).toBe('OK: 0');
+      expect(operlog.text).toBe('OK: 1');
+
+      const photo = await api()
+        .post('/iclock/cdata')
+        .query({ SN, table: 'ATTPHOTO' })
+        .set('Content-Type', 'text/plain')
+        .send('PIN=1\n');
+      expect(photo.text).toBe('OK: 0');
     });
   });
 });

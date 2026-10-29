@@ -132,6 +132,15 @@ export const PERMS = {
     name: 'view_attendance_reports',
     labelAr: 'عرض تقارير الحضور الشهرية',
   },
+  ATTENDANCE_LOGS_IMPORT: {
+    name: 'import_attendance_logs',
+    labelAr: 'استيراد بصمات من ملف Excel أو CSV',
+  },
+  ATTENDANCE_SETTINGS_MANAGE: {
+    name: 'manage_attendance_settings',
+    labelAr:
+      'إعدادات الحضور: أيام الراحة والعطلات الرسمية وربط الحضور بالرواتب ونسخ البصمات',
+  },
 
   // ─── Contracts (العقود) ─────────────────────────────
   CONTRACT_CREATE: { name: 'create_contract', labelAr: 'إنشاء عقد' },

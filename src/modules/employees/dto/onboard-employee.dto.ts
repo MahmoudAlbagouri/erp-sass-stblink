@@ -14,6 +14,7 @@ import {
   IsArray,
   Matches,
   ArrayMaxSize,
+  MaxLength,
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { NationalityType } from '../entities/employee.entity';
@@ -196,6 +197,17 @@ export class OnboardEmployeeDto {
   @IsUUID()
   @IsOptional()
   shiftId?: string;
+
+  /**
+   * رقم الموظف على جهاز البصمة إن اختلف عن كوده (موظف مسجّل على الجهاز من
+   * قبل). فارغ/null = الجهاز يعرفه بكوده.
+   */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== '')
+  @IsString()
+  @MaxLength(20)
+  @Matches(/^[A-Za-z0-9]+$/, { message: 'رقم البصمة حروف وأرقام فقط' })
+  attendancePin?: string | null;
 
   @IsEnum(['active', 'inactive', 'terminated'])
   @IsOptional()

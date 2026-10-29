@@ -18,6 +18,16 @@ export enum DeviceStatus {
   DISABLED = 'disabled',
 }
 
+/** كيف يوصل الجهاز بصماته للسيرفر */
+export enum DeviceProtocol {
+  /** ZKTeco وما بُني على برمجياتها: بروتوكول ADMS / Push على /iclock */
+  ZK_ADMS = 'zk_adms',
+  /** Hikvision: إرسال الأحداث (HTTP Listening) إلى رابط خاص بالجهاز */
+  HIKVISION = 'hikvision',
+  /** أي جهاز أو برنامج وسيط يرسل البصمات JSON بمفتاح الجهاز */
+  API = 'api',
+}
+
 @Entity('biometric_devices')
 export class BiometricDevice {
   @PrimaryGeneratedColumn('uuid')
@@ -39,6 +49,34 @@ export class BiometricDevice {
 
   @Column({ nullable: true })
   model?: string; // MB10
+
+  @Column({ length: 20, default: DeviceProtocol.ZK_ADMS })
+  protocol!: DeviceProtocol;
+
+  /**
+   * عناوين IP المسموح للجهاز الاتصال منها (مفصولة بفواصل، وتقبل نطاقاً مثل
+   * 41.33.10.0/24). فارغة = أي عنوان، مع تنبيه حين يتغير عنوانه.
+   */
+  @Column({ name: 'allowed_ips', type: 'varchar', length: 500, nullable: true })
+  allowedIps?: string | null;
+
+  /** إصدار بروتوكول Push كما يعلنه جهاز ZKTeco (به تُصاغ أوامره) */
+  @Column({ name: 'push_version', type: 'varchar', length: 20, nullable: true })
+  pushVersion?: string | null;
+
+  /** بصمة مفتاح الإرسال لأجهزة Hikvision / API (المفتاح نفسه يُعرض مرة واحدة) */
+  @Column({
+    name: 'push_key_hash',
+    type: 'varchar',
+    length: 64,
+    nullable: true,
+    select: false,
+  })
+  pushKeyHash?: string | null;
+
+  /** آخر سجل عمليات (مستخدمين وبصمات) استلمناه من جهاز ZKTeco */
+  @Column({ name: 'oper_log_stamp', default: 0 })
+  operLogStamp!: number;
 
   /**
    * منطقة ساعة الجهاز (IANA). فارغة = منطقة الشركة — تُحدَّد فقط لجهاز في

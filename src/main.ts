@@ -25,8 +25,14 @@ async function bootstrap() {
   });
   const logger = new Logger('Bootstrap');
 
+  // خلف nginx: عنوان العميل الحقيقي من X-Forwarded-For (يقفل عليه جهاز البصمة)
+  app.set('trust proxy', trustProxySetting(process.env.TRUST_PROXY));
+
   // ✅ ZKTeco بيبعت text/plain - لازم يكون قبل الـ JSON parser
   app.use('/iclock', bodyParser.text({ type: '*/*', limit: '10mb' }));
+
+  // أجهزة البصمة والبرامج الوسيطة: حتى 1000 بصمة في الطلب
+  app.use('/attendance-push', bodyParser.json({ limit: '2mb' }));
 
   // شعار الشركة صورةً مصغّرة في جسم الطلب: حد أكبر من الافتراضي (100KB)
   app.use(LOGO_ROUTE, bodyParser.json({ limit: '512kb' }));
@@ -94,6 +100,17 @@ async function bootstrap() {
   if (swagger) {
     logger.log(`API docs: http://localhost:${port}/${SWAGGER_PATH}`);
   }
+}
+
+/**
+ * TRUST_PROXY: افتراضياً loopback (nginx على نفس السيرفر)؛ رقم = عدد الوسطاء
+ * الموثوقين، أو قائمة عناوين/نطاقات، أو false لاتصال مباشر بلا وسيط.
+ */
+function trustProxySetting(raw?: string): boolean | number | string {
+  const value = raw?.trim();
+  if (!value) return 'loopback';
+  if (value === 'true' || value === 'false') return value === 'true';
+  return /^\d+$/.test(value) ? Number(value) : value;
 }
 
 bootstrap().catch((err) => {
