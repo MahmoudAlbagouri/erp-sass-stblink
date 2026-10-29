@@ -48,6 +48,7 @@ import { Tenant } from '../src/modules/tenants/entities/tenant.entity';
 import { dayKeyInZone } from '../src/common/utils/timezone.util';
 import { PosDocumentDates1791912700000 } from '../src/database/migrations/1791912700000-PosDocumentDates';
 import { createTestDataSource, truncateAllTables } from './utils/test-database';
+import { createFilesService } from './utils/files';
 
 describe('pos module', () => {
   let dataSource: DataSource;
@@ -181,6 +182,7 @@ describe('pos module', () => {
       dataSource.getRepository(ProductBarcode),
       settings,
       dataSource,
+      createFilesService(dataSource),
     );
     warehouses = new WarehousesService(
       dataSource.getRepository(Warehouse),

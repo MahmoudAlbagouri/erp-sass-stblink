@@ -20,6 +20,7 @@ import { Shift } from '../../shifts/entities/shift.entity';
 import { Education } from './education.entity';
 import { Department } from '../../departments/entities/department.entity';
 import { Branch } from '../../branches/entities/branch.entity';
+import { StoredFile } from '../../files/entities/stored-file.entity';
 
 import { Bonus } from '../../bonuses/entities/bonus.entity';
 import { Deduction } from '../../deduction/entities/deduction.entity';
@@ -59,8 +60,13 @@ export class Employee {
   @Column({ nullable: true })
   nationalId?: string;
 
-  @Column({ nullable: true })
-  nationalIdCardPath?: string;
+  // صورة الهوية/الإقامة: ملف في جدول files (يصل الواجهة برابط موقَّع)
+  @Column({ name: 'national_id_card_file_id', type: 'uuid', nullable: true })
+  nationalIdCardFileId?: string | null;
+
+  @ManyToOne(() => StoredFile, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'national_id_card_file_id' })
+  nationalIdCard?: StoredFile | null;
 
   @Column({ nullable: true, length: 20 })
   phone?: string;

@@ -8,6 +8,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Employee } from './employee.entity';
+import { StoredFile } from '../../files/entities/stored-file.entity';
 
 @Entity('employee_educations')
 export class Education {
@@ -27,8 +28,12 @@ export class Education {
   @Column({ name: 'expiry_date', type: 'date', nullable: true })
   expiryDate?: Date | null;
 
-  @Column({ name: 'attachment_path', nullable: true })
-  attachmentPath?: string;
+  @Column({ name: 'attachment_file_id', type: 'uuid', nullable: true })
+  attachmentFileId?: string | null;
+
+  @ManyToOne(() => StoredFile, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'attachment_file_id' })
+  attachment?: StoredFile | null;
 
   @Column({ name: 'employee_id' })
   employeeId!: string;

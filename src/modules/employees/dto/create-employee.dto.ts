@@ -48,9 +48,10 @@ export class CreateEmployeeDto {
   })
   nationalId?: string;
 
-  @IsString()
+  /** معرّف ملف صورة الهوية (من POST /files/employee)؛ null لإزالتها */
   @IsOptional()
-  nationalIdCardPath?: string;
+  @IsUUID('4', { message: 'ملف الهوية غير صالح' })
+  nationalIdCardFileId?: string | null;
 
   @IsString()
   @IsOptional()

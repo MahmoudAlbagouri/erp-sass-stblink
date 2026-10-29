@@ -24,6 +24,7 @@ import {
 import { ProductBarcode } from './entities/product-barcode.entity';
 import { ProductUnit } from './entities/product-unit.entity';
 import { Product } from './entities/product.entity';
+import { FilesService } from '../files/files.service';
 
 const PRODUCT_RELATIONS = [
   'category',
@@ -32,6 +33,7 @@ const PRODUCT_RELATIONS = [
   'barcodes',
   'units',
   'units.unit',
+  'image',
 ];
 
 const SKU_PREFIX = 'P-';
@@ -56,6 +58,7 @@ export class ProductsService {
     private readonly barcodes: Repository<ProductBarcode>,
     private readonly settings: CatalogSettingsService,
     private readonly dataSource: DataSource,
+    private readonly files: FilesService,
   ) {}
 
   // ══════════════════════════ القراءة ══════════════════════════
@@ -220,6 +223,7 @@ export class ProductsService {
 
   async create(dto: CreateProductDto, tenantId: string): Promise<Product> {
     const { barcodes = [], units = [], sku, taxRateId, ...fields } = dto;
+    await this.files.assertOwned([fields.imageFileId], tenantId);
 
     await this.assertReferences(tenantId, {
       categoryId: fields.categoryId,
@@ -263,6 +267,7 @@ export class ProductsService {
   ): Promise<Product> {
     const product = await this.findOne(id, tenantId);
     const { barcodes, units, sku, ...fields } = dto;
+    await this.files.assertOwned([fields.imageFileId], tenantId);
 
     await this.assertReferences(tenantId, {
       categoryId: fields.categoryId,

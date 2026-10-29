@@ -7,7 +7,6 @@ import {
   I18nValidationExceptionFilter,
 } from 'nestjs-i18n';
 // import { TypeOrmExceptionFilter } from './common/filters/typeorm-exception.filter';
-import { join } from 'path';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { seedSystemOwner } from './database/seeds/system-owner.seed';
 import { DataSource } from 'typeorm';
@@ -73,10 +72,8 @@ async function bootstrap() {
     // new TypeOrmExceptionFilter(),
   );
 
-  // ✅ الملفات الثابتة
-  app.useStaticAssets(join(__dirname, '..', 'uploads'), {
-    prefix: '/uploads/',
-  });
+  // لا خدمة ملفات ثابتة: المرفوعات (هويات، عقود) تُفتح بروابط موقَّعة مؤقتة
+  // عبر GET /files/:id/:name فقط (docs/modules/files.md)
 
   // ✅ توثيق الـ API (Swagger): مغلق في الإنتاج إلا بـ SWAGGER_ENABLED=true
   const swagger = isSwaggerEnabled();

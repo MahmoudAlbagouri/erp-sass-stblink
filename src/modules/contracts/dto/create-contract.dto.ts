@@ -8,6 +8,7 @@ import {
   IsEnum,
   IsArray,
   Min,
+  ArrayMaxSize,
 } from 'class-validator';
 import {
   ContractType,
@@ -64,7 +65,10 @@ export class CreateContractDto {
   @IsString()
   notes?: string;
 
+  /** معرّفات ملفات المرفقات (من POST /files/contract) — تحل محل الحالية */
   @IsOptional()
   @IsArray()
-  attachmentPaths?: string[];
+  @ArrayMaxSize(10)
+  @IsUUID('4', { each: true, message: 'ملف مرفق غير صالح' })
+  attachmentFileIds?: string[];
 }

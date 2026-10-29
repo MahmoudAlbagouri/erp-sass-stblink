@@ -36,6 +36,7 @@ import { SupplierPaymentsService } from '../src/modules/purchasing/supplier-paym
 import { SuppliersService } from '../src/modules/purchasing/suppliers.service';
 import { Tenant } from '../src/modules/tenants/entities/tenant.entity';
 import { createTestDataSource, truncateAllTables } from './utils/test-database';
+import { createFilesService } from './utils/files';
 
 const TODAY = '2026-10-12';
 
@@ -110,6 +111,7 @@ describe('purchasing module', () => {
       dataSource.getRepository(ProductBarcode),
       settings,
       dataSource,
+      createFilesService(dataSource),
     );
     warehouses = new WarehousesService(
       dataSource.getRepository(Warehouse),

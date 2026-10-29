@@ -15,6 +15,10 @@ import {
   calculateProbationEndDate,
 } from './utils/contract-dates.util';
 import { DomainEvents } from '../../common/events/domain-events';
+import { FilesService } from '../files/files.service';
+
+/** العقد كما تعرضه الصفحات: الموظف ومرفقاته (تصل بروابط موقَّعة) */
+const CONTRACT_RELATIONS = ['employee', 'attachments'];
 
 /** YYYY-MM-DD من عمود date (نص) أو Date */
 const dayOf = (value?: Date | string | null): string | null =>
@@ -26,9 +30,11 @@ export class ContractsService {
     @InjectRepository(Contract)
     private readonly repo: Repository<Contract>,
     private readonly events: DomainEvents,
+    private readonly files: FilesService,
   ) {}
 
   async create(dto: CreateContractDto, tenantId: string): Promise<Contract> {
+    const { attachmentFileIds = [], ...fields } = dto;
     // التحقق من وجود عقد مسبق للموظف
     const existing = await this.repo.findOne({
       where: { employeeId: dto.employeeId, tenantId },
@@ -52,7 +58,8 @@ export class ContractsService {
     );
 
     const contract = this.repo.create({
-      ...dto,
+      ...fields,
+      attachments: await this.files.resolve(attachmentFileIds, tenantId),
       tenantId,
       endDate: calculatedEndDate, // استخدام التاريخ المحسوب
       probationEndDate: probationEndDate, // حفظ تاريخ نهاية التجربة
@@ -64,7 +71,7 @@ export class ContractsService {
   async findAll(tenantId: string): Promise<Contract[]> {
     return await this.repo.find({
       where: { tenantId, ...scopedEmployeeWhere() },
-      relations: ['employee'],
+      relations: CONTRACT_RELATIONS,
     });
   }
 
@@ -95,14 +102,14 @@ export class ContractsService {
           ? [{ tenantId, contractType: In(matchingTypes) }]
           : []),
       ],
-      relations: ['employee'],
+      relations: CONTRACT_RELATIONS,
     });
   }
 
   async findOne(id: string, tenantId: string): Promise<Contract> {
     const contract = await this.repo.findOne({
       where: { id, tenantId },
-      relations: ['employee', 'employee.department'],
+      relations: [...CONTRACT_RELATIONS, 'employee.department'],
     });
     if (!contract) throw new NotFoundException('العقد غير موجود');
     return contract;
@@ -115,13 +122,20 @@ export class ContractsService {
   ): Promise<Contract> {
     const contract = await this.findOne(id, tenantId);
     const previousEnd = dayOf(contract.endDate);
+    const { attachmentFileIds, ...fields } = dto;
 
     // ✅ إعادة حساب التواريخ عند التحديث إذا تغيرت المدخلات ذات الصلة
     const startDate = dto.startDate
       ? new Date(dto.startDate)
       : contract.startDate;
 
-    Object.assign(contract, dto);
+    Object.assign(contract, fields);
+    if (attachmentFileIds !== undefined) {
+      contract.attachments = await this.files.resolve(
+        attachmentFileIds,
+        tenantId,
+      );
+    }
 
     if (dto.probationPeriod !== undefined) {
       // null (وليس undefined) حتى يُمسح التاريخ فعلياً من قاعدة البيانات

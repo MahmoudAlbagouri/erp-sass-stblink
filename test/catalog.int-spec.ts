@@ -9,6 +9,7 @@ import { Unit } from '../src/modules/catalog/entities/unit.entity';
 import { ProductsService } from '../src/modules/catalog/products.service';
 import { Tenant } from '../src/modules/tenants/entities/tenant.entity';
 import { createTestDataSource, truncateAllTables } from './utils/test-database';
+import { createFilesService } from './utils/files';
 
 describe('catalog module', () => {
   let dataSource: DataSource;
@@ -39,6 +40,7 @@ describe('catalog module', () => {
       dataSource.getRepository(ProductBarcode),
       settings,
       dataSource,
+      createFilesService(dataSource),
     );
   });
 

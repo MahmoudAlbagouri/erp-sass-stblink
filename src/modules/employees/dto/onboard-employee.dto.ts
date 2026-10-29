@@ -13,6 +13,7 @@ import {
   ValidateNested,
   IsArray,
   Matches,
+  ArrayMaxSize,
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import { NationalityType } from '../entities/employee.entity';
@@ -92,9 +93,12 @@ export class OnboardContractDto {
   @IsOptional()
   notes?: string;
 
-  @IsArray()
+  /** معرّفات ملفات المرفقات (من POST /files/contract) — تحل محل الحالية */
   @IsOptional()
-  attachmentPaths?: string[];
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsUUID('4', { each: true, message: 'ملف مرفق غير صالح' })
+  attachmentFileIds?: string[];
 }
 
 export class OnboardSalaryDto {
@@ -164,9 +168,10 @@ export class OnboardEmployeeDto {
   })
   nationalId?: string;
 
-  @IsString()
+  /** معرّف ملف صورة الهوية (من POST /files/employee)؛ null لإزالتها */
   @IsOptional()
-  nationalIdCardPath?: string;
+  @IsUUID('4', { message: 'ملف الهوية غير صالح' })
+  nationalIdCardFileId?: string | null;
 
   @IsString()
   @IsOptional()

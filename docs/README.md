@@ -41,7 +41,9 @@ npm run dev
 | `DB_HOST` `DB_PORT` `DB_USERNAME` `DB_PASSWORD` `DB_NAME` | قاعدة البيانات |
 | `JWT_ACCESS_SECRET` `JWT_REFRESH_SECRET` | توقيع التوكنات |
 | `PORT` | منفذ السيرفر (الافتراضي 3002) |
-| `API_BASE_URL` | عنوان السيرفر العام (روابط الملفات والبريد) |
+| `API_BASE_URL` | عنوان السيرفر العام: أصل روابط الملفات الموقَّعة (بدونه يُؤخذ من الطلب) |
+| `FILES_URL_SECRET` | اختياري: مفتاح توقيع روابط الملفات (الافتراضي مشتق من `JWT_ACCESS_SECRET`) |
+| `FILES_DIR` | اختياري: مجلد تخزين المرفوعات (الافتراضي `uploads/` في مجلد التشغيل) |
 | `MAIL_HOST` `MAIL_PORT` `MAIL_USER` `MAIL_PASS` | بريد استعادة كلمة المرور |
 | `SWAGGER_ENABLED` | `true` يفتح التوثيق في الإنتاج، `false` يغلقه دائماً |
 | `META_PIXEL_ID` `META_PIXEL_ACCESS_TOKEN` | تتبع التسويق |
@@ -150,13 +152,18 @@ scripts/docs-catalog.cjs  مولّد الكتالوج
 تُسجَّل جدولتها مرة واحدة في AppModule — لا `ScheduleModule.forRoot()` في
 موديول آخر. التفاصيل: [modules/notifications.md](modules/notifications.md).
 
+**12. الملفات المرفوعة.** لا مسار ولا رابط ملف نصاً في أي جدول، ولا خدمة ملفات
+ثابتة: الملف سجل في `files`، والسجل يشير إليه بمعرّفه، ويصل الواجهة برابط موقَّع
+مؤقت فقط ضمن رد مسار محمي. أي معرّف ملف يُستقبل يمر بـ `files.assertOwned`
+(ملف شركة أخرى ← 400). التفاصيل: [modules/files.md](modules/files.md).
+
 **ما هو خاص بالسعودية حتى الآن:** أسعار الباقات بالريال، فاتورة هيئة الزكاة
 والضريبة (QR والسلسلة)، تصنيف جنسية الموظف والإقامة، وحساب نهاية الخدمة.
 
 ## فهرس الموديولات
 
 المجموعات: **النظام** (auth، tenants، plans، subscriptions، users، roles،
-permissions، branches، dashboard، profile، notifications، media، files) ·
+permissions، branches، dashboard، profile، notifications، files) ·
 **التجاري** (catalog، inventory، purchasing، sales، pos، delivery، quotation) ·
 **المحاسبة** (accounting) ·
 **الموارد البشرية** (employees، departments، shifts، contracts، salaries، payroll،
@@ -181,11 +188,10 @@ attendance).
 | [الأقسام (`departments`)](modules/departments.md) | أقسام الشركة التي يتوزع عليها الموظفون. | 5 | 1 |
 | [الموظفون (`employees`)](modules/employees.md) | ملف الموظف وكل ما يتفرع عنه، وتهيئة موظف جديد دفعة واحدة. | 10 | 2 |
 | [نهاية الخدمة (`eos`)](modules/eos.md) | حساب مكافأة نهاية الخدمة وتسجيلها. | 5 | 1 |
-| [خدمة الملفات (`files`)](modules/files.md) | خدمة داخلية لقراءة ملفات مجلد الرفع وحذفها. | 0 | 0 |
+| [الملفات (`files`)](modules/files.md) | رفع المرفقات (هويات، عقود، شهادات، صور أصناف) وفتحها بروابط موقَّعة مؤقتة. | 2 | 1 |
 | [المخزون (`inventory`)](modules/inventory.md) | المخازن، الأرصدة، دفتر الحركات، التحويلات، الجرد، ومتوسط التكلفة. | 27 | 8 |
 | [الإجازات (`leaves`)](modules/leaves.md) | طلبات الإجازة، أرصدتها، استحقاقها اليومي، وترحيلها السنوي. | 11 | 4 |
 | [القروض (`loans`)](modules/loans.md) | قرض يُسدَّد أقساطاً شهرية من الراتب. | 6 | 1 |
-| [الملفات (`media`)](modules/media.md) | رفع الملفات والصور وعرضها وحذفها. | 4 | 0 |
 | [الإشعارات (`notifications`)](modules/notifications.md) | مركز إشعارات لحظي: تنبيهات تلقائية من كل الموديولات، فحوص دورية (انتهاء العقود والإقامات، المخزون، الفواتير...)، ورسائل الإدارة للموظفين. | 23 | 4 |
 | [مسير الرواتب (`payroll`)](modules/payroll.md) | إعداد مسير الشهر ثم تأكيد صرفه. | 5 | 2 |
 | [الصلاحيات (`permissions`)](modules/permissions.md) | قائمة صلاحيات النظام، تُكتشف تلقائياً من الكود. | 5 | 1 |
@@ -204,7 +210,7 @@ attendance).
 | [الشركات (`tenants`)](modules/tenants.md) | الشركة (المستأجر): بياناتها، دولتها، عملتها، ومنطقتها الزمنية. | 8 | 1 |
 | [المستخدمون (`users`)](modules/users.md) | حسابات الدخول: دور كل مستخدم، حالته، والفروع المسموح له بها. | 6 | 1 |
 
-المجموع: 36 موديولاً، 386 مساراً، 84 جدولاً.
+المجموع: 35 موديولاً، 384 مساراً، 85 جدولاً.
 
 <!-- AUTO:END -->
 
@@ -237,6 +243,10 @@ attendance).
 
 **حدث يستحق إشعاراً**: سطر في `DomainEventMap`، `emit` في الخدمة بعد الحفظ،
 ومستمع في `modules/notifications/listeners/` (أو فاحص دوري في `scanners/`).
+
+**حقل ملف مرفوع** (صورة، مستند): عمود `…FileId` + علاقة `StoredFile` في الكيان،
+معرّف `@IsUUID` في الـ DTO، `files.assertOwned` قبل الحفظ، وتحميل العلاقة مع
+السجل. الخطوات في [modules/files.md](modules/files.md).
 
 **تغيير في قاعدة عمل** (بلا مسار جديد): عدّل شرح الموديول باليد — هذا الجزء لا
 يولّده شيء.

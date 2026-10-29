@@ -34,6 +34,7 @@ import { TransfersService } from '../src/modules/inventory/transfers.service';
 import { WarehousesService } from '../src/modules/inventory/warehouses.service';
 import { Tenant } from '../src/modules/tenants/entities/tenant.entity';
 import { createTestDataSource, truncateAllTables } from './utils/test-database';
+import { createFilesService } from './utils/files';
 
 describe('inventory module', () => {
   let dataSource: DataSource;
@@ -95,6 +96,7 @@ describe('inventory module', () => {
       dataSource.getRepository(ProductBarcode),
       settings,
       dataSource,
+      createFilesService(dataSource),
     );
     warehouses = new WarehousesService(
       dataSource.getRepository(Warehouse),

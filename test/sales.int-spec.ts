@@ -48,6 +48,7 @@ import {
 } from '../src/modules/sales/utils/zatca.util';
 import { Tenant } from '../src/modules/tenants/entities/tenant.entity';
 import { createTestDataSource, truncateAllTables } from './utils/test-database';
+import { createFilesService } from './utils/files';
 
 const TODAY = '2026-10-12';
 const CASH = SalesPaymentMethod.CASH;
@@ -124,6 +125,7 @@ describe('sales module', () => {
       dataSource.getRepository(ProductBarcode),
       settings,
       dataSource,
+      createFilesService(dataSource),
     );
     warehouses = new WarehousesService(
       dataSource.getRepository(Warehouse),

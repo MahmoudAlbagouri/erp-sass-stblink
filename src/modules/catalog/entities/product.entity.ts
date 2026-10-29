@@ -14,6 +14,7 @@ import { ProductCategory } from './product-category.entity';
 import { ProductUnit } from './product-unit.entity';
 import { TaxRate } from './tax-rate.entity';
 import { Unit } from './unit.entity';
+import { StoredFile } from '../../files/entities/stored-file.entity';
 
 export enum ProductType {
   /** بضاعة لها رصيد مخزني */
@@ -104,8 +105,12 @@ export class Product extends TenantOwnedEntity {
   @Column({ type: 'text', nullable: true })
   description?: string | null;
 
-  @Column({ type: 'varchar', nullable: true })
-  imagePath?: string | null;
+  @Column({ type: 'uuid', nullable: true })
+  imageFileId?: string | null;
+
+  @ManyToOne(() => StoredFile, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'imageFileId' })
+  image?: StoredFile | null;
 
   @Column({ default: true })
   isActive!: boolean;

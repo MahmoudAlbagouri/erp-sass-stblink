@@ -33,6 +33,8 @@ import {
 } from '../branches/branches.util';
 
 import { DomainEvents } from '../../common/events/domain-events';
+import { FilesService } from '../files/files.service';
+import { employeeFileIds } from './employees.service';
 
 export interface OnboardingResult {
   employee: Employee;
@@ -50,6 +52,7 @@ export class EmployeesOnboardingService {
     private readonly employeeRepo: Repository<Employee>,
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     private readonly events: DomainEvents,
+    private readonly files: FilesService,
   ) {}
 
   async onboard(
@@ -78,6 +81,13 @@ export class EmployeesOnboardingService {
           `رقم الهوية "${dto.nationalId}" مستخدم بالفعل`,
         );
     }
+
+    // الهوية والشهادات ومرفقات العقد: ملفات مرفوعة لهذه الشركة فقط
+    await this.files.assertOwned(employeeFileIds(dto), tenantId);
+    const contractFiles = await this.files.resolve(
+      dto.contract?.attachmentFileIds ?? [],
+      tenantId,
+    );
 
     // ✅ تنفيذ الـ Transaction وحفظ النتيجة
     const result = await this.dataSource.transaction(
@@ -160,7 +170,7 @@ export class EmployeesOnboardingService {
             ? new Date(dto.iqamaExpiryDate)
             : undefined,
           nationalId: dto.nationalId,
-          nationalIdCardPath: dto.nationalIdCardPath,
+          nationalIdCardFileId: dto.nationalIdCardFileId,
           phone: dto.phone,
           jobTitle: dto.jobTitle,
           departmentId: dto.departmentId, // ✅ بدل department النصي
@@ -201,7 +211,7 @@ export class EmployeesOnboardingService {
             medicalInsurance: dto.contract.medicalInsurance,
             nationality: dto.contract.nationality,
             notes: dto.contract.notes,
-            attachmentPaths: dto.contract.attachmentPaths,
+            attachments: contractFiles,
             employeeId: savedEmployee.id,
             tenantId,
           });

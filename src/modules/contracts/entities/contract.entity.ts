@@ -6,8 +6,11 @@ import {
   JoinColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  ManyToMany,
+  JoinTable,
 } from 'typeorm';
 import { Employee } from '../../employees/entities/employee.entity';
+import { StoredFile } from '../../files/entities/stored-file.entity';
 
 export enum ContractType {
   PERMANENT = 'دائم',
@@ -96,8 +99,14 @@ export class Contract {
   @Column({ type: 'text', nullable: true })
   notes?: string;
 
-  @Column('simple-array', { nullable: true })
-  attachmentPaths?: string[];
+  // مرفقات العقد: ملفات في جدول files (تصل الواجهة بروابط موقَّعة)
+  @ManyToMany(() => StoredFile)
+  @JoinTable({
+    name: 'employee_contract_attachments',
+    joinColumn: { name: 'contract_id', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'file_id', referencedColumnName: 'id' },
+  })
+  attachments?: StoredFile[];
 
   @Column({ name: 'employee_id' })
   employeeId!: string;

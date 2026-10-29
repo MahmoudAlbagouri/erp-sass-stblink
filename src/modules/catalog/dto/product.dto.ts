@@ -117,9 +117,10 @@ export class CreateProductDto {
   @MaxLength(2000)
   description?: string;
 
+  /** معرّف ملف صورة الصنف (من POST /files/product)؛ null لإزالتها */
   @IsOptional()
-  @IsString()
-  imagePath?: string;
+  @IsUUID('4', { message: 'صورة الصنف غير صالحة' })
+  imageFileId?: string | null;
 
   @IsOptional()
   @IsBoolean()

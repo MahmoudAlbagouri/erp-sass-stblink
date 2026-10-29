@@ -43,10 +43,13 @@ describe('App (e2e)', () => {
     ['GET', '/tenants'],
     ['GET', '/employees'],
     ['GET', '/users'],
-    ['GET', '/media/list/employee/images'],
+    ['POST', '/files/employee'],
     ['GET', '/subscriptions/me/access'],
-  ])('requires authentication for %s %s', async (_method, path) => {
-    const res = await request(app.getHttpServer()).get(path);
+  ])('requires authentication for %s %s', async (method, path) => {
+    const server = request(app.getHttpServer());
+    const res = await (method === 'POST'
+      ? server.post(path)
+      : server.get(path));
 
     expect(res.status).toBe(401);
   });

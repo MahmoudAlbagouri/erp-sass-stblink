@@ -3,7 +3,8 @@ import {
   IsNotEmpty,
   IsOptional,
   IsDateString,
-  IsUUID, // ✅ استيراد التحقق من UUID
+  IsUUID,
+  // ✅ استيراد التحقق من UUID,
 } from 'class-validator';
 
 export class EducationDto {
@@ -29,7 +30,8 @@ export class EducationDto {
   @IsOptional()
   expiryDate?: string;
 
-  @IsString()
+  /** معرّف ملف الشهادة (من POST /files/employee)؛ null لإزالته */
   @IsOptional()
-  attachmentPath?: string;
+  @IsUUID('4', { message: 'ملف الشهادة غير صالح' })
+  attachmentFileId?: string | null;
 }

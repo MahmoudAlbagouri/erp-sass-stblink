@@ -146,10 +146,11 @@ export class ContractsController {
       reportData.push({ label: 'ملاحظات العقد', value: contract.notes });
     }
 
-    if (contract.attachmentPaths && contract.attachmentPaths.length > 0) {
+    // أسماء المرفقات فقط: روابطها مؤقتة فلا معنى لطباعتها
+    if (contract.attachments?.length) {
       reportData.push({ label: '--- المرفقات ---', value: '' });
-      contract.attachmentPaths.forEach((path, i) => {
-        reportData.push({ label: `مرفق #${i + 1}`, value: path });
+      contract.attachments.forEach((file, i) => {
+        reportData.push({ label: `مرفق #${i + 1}`, value: file.originalName });
       });
     }
 

@@ -16,6 +16,28 @@ import {
   scopedBranchIds,
 } from '../branches/branch-scope';
 import { resolveBranchId } from '../branches/branches.util';
+import { FilesService } from '../files/files.service';
+
+/** ما تعرضه بطاقة الموظف في القائمة، ومنه ملفاته (تصل بروابط موقَّعة) */
+const CARD_RELATIONS = [
+  'user',
+  'educations',
+  'educations.attachment',
+  'department',
+  'contract',
+  'contract.attachments',
+  'branch',
+  'nationalIdCard',
+];
+
+/** ملفات الموظف المرسلة في الطلب: الهوية ومرفقات الشهادات */
+export const employeeFileIds = (dto: {
+  nationalIdCardFileId?: string | null;
+  educations?: { attachmentFileId?: string | null }[];
+}) => [
+  dto.nationalIdCardFileId,
+  ...(dto.educations ?? []).map((edu) => edu.attachmentFileId),
+];
 
 export interface EmployeeFilterOptions {
   status?: string;
@@ -34,6 +56,7 @@ export class EmployeesService {
   constructor(
     @InjectRepository(Employee) private repo: Repository<Employee>,
     @InjectRepository(User) private userRepo: Repository<User>,
+    private readonly files: FilesService,
   ) {}
 
   private async checkNationalIdUniqueness(
@@ -56,6 +79,7 @@ export class EmployeesService {
 
   async create(dto: CreateEmployeeDto, tenantId: string): Promise<Employee> {
     await this.checkNationalIdUniqueness(dto.nationalId, tenantId);
+    await this.files.assertOwned(employeeFileIds(dto), tenantId);
 
     let user: User | null = null;
     if (dto.userId) {
@@ -94,7 +118,8 @@ export class EmployeesService {
       });
 
       try {
-        return await this.repo.save(employee);
+        const saved = await this.repo.save(employee);
+        return await this.findForCard(saved.id, tenantId);
       } catch (error: unknown) {
         const pgError = error as { code?: string; detail?: string };
         const isEmployeeCodeConflict =
@@ -114,8 +139,16 @@ export class EmployeesService {
     const allowed = scopedBranchIds();
     return this.repo.find({
       where: { tenantId, ...(allowed ? { branchId: In(allowed) } : {}) },
-      relations: ['user', 'educations', 'department', 'contract', 'branch'],
+      relations: CARD_RELATIONS,
       order: { createdAt: 'DESC' },
+    });
+  }
+
+  /** الموظف كما تعرضه بطاقته (يُعاد بعد الإنشاء والتعديل فتُحدَّث البطاقة) */
+  private async findForCard(id: string, tenantId: string): Promise<Employee> {
+    return this.repo.findOneOrFail({
+      where: { id, tenantId },
+      relations: CARD_RELATIONS,
     });
   }
 
@@ -126,7 +159,10 @@ export class EmployeesService {
         'user',
         'user.role',
         'contract',
+        'contract.attachments',
         'educations',
+        'educations.attachment',
+        'nationalIdCard',
         'advances',
         'loans',
         'bonuses',
@@ -164,9 +200,12 @@ export class EmployeesService {
       .leftJoinAndSelect('employee.user', 'user')
       .leftJoinAndSelect('employee.department', 'department')
       .leftJoinAndSelect('employee.contract', 'contract')
+      .leftJoinAndSelect('contract.attachments', 'contractAttachments')
       .leftJoinAndSelect('employee.shift', 'shift')
       .leftJoinAndSelect('employee.educations', 'educations')
+      .leftJoinAndSelect('educations.attachment', 'educationAttachment')
       .leftJoinAndSelect('employee.branch', 'branch')
+      .leftJoinAndSelect('employee.nationalIdCard', 'nationalIdCard')
       .where('employee.tenantId = :tenantId', { tenantId });
     restrictToScopedBranches(qb, 'employee.branchId');
 
@@ -244,6 +283,7 @@ export class EmployeesService {
     if (dto.nationalId && dto.nationalId !== employee.nationalId) {
       await this.checkNationalIdUniqueness(dto.nationalId, tenantId, id);
     }
+    await this.files.assertOwned(employeeFileIds(dto), tenantId);
 
     if (dto.userId && dto.userId !== employee.user?.id) {
       const user = await this.userRepo.findOneBy({ id: dto.userId, tenantId });
@@ -272,7 +312,8 @@ export class EmployeesService {
         : null;
     }
 
-    return await this.repo.save(employee);
+    await this.repo.save(employee);
+    return this.findForCard(employee.id, tenantId);
   }
 
   async remove(id: string, tenantId: string): Promise<void> {

@@ -27,7 +27,7 @@ const MODULE_LABELS = {
   subscriptions: "Subscriptions — الاشتراكات",
   profile: "Profile — الملف الشخصي",
   notifications: "Notifications — الإشعارات",
-  media: "Media — الملفات",
+  files: "Files — الملفات",
   quotation: "Quotations — عروض الأسعار",
   catalog: "Catalog — الأصناف",
   inventory: "Inventory — المخزون",
