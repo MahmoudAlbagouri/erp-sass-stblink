@@ -11,6 +11,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import { seedSystemOwner } from './database/seeds/system-owner.seed';
 import { DataSource } from 'typeorm';
 import * as bodyParser from 'body-parser';
+import type { NextFunction, Request, Response } from 'express';
 import { LOGO_ROUTE } from './modules/tenants/tenant-logo';
 import {
   isSwaggerEnabled,
@@ -28,8 +29,25 @@ async function bootstrap() {
   // خلف nginx: عنوان العميل الحقيقي من X-Forwarded-For (يقفل عليه جهاز البصمة)
   app.set('trust proxy', trustProxySetting(process.env.TRUST_PROXY));
 
-  // ✅ ZKTeco بيبعت text/plain - لازم يكون قبل الـ JSON parser
-  app.use('/iclock', bodyParser.text({ type: '*/*', limit: '10mb' }));
+  // تشخيص توصيل أجهزة ZKTeco (ADMS_DEBUG=true): كل طلب على /iclock وردّه،
+  // ومنها مسارات لا نعالجها (404) تكشف إصدار بروتوكول مختلفاً
+  if (process.env.ADMS_DEBUG === 'true') {
+    const adms = new Logger('ADMS');
+    app.use('/iclock', (req: Request, res: Response, next: NextFunction) => {
+      res.on('finish', () =>
+        adms.log(
+          `${req.method} ${req.originalUrl} from ${req.ip} ` +
+            `type=${req.headers['content-type'] ?? '-'} ` +
+            `length=${req.headers['content-length'] ?? 0} -> ${res.statusCode}`,
+        ),
+      );
+      next();
+    });
+  }
+
+  // ZKTeco: نص عادي، وبعض الأجهزة بلا Content-Type أصلاً — يُقرأ الجسم أياً كان
+  // نوعه، وإلا وصل فارغاً فرُدّ بـ "OK: 0" وضاعت البصمات. قبل محلل JSON.
+  app.use('/iclock', bodyParser.text({ type: () => true, limit: '10mb' }));
 
   // أجهزة البصمة والبرامج الوسيطة: حتى 1000 بصمة في الطلب
   app.use('/attendance-push', bodyParser.json({ limit: '2mb' }));

@@ -51,7 +51,7 @@ describe('Attendance devices (e2e)', () => {
     }).compile();
     app = moduleRef.createNestApplication();
     // كما في main.ts: محلل JSON لمسار واحد يُلغي محلل Nest العام، فيُضاف صراحة
-    app.use('/iclock', bodyParser.text({ type: '*/*', limit: '10mb' }));
+    app.use('/iclock', bodyParser.text({ type: () => true, limit: '10mb' }));
     app.use('/attendance-push', bodyParser.json({ limit: '2mb' }));
     app.use(bodyParser.json());
     app.use(bodyParser.urlencoded({ extended: true }));
@@ -135,6 +135,30 @@ describe('Attendance devices (e2e)', () => {
       .set(auth(tenant.adminToken))
       .expect(200);
     expect(data<{ pin: string }[]>(pins)).toMatchObject([{ pin: '7' }]);
+  });
+
+  it('receives ZKTeco punches over ADMS, even without a Content-Type', async () => {
+    await addDevice('zk_adms', 'ZK-E2E');
+    await api().get('/iclock/cdata?SN=OTHER-SN').expect(403);
+
+    const init = await api()
+      .get('/iclock/cdata?SN=ZK-E2E&options=all&pushver=2.4.1')
+      .expect(200);
+    expect(init.text).toContain('GET OPTION FROM: ZK-E2E');
+
+    // بعض الأجهزة لا ترسل Content-Type: يُقرأ الجسم ولا يُرد "OK: 0" على بصمة
+    const upload = await api()
+      .post('/iclock/cdata?SN=ZK-E2E&table=ATTLOG&Stamp=1')
+      .send('1001\t2026-01-12 08:00:00\t0\t1\t0\t0\n')
+      .unset('Content-Type')
+      .expect(200);
+    expect(upload.text).toBe('OK: 1');
+
+    await api().get('/iclock/getrequest?SN=ZK-E2E').expect(200, 'OK');
+    const logs = await dataSource
+      .getRepository(AttendanceLog)
+      .findBy({ deviceSn: 'ZK-E2E' });
+    expect(logs.map((l) => l.deviceUserId)).toEqual(['1001']);
   });
 
   it('imports a punches file after previewing its columns', async () => {
