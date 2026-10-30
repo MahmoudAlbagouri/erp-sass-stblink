@@ -59,6 +59,9 @@
   `overtimeMinMinutes` (الافتراضي 30) في اليوم لا يُحتسب.
 - **ساعات العمل لا تُخزَّن**: تُحسب عند القراءة، وتظهر في السجل والتصدير على آخر
   بصمة في اليوم.
+- **البصمة تُعرض بدورها في يومها** (`dayRole`) لا بنوعها من الجهاز: أولها
+  حضور، وآخرها انصراف، وما بينهما "خلال اليوم" — وهو نفسه ما يُحسب به اليوم.
+  النوع الأصلي يبقى مخزّناً (`punchType`)؛ الإجازة ورقم غير مربوط بلا دور.
 
 ## أثره في مسير الرواتب
 
@@ -87,7 +90,16 @@
   الحديث يأخذ حتى 10 أوامر في السؤال الواحد.
 - كل أمر يُرسل `C:<seq>:<الأمر>` وينتهي بسطر جديد، و`seq` **عدد صحيح** يعود في
   نتيجة التنفيذ (`ID=<seq>&Return=<code>`). الأجهزة تتجاهل أمراً رقمه غير عددي
-  (UUID): لا تنفّذه ولا تردّ عليه.
+  (UUID): لا تنفّذه ولا تردّ عليه. النجاح `Return` صفر فأكثر (`CHECK` يرد بـ 1).
+- **صيغة الأوامر من تعريف الجهاز** (`handshakeAt`): يعلن فيه `pushver`، أو لا
+  يعلنه فهو Push 1.x. جهاز لم يعرّف نفسه منذ أُضيف (حُذف وأعيد وهو متصل) لا
+  يُرسل له شيء من أوامره؛ يُرسل له `CHECK` فيطلب إعداداته من جديد ويعرّف نفسه —
+  بلا إعادة تشغيل — حين تنتظره أوامر، ومرة كل 10 دقائق على الأكثر.
+- **تسليم الأوامر**: أمر سُلِّم ولم يُرد عليه يُعاد بعد دقيقة، ويُترك بعد 3
+  محاولات ("لم يرد الجهاز")، فلا يسد ما بعده. رد متأخر عليه يُسجَّل.
+- `GET /attendance/devices/:id/commands` آخر 50 أمراً وحالاتها (في الطابور،
+  سُلِّم، نُفّذ، رفضه الجهاز برمز، لم يرد، أُلغي)، وقائمة الأجهزة تحمل عدد
+  أوامر كل جهاز المنتظرة (`pendingCommands`).
 - "إرسال للجهاز" لموظف أو لكل الموظفين (`sync-users`) يسجّل الاسم والرقم.
 - **نسخ البصمات بين الأجهزة** (`syncBiometrics`، مغلق افتراضياً): الجهاز يرفع
   قوالب من يسجّل إصبعه/وجهه (OPERLOG / BIODATA)، فتُحفظ **مشفّرة** (AES-256-GCM
@@ -161,7 +173,7 @@ server {
 | `device_commands` | `DeviceCommand` | `device-command.entity.ts` |
 | `public_holidays` | `PublicHoliday` | `public-holiday.entity.ts` |
 
-### المسارات (34)
+### المسارات (35)
 
 **أجهزة البصمة (ADMS)** — `adms.controller.ts` (القسم في Swagger: «أجهزة البصمة (ADMS)»)
 
@@ -192,6 +204,7 @@ server {
 | POST | `/attendance/devices/:id/push-user/:employeeId` | إرسال موظف (وبصماته المحفوظة) إلى جهاز ZKTeco ليُسجَّل عليه | مزامنة جهاز البصمة `sync_biometric_device` | ربط أجهزة البصمة (ZKTeco وHikvision وغيرها) `biometric_integration` |
 | POST | `/attendance/devices/:id/sync-users` | إرسال كل الموظفين النشطين (وبصماتهم المحفوظة) لجهاز ZKTeco | مزامنة جهاز البصمة `sync_biometric_device` | ربط أجهزة البصمة (ZKTeco وHikvision وغيرها) `biometric_integration` |
 | GET | `/attendance/devices/:id/setup` | ما يُكتب في إعدادات الجهاز ليتصل بالسيرفر | عرض أجهزة البصمة `view_biometric_devices` | ربط أجهزة البصمة (ZKTeco وHikvision وغيرها) `biometric_integration` |
+| GET | `/attendance/devices/:id/commands` | آخر أوامر جهاز ZKTeco وحالاتها: في الطابور، نُفّذ، رفضه الجهاز، أو لم يرد عليه | عرض أجهزة البصمة `view_biometric_devices` | ربط أجهزة البصمة (ZKTeco وHikvision وغيرها) `biometric_integration` |
 | POST | `/attendance/devices/:id/regenerate-key` | مفتاح إرسال جديد لجهاز Hikvision أو API (القديم يتوقف فوراً) | تعديل جهاز بصمة `update_biometric_device` | ربط أجهزة البصمة (ZKTeco وHikvision وغيرها) `biometric_integration` |
 | GET | `/attendance/devices` | قائمة أجهزة البصمة وحالة اتصالها | عرض أجهزة البصمة `view_biometric_devices` | ربط أجهزة البصمة (ZKTeco وHikvision وغيرها) `biometric_integration` |
 | GET | `/attendance/devices/:id` | جهاز بصمة واحد | عرض أجهزة البصمة `view_biometric_devices` | ربط أجهزة البصمة (ZKTeco وHikvision وغيرها) `biometric_integration` |

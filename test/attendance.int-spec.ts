@@ -302,15 +302,24 @@ describe('attendance module', () => {
       );
       await adms.processAttendanceLogs(
         SN,
-        punch('1001', '2026-01-12 08:00:00', 0),
+        [
+          punch('1001', '2026-01-12 08:00:00', 0),
+          punch('1001', '2026-01-12 12:00:00', 0),
+        ].join('\n'),
       );
 
       const { data } = await attendance.findLogs({}, user);
-      const [last, first] = data;
+      const [last, , first] = data;
       expect(last.punchTime.toISOString()).toBe('2026-01-12T14:30:00.000Z');
       expect(last.workHours).toBe(9.5);
       expect(last.overtimeHours).toBe(1.5);
       expect(first.workHours).toBeNull();
+      // تُعرض بدورها في اليوم لا بنوعها من الجهاز
+      expect(data.map((l) => l.dayRole)).toEqual([
+        'check_out',
+        'during_day',
+        'check_in',
+      ]);
     });
 
     it('links a device number that drops the leading zeros of the code', async () => {
@@ -326,6 +335,14 @@ describe('attendance module', () => {
   });
 
   describe('device commands', () => {
+    /** كأن مهلة رد الجهاز على ما سُلِّم له قد مرت */
+    const expireDelivery = () =>
+      dataSource.query(
+        `UPDATE device_commands SET "sentAt" = "sentAt" - interval '2 minutes'
+          WHERE "sentAt" IS NOT NULL`,
+      );
+    const seqOf = (line: string | null) => line?.split(':')[1];
+
     it('queues a command once and speaks the protocol version of the device', async () => {
       const [device] = await attendance.findAllDevices(user);
       const employee = await addEmployee(riyadh, '1001', 'سالم\tبن\nأحمد');
@@ -341,12 +358,17 @@ describe('attendance module', () => {
       // رقم الأمر عدد صحيح، وكل أمر ينتهي بسطر جديد (الجهاز يتجاهل غير ذلك)
       expect(Number.isInteger(command.seq)).toBe(true);
 
-      // جهاز لم يعلن إصداره (Push 1.x): الصيغة القديمة. tab و newline
+      // جهاز عرّف نفسه بلا إصدار (Push 1.x): الصيغة القديمة. tab و newline
       // داخل الاسم كانا سيكسران صيغة الأمر
+      await adms.handleDeviceInit(SN);
       expect(await adms.getPendingCommand(SN)).toBe(
         `C:${command.seq}:DATA USER PIN=1001\tName=سالم بن أحمد\tPri=0\n`,
       );
+      // سُلِّم وينتظر رده: لا يُعاد قبل مهلته
+      expect(await adms.getPendingCommand(SN)).toBeNull();
+
       await adms.handleDeviceInit(SN, { pushVersion: '2.4.1' });
+      await expireDelivery();
       expect(await adms.getPendingCommand(SN)).toBe(
         `C:${command.seq}:DATA UPDATE USERINFO PIN=1001\tName=سالم بن أحمد\tPri=0\n`,
       );
@@ -381,7 +403,84 @@ describe('attendance module', () => {
 
       await attendance.pushUserToDevice(device.id, employee.id, user);
 
+      await adms.handleDeviceInit(SN, { pushVersion: '2.4.1' });
       expect(await adms.getPendingCommand(SN)).toContain('PIN=7\tName=سالم');
+    });
+
+    it('asks a device that never introduced itself to do so before sending it anything', async () => {
+      const [device] = await attendance.findAllDevices(user);
+      const employee = await addEmployee(riyadh, '1001', 'سالم');
+
+      // لا شيء ينتظره: لا يُطلب تعريفه
+      expect(await adms.getPendingCommand(SN)).toBeNull();
+      await attendance.pushUserToDevice(device.id, employee.id, user);
+
+      // أُضيف وهو متصل فلا نعرف صيغة أوامره: CHECK وحده، ولا يُكرَّر قبل الرد
+      const check = await adms.getPendingCommand(SN);
+      expect(check).toMatch(/^C:\d+:CHECK\n$/);
+      expect(await adms.getPendingCommand(SN)).toBeNull();
+      expect(
+        await adms.confirmCommands(SN, `ID=${seqOf(check)}&Return=1&CMD=CHECK`),
+      ).toBe(1);
+
+      // يعرّف نفسه فيصله الأمر بصيغة إصداره
+      await adms.handleDeviceInit(SN, { pushVersion: '2.4.1' });
+      expect(await adms.getPendingCommand(SN)).toContain(
+        'DATA UPDATE USERINFO PIN=1001\tName=سالم',
+      );
+      expect(
+        (await attendance.deviceCommands(device.id, user)).map((c) => [
+          c.kind,
+          c.status,
+        ]),
+      ).toEqual([
+        ['check', 'done'],
+        ['user', 'sent'],
+      ]);
+    });
+
+    it('resends an unanswered command, then drops it without blocking the queue', async () => {
+      const [device] = await attendance.findAllDevices(user);
+      await adms.handleDeviceInit(SN); // Push 1.x: أمر واحد في كل سؤال
+      for (const code of ['1001', '1002']) {
+        const employee = await addEmployee(riyadh, code, `موظف ${code}`);
+        await attendance.pushUserToDevice(device.id, employee.id, user);
+      }
+
+      const first = await adms.getPendingCommand(SN);
+      expect(first).toContain('PIN=1001');
+      // الأول لم يُرد عليه بعد: التالي لا ينتظره
+      const second = await adms.getPendingCommand(SN);
+      expect(second).toContain('PIN=1002');
+      await adms.confirmCommands(SN, `ID=${seqOf(second)}&Return=0&CMD=DATA`);
+
+      for (let attempt = 2; attempt <= 3; attempt++) {
+        await expireDelivery();
+        expect(await adms.getPendingCommand(SN)).toContain('PIN=1001');
+      }
+      await expireDelivery();
+      expect(await adms.getPendingCommand(SN)).toBeNull();
+
+      const statuses = async () =>
+        (await attendance.deviceCommands(device.id, user)).map((c) => [
+          c.pin,
+          c.status,
+          c.attempts,
+        ]);
+      expect(await statuses()).toEqual([
+        ['1002', 'done', 1],
+        ['1001', 'no_reply', 3],
+      ]);
+      expect((await attendance.findAllDevices(user))[0].pendingCommands).toBe(
+        0,
+      );
+
+      // رد متأخر يُسجَّل
+      await adms.confirmCommands(
+        SN,
+        `ID=${seqOf(first)}&Return=-1002&CMD=DATA`,
+      );
+      expect((await statuses())[1]).toEqual(['1001', 'failed', 3]);
     });
   });
 

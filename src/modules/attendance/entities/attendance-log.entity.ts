@@ -32,6 +32,19 @@ export const PUNCH_TYPE_LABELS_AR: Record<PunchType, string> = {
   [PunchType.LEAVE]: 'إجازة',
 };
 
+/**
+ * دور البصمة في يوم ورديتها، وبه تُعرض: أولها حضور، وآخرها انصراف، وما بينهما
+ * خلال اليوم — أياً كان نوعها من الجهاز (أغلب الأجهزة ترسل كلها "حضوراً").
+ * هو نفسه ما يُحسب به اليوم.
+ */
+export type PunchRole = 'check_in' | 'check_out' | 'during_day';
+
+export const PUNCH_ROLE_LABELS_AR: Record<PunchRole, string> = {
+  check_in: 'حضور',
+  check_out: 'انصراف',
+  during_day: 'خلال اليوم',
+};
+
 export enum VerifyMode {
   FINGERPRINT = 'fingerprint',
   CARD = 'card',
@@ -149,6 +162,8 @@ export class AttendanceLog {
    */
   workHours?: number | null;
   overtimeHours?: number | null;
+  /** دورها في يومها (يُحسب عند القراءة)؛ null للإجازة ولرقم غير مربوط */
+  dayRole?: PunchRole | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

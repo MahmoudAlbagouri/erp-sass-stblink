@@ -19,6 +19,7 @@ import { AttendanceSettingsService } from './attendance-settings.service';
 import { employeePin, employeesByPin, pinKey } from './utils/attendance-pin';
 import { decryptTemplate, encryptTemplate } from './utils/template-cipher';
 import {
+  CHECK_COMMAND,
   commandForDevice,
   parseTemplateLine,
   templateCommand,
@@ -28,6 +29,49 @@ import {
 
 /** أمر يشير لقالب محفوظ: `@TEMPLATE <id> PIN=<رقم الموظف على الجهاز>` */
 const TEMPLATE_REF = /^@TEMPLATE ([0-9a-f-]{36}) PIN=(.+)$/;
+const USER_INFO = /^DATA UPDATE USERINFO PIN=([^\t]*)(?:\tName=([^\t]*))?/;
+
+/** أمر سُلِّم ولم يرد عليه الجهاز يُعاد بعد هذه المهلة… */
+export const RESEND_AFTER_MS = 60 * 1000;
+/** …ويُترك بعد هذا العدد من المحاولات ("لم يرد الجهاز") */
+export const MAX_COMMAND_ATTEMPTS = 3;
+
+/**
+ * حالة أمر: في الطابور، سُلِّم وينتظر الرد، نفّذه الجهاز، رفضه (رمز سالب)،
+ * لم يرد عليه بعد كل المحاولات، أو أُلغي قبل إرساله (قالب حُذف).
+ */
+export type DeviceCommandStatus =
+  | 'queued'
+  | 'sent'
+  | 'done'
+  | 'failed'
+  | 'no_reply'
+  | 'cancelled';
+
+/** أمر كما يُعرض: نوعه ومن يخص، لا نصه (قد يشير لقالب بصمة) */
+export interface DeviceCommandView {
+  id: string;
+  seq: number;
+  kind: 'user' | 'template' | 'check' | 'other';
+  pin: string | null;
+  name: string | null;
+  status: DeviceCommandStatus;
+  returnCode: number | null;
+  attempts: number;
+  createdAt: Date;
+  sentAt: Date | null;
+  executedAt: Date | null;
+}
+
+export function commandStatus(
+  command: Pick<DeviceCommand, 'isExecuted' | 'returnCode' | 'attempts'>,
+): DeviceCommandStatus {
+  if (!command.isExecuted) return command.attempts > 0 ? 'sent' : 'queued';
+  if (command.returnCode == null) {
+    return command.attempts >= MAX_COMMAND_ATTEMPTS ? 'no_reply' : 'cancelled';
+  }
+  return command.returnCode >= 0 ? 'done' : 'failed';
+}
 
 @Injectable()
 export class BiometricSyncService {
@@ -122,6 +166,54 @@ export class BiometricSyncService {
     });
     await this.enqueue(device, commands);
     return employees.length;
+  }
+
+  /** آخر أوامر الجهاز وحالاتها، الأحدث أولاً */
+  async history(deviceId: string, limit = 50): Promise<DeviceCommandView[]> {
+    const commands = await this.dataSource.getRepository(DeviceCommand).find({
+      where: { deviceId },
+      order: { seq: 'DESC' },
+      take: limit,
+    });
+    return commands.map((command) => {
+      const template = TEMPLATE_REF.exec(command.command);
+      const user = USER_INFO.exec(command.command);
+      return {
+        id: command.id,
+        seq: command.seq,
+        kind: template
+          ? 'template'
+          : user
+            ? 'user'
+            : command.command === CHECK_COMMAND
+              ? 'check'
+              : 'other',
+        pin: template?.[2] ?? user?.[1] ?? null,
+        name: user?.[2] ?? null,
+        status: commandStatus(command),
+        returnCode: command.returnCode ?? null,
+        attempts: command.attempts,
+        createdAt: command.createdAt,
+        sentAt: command.sentAt ?? null,
+        executedAt: command.executedAt ?? null,
+      };
+    });
+  }
+
+  /** أوامر تنتظر كل جهاز (عدا طلب التعريف الداخلي) */
+  async pendingCounts(deviceIds: string[]): Promise<Map<string, number>> {
+    if (deviceIds.length === 0) return new Map();
+    const rows = await this.dataSource
+      .getRepository(DeviceCommand)
+      .createQueryBuilder('c')
+      .select('c.deviceId', 'deviceId')
+      .addSelect('COUNT(*)::int', 'count')
+      .where('c.deviceId IN (:...deviceIds)', { deviceIds })
+      .andWhere('c.isExecuted = false')
+      .andWhere('c.command <> :check', { check: CHECK_COMMAND })
+      .groupBy('c.deviceId')
+      .getRawMany<{ deviceId: string; count: number }>();
+    return new Map(rows.map((row) => [row.deviceId, row.count]));
   }
 
   /**

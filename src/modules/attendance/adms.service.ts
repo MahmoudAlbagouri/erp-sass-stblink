@@ -3,7 +3,7 @@
 // بالسيرفر — يعرّف نفسه، يرفع البصمات، ويسأل دورياً عن أوامر تخصه.
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, IsNull, LessThan, Not, Repository } from 'typeorm';
 import {
   BiometricDevice,
   DeviceProtocol,
@@ -12,9 +12,13 @@ import {
 import { PunchType, VerifyMode } from './entities/attendance-log.entity';
 import { DeviceCommand } from './entities/device-command.entity';
 import { AttendanceSettingsService } from './attendance-settings.service';
-import { BiometricSyncService } from './biometric-sync.service';
+import {
+  BiometricSyncService,
+  MAX_COMMAND_ATTEMPTS,
+  RESEND_AFTER_MS,
+} from './biometric-sync.service';
 import { type IncomingPunch, PunchIngestService } from './punch-ingest.service';
-import { isLegacyPush } from './utils/zk-protocol';
+import { CHECK_COMMAND, isLegacyPush } from './utils/zk-protocol';
 import {
   isValidTimezone,
   tenantTimezoneOf,
@@ -52,6 +56,9 @@ const CLOCK_SKEW_WARNING_MS = 10 * 60 * 1000;
 /** أوامر في الرد الواحد على سؤال الجهاز (الأجهزة القديمة: أمر واحد) */
 const COMMANDS_PER_POLL = 10;
 const MAX_POLL_RESPONSE_CHARS = 60_000;
+
+/** طلب تعريف جهاز لم يعرّف نفسه: مرة كل هذه المدة على الأكثر */
+const HANDSHAKE_REQUEST_INTERVAL_MS = 10 * 60 * 1000;
 
 /** ما يطلب الجهاز رفعه: البصمات، ومع نسخ البصمات سجل المستخدمين وقوالبهم */
 const TRANS_FLAG_ATTENDANCE = 'TransData AttLog';
@@ -98,11 +105,12 @@ export class AdmsService {
     const device = await this.admitted(sn, meta);
     if (!device) return null;
 
-    const pushVersion = meta.pushVersion?.trim().slice(0, 20) || null;
+    // التعريف مصدر الإصدار: جهاز لا يعلنه Push 1.x (الصيغة القديمة)
     await this.deviceRepo.update(device.id, {
       status: DeviceStatus.ONLINE,
       lastSeenAt: new Date(),
-      ...(pushVersion ? { pushVersion } : {}),
+      handshakeAt: new Date(),
+      pushVersion: meta.pushVersion?.trim().slice(0, 20) || null,
     });
 
     const [zone, policy] = await Promise.all([
@@ -228,6 +236,9 @@ export class AdmsService {
   /**
    * سؤال الجهاز الدوري: أوامره التالية بصيغة `C:<seq>:<command>` (سطر لكل
    * أمر ينتهي بسطر جديد؛ أمر واحد للأجهزة القديمة)، أو null إن لم يكن له شيء.
+   *
+   * أمر سُلِّم ولم يرد عليه الجهاز يُعاد بعد مهلة، ويُترك بعد عدد من المحاولات
+   * — فلا يسد ما بعده.
    */
   async getPendingCommand(
     sn: string,
@@ -239,15 +250,28 @@ export class AdmsService {
     await this.touch(device);
 
     const commands = this.dataSource.getRepository(DeviceCommand);
-    const pending = await commands.find({
-      where: { deviceId: device.id, isExecuted: false },
-      order: { createdAt: 'ASC' },
-      take: isLegacyPush(device.pushVersion) ? 1 : COMMANDS_PER_POLL,
-    });
+    const pending = device.handshakeAt
+      ? await this.dueCommands(
+          device.id,
+          isLegacyPush(device.pushVersion) ? 1 : COMMANDS_PER_POLL,
+        )
+      : await this.handshakeRequest(device);
 
     const lines: string[] = [];
+    const sent: string[] = [];
     let size = 0;
     for (const command of pending) {
+      if (command.attempts >= MAX_COMMAND_ATTEMPTS) {
+        // يظهر "لم يرد الجهاز"؛ رده إن وصل متأخراً يُسجَّل
+        await commands.update(command.id, {
+          isExecuted: true,
+          executedAt: new Date(),
+        });
+        this.logger.warn(
+          `SN=${sn} never answered command ${command.seq}: dropped after ${command.attempts} attempt(s)`,
+        );
+        continue;
+      }
       const text = await this.sync.render(command.command, device);
       if (text === null) {
         // قالب حُذف (أوقفت الشركة النسخ): لا شيء يُرسل
@@ -262,9 +286,77 @@ export class AdmsService {
         break;
       }
       lines.push(line);
+      sent.push(command.id);
       size += line.length;
     }
+    if (sent.length > 0) {
+      await commands.update(
+        { id: In(sent) },
+        { attempts: () => '"attempts" + 1', sentAt: new Date() },
+      );
+    }
     return lines.length > 0 ? lines.join('') : null;
+  }
+
+  /** أوامر الجهاز المنتظرة: لم تُسلَّم بعد، أو سُلِّمت ومرت مهلة ردها */
+  private dueCommands(
+    deviceId: string,
+    take: number,
+    command?: string,
+  ): Promise<DeviceCommand[]> {
+    const waiting = {
+      deviceId,
+      isExecuted: false,
+      ...(command ? { command } : {}),
+    };
+    return this.dataSource.getRepository(DeviceCommand).find({
+      where: [
+        { ...waiting, sentAt: IsNull() },
+        {
+          ...waiting,
+          sentAt: LessThan(new Date(Date.now() - RESEND_AFTER_MS)),
+        },
+      ],
+      order: { seq: 'ASC' },
+      take,
+    });
+  }
+
+  /**
+   * جهاز لم يعرّف نفسه منذ أُضيف (حُذف وأعيد وهو متصل مثلاً): صيغة أوامره
+   * مجهولة فلا يُرسل منها شيء، بل يُطلب تعريفه بـ CHECK فيعلن إصداره — حين
+   * تنتظره أوامر فقط، ومرة كل بضع دقائق على الأكثر.
+   */
+  private async handshakeRequest(
+    device: BiometricDevice,
+  ): Promise<DeviceCommand[]> {
+    const due = await this.dueCommands(device.id, 1, CHECK_COMMAND);
+    if (due.length > 0) return due;
+
+    const commands = this.dataSource.getRepository(DeviceCommand);
+    const waiting = await commands.exists({
+      where: {
+        deviceId: device.id,
+        isExecuted: false,
+        command: Not(CHECK_COMMAND),
+      },
+    });
+    if (!waiting) return [];
+
+    const last = await commands.findOne({
+      where: { deviceId: device.id, command: CHECK_COMMAND },
+      order: { seq: 'DESC' },
+    });
+    // من انتهائه (executedAt بمنطقة زمنية، لا createdAt)
+    if (
+      last &&
+      (!last.isExecuted ||
+        Date.now() - (last.executedAt?.getTime() ?? 0) <
+          HANDSHAKE_REQUEST_INTERVAL_MS)
+    ) {
+      return [];
+    }
+    return this.sync.enqueue(device, [CHECK_COMMAND]);
   }
 
   /**
@@ -287,9 +379,10 @@ export class AdmsService {
       if (!/^\d+$/.test(id) || seq > MAX_INT32) continue;
 
       const returnCode = Number.parseInt(params.get('Return') ?? '', 10);
-      // مقيَّد بالجهاز: جهاز لا يؤكد أمراً يخص جهازاً آخر
+      // مقيَّد بالجهاز: جهاز لا يؤكد أمراً يخص جهازاً آخر. ورد متأخر على أمر
+      // تُرك بعد محاولاته يُسجَّل أيضاً
       const result = await this.dataSource.getRepository(DeviceCommand).update(
-        { seq, deviceId: device.id, isExecuted: false },
+        { seq, deviceId: device.id, returnCode: IsNull() },
         {
           isExecuted: true,
           executedAt: new Date(),
@@ -298,7 +391,8 @@ export class AdmsService {
       );
       confirmed += result.affected ?? 0;
 
-      if (!Number.isNaN(returnCode) && returnCode !== 0) {
+      // النجاح 0 فأكثر (CHECK يرد بـ 1)
+      if (!Number.isNaN(returnCode) && returnCode < 0) {
         this.logger.warn(
           `Device SN=${sn} failed command ${id} (Return=${returnCode})`,
         );

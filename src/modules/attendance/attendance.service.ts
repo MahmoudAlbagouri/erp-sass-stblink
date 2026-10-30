@@ -31,7 +31,9 @@ import {
 } from './entities/biometric-device.entity';
 import {
   AttendanceLog,
+  PUNCH_ROLE_LABELS_AR,
   PUNCH_TYPE_LABELS_AR,
+  type PunchRole,
   PunchType,
   VerifyMode,
 } from './entities/attendance-log.entity';
@@ -61,7 +63,10 @@ import {
   tenantTimezoneOf,
 } from '../../common/utils/timezone.util';
 import { AttendanceSettingsService } from './attendance-settings.service';
-import { BiometricSyncService } from './biometric-sync.service';
+import {
+  BiometricSyncService,
+  type DeviceCommandView,
+} from './biometric-sync.service';
 import {
   type AttendanceCalendar,
   type AttendanceStatus,
@@ -568,7 +573,20 @@ export class AttendanceService {
       relations: { branch: true },
       order: { createdAt: 'DESC' },
     });
-    return devices.map(withLiveStatus);
+    const pending = await this.sync.pendingCounts(devices.map((d) => d.id));
+    return devices.map((device) => {
+      device.pendingCommands = pending.get(device.id) ?? 0;
+      return withLiveStatus(device);
+    });
+  }
+
+  /** آخر أوامر جهاز ZKTeco وحالاتها: نُفّذ، رُفض، أو لم يرد عليه */
+  async deviceCommands(
+    id: string,
+    user: CurrentUserData,
+  ): Promise<DeviceCommandView[]> {
+    const device = await this.findOneDevice(id, user);
+    return this.sync.history(device.id);
   }
 
   async findOneDevice(
@@ -911,8 +929,9 @@ export class AttendanceService {
   }
 
   /**
-   * ساعات العمل والإضافي على آخر بصمة في كل يوم وردية (وغيرها null) —
-   * محسوبة من أول بصمة وآخرها في يومها، أيّاً كان نوعهما.
+   * دور كل بصمة في يوم ورديتها (حضور، انصراف، خلال اليوم)، وساعات العمل
+   * والإضافي على آخر بصمة فيه (وغيرها null) — من أول بصمة وآخرها في يومها،
+   * أيّاً كان نوعهما.
    */
   private async annotateDayHours(
     tenantId: string,
@@ -921,6 +940,7 @@ export class AttendanceService {
     for (const log of logs) {
       log.workHours = null;
       log.overtimeHours = null;
+      log.dayRole = null;
     }
     const linked = logs.filter(
       (l) => l.employeeId && l.punchType !== PunchType.LEAVE,
@@ -969,6 +989,7 @@ export class AttendanceService {
     const logsOf = groupBy(dayLogs, (log) => log.employeeId!);
 
     const hoursByLog = new Map<string, DayAttendance>();
+    const roleByLog = new Map<string, PunchRole>();
     for (const { employee, day } of wanted.values()) {
       const result = this.evaluateFor(
         employee,
@@ -977,11 +998,25 @@ export class AttendanceService {
         calendar,
         undefined,
       );
+      const punches = result.logs.filter(
+        (l) => l.punchType !== PunchType.LEAVE,
+      );
+      punches.forEach((punch, i) =>
+        roleByLog.set(
+          punch.id,
+          i === 0
+            ? 'check_in'
+            : i === punches.length - 1
+              ? 'check_out'
+              : 'during_day',
+        ),
+      );
       if (result.checkOut && result.checkIn !== result.checkOut) {
         hoursByLog.set(result.checkOut.id, result);
       }
     }
     for (const log of linked) {
+      log.dayRole = roleByLog.get(log.id) ?? null;
       const day = hoursByLog.get(log.id);
       if (!day) continue;
       log.workHours = toHours(day.minutes);
@@ -1015,7 +1050,9 @@ export class AttendanceService {
     const rows: ReportRow[] = logs.map((l) => ({
       employeeName: l.employee?.fullName ?? '—',
       employeeCode: l.deviceUserId,
-      punchTypeLabel: PUNCH_TYPE_LABELS_AR[l.punchType] ?? l.punchType,
+      punchTypeLabel: l.dayRole
+        ? PUNCH_ROLE_LABELS_AR[l.dayRole]
+        : (PUNCH_TYPE_LABELS_AR[l.punchType] ?? l.punchType),
       // بتوقيت الشركة، لا بتوقيت السيرفر
       punchTime: formatDateTime(l.punchTime, zone),
       workHours: l.workHours != null ? String(l.workHours) : '—',

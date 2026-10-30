@@ -30,13 +30,21 @@ export class DeviceCommand {
   @Column({ default: false })
   isExecuted: boolean;
 
-  /** متى أكّد الجهاز تنفيذ الأمر */
+  /** متى أكّد الجهاز تنفيذ الأمر (أو متى توقفنا عن إرساله) */
   @Column({ type: 'timestamptz', nullable: true })
   executedAt?: Date | null;
 
-  /** رمز النتيجة الذي أعاده الجهاز: 0 = نجاح، غيره = خطأ من الجهاز */
+  /** رمز النتيجة الذي أعاده الجهاز: 0 فأكثر = نجاح، السالب = خطأ من الجهاز */
   @Column({ type: 'int', nullable: true })
   returnCode?: number | null;
+
+  /** مرات تسليمه للجهاز: أمر لا يرد عليه يُعاد بعد مهلة، ثم يُترك */
+  @Column({ type: 'int', default: 0 })
+  attempts: number;
+
+  /** آخر تسليم للجهاز */
+  @Column({ type: 'timestamptz', nullable: true })
+  sentAt?: Date | null;
 
   @Column()
   tenantId: string;

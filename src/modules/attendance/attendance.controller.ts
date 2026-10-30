@@ -118,6 +118,18 @@ export class AttendanceController {
     return this.attendanceService.deviceSetup(id, user, publicOrigin(req));
   }
 
+  /** آخر أوامر جهاز ZKTeco وحالاتها: في الطابور، نُفّذ، رفضه الجهاز، أو لم يرد عليه */
+  @Get('devices/:id/commands')
+  @Permissions(PERMS.BIOMETRIC_DEVICE_VIEW)
+  @RequiresFeature(FEATURES.BIOMETRIC_INTEGRATION)
+  @UseGuards(PermissionsGuard)
+  deviceCommands(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.attendanceService.deviceCommands(id, user);
+  }
+
   /** مفتاح إرسال جديد لجهاز Hikvision أو API (القديم يتوقف فوراً) */
   @Post('devices/:id/regenerate-key')
   @Permissions(PERMS.BIOMETRIC_DEVICE_UPDATE)

@@ -7763,6 +7763,32 @@
           }
         },
         {
+          "name": "GET /attendance/devices/:id/commands",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attendance/devices/:id/commands",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "attendance",
+                "devices",
+                ":id",
+                "commands"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "آخر أوامر جهاز ZKTeco وحالاتها: في الطابور، نُفّذ، رفضه الجهاز، أو لم يرد عليه\n\n**الصلاحيات:** BIOMETRIC_DEVICE_VIEW"
+          }
+        },
+        {
           "name": "POST /attendance/devices/:id/regenerate-key",
           "request": {
             "method": "POST",

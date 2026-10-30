@@ -8,6 +8,12 @@ function clean(value: string): string {
   return value.replace(/[\t\r\n]+/g, ' ').trim();
 }
 
+/**
+ * يطلب من الجهاز إعداداته من جديد (كما بعد تشغيله)، فيعرّف نفسه ويعلن إصداره.
+ * تفهمه كل الإصدارات، ويرد عليه بـ Return=1.
+ */
+export const CHECK_COMMAND = 'CHECK';
+
 /** تسجيل موظف على الجهاز (أو تحديث اسمه) */
 export function userInfoCommand(pin: string, name: string): string {
   return `DATA UPDATE USERINFO PIN=${clean(pin)}\tName=${clean(name)}\tPri=0`;

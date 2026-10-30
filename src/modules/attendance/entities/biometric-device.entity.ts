@@ -64,6 +64,14 @@ export class BiometricDevice {
   @Column({ name: 'push_version', type: 'varchar', length: 20, nullable: true })
   pushVersion?: string | null;
 
+  /**
+   * آخر تعريف (handshake) من جهاز ZKTeco: يعلن فيه إصداره، أو لا يعلنه فهو
+   * Push 1.x. فارغ = لم يعرّف نفسه منذ أُضيف (حُذف وأعيد وهو متصل مثلاً) فلا
+   * نعرف صيغة أوامره بعد.
+   */
+  @Column({ name: 'handshake_at', type: 'timestamptz', nullable: true })
+  handshakeAt?: Date | null;
+
   /** بصمة مفتاح الإرسال لأجهزة Hikvision / API (المفتاح نفسه يُعرض مرة واحدة) */
   @Column({
     name: 'push_key_hash',
@@ -117,6 +125,9 @@ export class BiometricDevice {
 
   @Column({ default: true })
   isActive!: boolean;
+
+  /** أوامر تنتظر الجهاز (تُحسب عند القراءة في قائمة الأجهزة) */
+  pendingCommands?: number;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;

@@ -166,6 +166,15 @@ describe('Attendance devices (e2e)', () => {
       .unset('Content-Type')
       .expect(200);
     await api().get('/iclock/getrequest?SN=ZK-CMD').expect(200, 'OK');
+
+    // حالته تظهر في الواجهة
+    const commands = await api()
+      .get(`/attendance/devices/${device.id}/commands`)
+      .set(auth(tenant.adminToken))
+      .expect(200);
+    expect(data(commands)).toMatchObject([
+      { kind: 'user', pin: '0460009', name: 'رهف', status: 'done' },
+    ]);
   });
 
   it('receives ZKTeco punches over ADMS, even without a Content-Type', async () => {
