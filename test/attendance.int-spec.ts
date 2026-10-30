@@ -338,25 +338,31 @@ describe('attendance module', () => {
       expect(queued).toHaveLength(1);
       const [command] = queued;
 
+      // رقم الأمر عدد صحيح، وكل أمر ينتهي بسطر جديد (الجهاز يتجاهل غير ذلك)
+      expect(Number.isInteger(command.seq)).toBe(true);
+
       // جهاز لم يعلن إصداره (Push 1.x): الصيغة القديمة. tab و newline
       // داخل الاسم كانا سيكسران صيغة الأمر
       expect(await adms.getPendingCommand(SN)).toBe(
-        `C:${command.id}:DATA USER PIN=1001\tName=سالم بن أحمد\tPri=0`,
+        `C:${command.seq}:DATA USER PIN=1001\tName=سالم بن أحمد\tPri=0\n`,
       );
       await adms.handleDeviceInit(SN, { pushVersion: '2.4.1' });
       expect(await adms.getPendingCommand(SN)).toBe(
-        `C:${command.id}:DATA UPDATE USERINFO PIN=1001\tName=سالم بن أحمد\tPri=0`,
+        `C:${command.seq}:DATA UPDATE USERINFO PIN=1001\tName=سالم بن أحمد\tPri=0\n`,
       );
 
-      // جهاز آخر لا يؤكد أمراً لا يخصه
+      // جهاز آخر لا يؤكد أمراً لا يخصه، ولا يُقبل رقم غير صحيح
       expect(
         await adms.confirmCommands(
           CAIRO_SN,
-          `ID=${command.id}&Return=0&CMD=DATA`,
+          `ID=${command.seq}&Return=0&CMD=DATA`,
         ),
       ).toBe(0);
       expect(
-        await adms.confirmCommands(SN, `ID=${command.id}&Return=0&CMD=DATA\n`),
+        await adms.confirmCommands(SN, `ID=${command.id}&Return=0&CMD=DATA`),
+      ).toBe(0);
+      expect(
+        await adms.confirmCommands(SN, `ID=${command.seq}&Return=0&CMD=DATA\n`),
       ).toBe(1);
 
       const stored = await dataSource

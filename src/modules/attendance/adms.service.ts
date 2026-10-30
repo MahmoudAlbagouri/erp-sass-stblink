@@ -45,8 +45,6 @@ const VERIFY_TO_MODE: Record<number, VerifyMode> = {
 /** الجهاز يسأل عن أوامره كل بضع ثوانٍ: لا نكتب "آخر ظهور" مع كل سؤال */
 const HEARTBEAT_WRITE_INTERVAL_MS = 30 * 1000;
 const MAX_INT32 = 2147483647;
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 /** بصمة تاريخها أبعد من هذا في المستقبل تعني ساعة جهاز غير مضبوطة */
 const CLOCK_SKEW_WARNING_MS = 10 * 60 * 1000;
@@ -228,8 +226,8 @@ export class AdmsService {
   // ══════════════════════════ الأوامر ══════════════════════════
 
   /**
-   * سؤال الجهاز الدوري: أوامره التالية بصيغة `C:<id>:<command>` (سطر لكل
-   * أمر؛ أمر واحد للأجهزة القديمة)، أو null إن لم يكن له شيء.
+   * سؤال الجهاز الدوري: أوامره التالية بصيغة `C:<seq>:<command>` (سطر لكل
+   * أمر ينتهي بسطر جديد؛ أمر واحد للأجهزة القديمة)، أو null إن لم يكن له شيء.
    */
   async getPendingCommand(
     sn: string,
@@ -259,19 +257,19 @@ export class AdmsService {
         });
         continue;
       }
-      const line = `C:${command.id}:${text}`;
+      const line = `C:${command.seq}:${text}\n`;
       if (lines.length > 0 && size + line.length > MAX_POLL_RESPONSE_CHARS) {
         break;
       }
       lines.push(line);
       size += line.length;
     }
-    return lines.length > 0 ? lines.join('\n') : null;
+    return lines.length > 0 ? lines.join('') : null;
   }
 
   /**
    * نتيجة تنفيذ الأوامر كما يرسلها الجهاز: سطر لكل أمر بصيغة
-   * `ID=<id>&Return=<code>&CMD=<name>`. يعيد عدد الأوامر المؤكَّدة.
+   * `ID=<seq>&Return=<code>&CMD=<name>`. يعيد عدد الأوامر المؤكَّدة.
    */
   async confirmCommands(
     sn: string,
@@ -284,13 +282,14 @@ export class AdmsService {
     let confirmed = 0;
     for (const line of body.split('\n')) {
       const params = new URLSearchParams(line.trim());
-      const id = params.get('ID');
-      if (!id || !UUID_PATTERN.test(id)) continue;
+      const id = params.get('ID') ?? '';
+      const seq = Number(id);
+      if (!/^\d+$/.test(id) || seq > MAX_INT32) continue;
 
       const returnCode = Number.parseInt(params.get('Return') ?? '', 10);
       // مقيَّد بالجهاز: جهاز لا يؤكد أمراً يخص جهازاً آخر
       const result = await this.dataSource.getRepository(DeviceCommand).update(
-        { id, deviceId: device.id, isExecuted: false },
+        { seq, deviceId: device.id, isExecuted: false },
         {
           isExecuted: true,
           executedAt: new Date(),

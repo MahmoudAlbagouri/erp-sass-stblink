@@ -6,6 +6,7 @@ import { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
 import { AttendanceLog } from '../src/modules/attendance/entities/attendance-log.entity';
+import { Employee } from '../src/modules/employees/entities/employee.entity';
 import { createTenantFixture, TenantFixture } from './utils/fixtures';
 import { truncateAllTables } from './utils/test-database';
 
@@ -135,6 +136,36 @@ describe('Attendance devices (e2e)', () => {
       .set(auth(tenant.adminToken))
       .expect(200);
     expect(data<{ pin: string }[]>(pins)).toMatchObject([{ pin: '7' }]);
+  });
+
+  it('delivers a command to a ZKTeco device and records its result', async () => {
+    const device = await addDevice('zk_adms', 'ZK-CMD');
+    const employee = await dataSource.getRepository(Employee).save({
+      tenantId: tenant.tenantId,
+      employeeCode: '0460009',
+      fullName: 'رهف',
+    });
+    await api()
+      .get('/iclock/cdata?SN=ZK-CMD&options=all&pushver=2.4.1')
+      .expect(200);
+    await api()
+      .post(`/attendance/devices/${device.id}/push-user/${employee.id}`)
+      .set(auth(tenant.adminToken))
+      .expect(201);
+
+    // كما يقرؤه الجهاز: رقم صحيح، وسطر جديد بعد الأمر
+    const poll = await api().get('/iclock/getrequest?SN=ZK-CMD').expect(200);
+    expect(poll.text).toMatch(
+      /^C:\d+:DATA UPDATE USERINFO PIN=0460009\tName=رهف\tPri=0\n$/,
+    );
+    const seq = poll.text.split(':')[1];
+
+    await api()
+      .post('/iclock/devicecmd?SN=ZK-CMD')
+      .send(`ID=${seq}&Return=0&CMD=DATA\n`)
+      .unset('Content-Type')
+      .expect(200);
+    await api().get('/iclock/getrequest?SN=ZK-CMD').expect(200, 'OK');
   });
 
   it('receives ZKTeco punches over ADMS, even without a Content-Type', async () => {

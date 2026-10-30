@@ -3,6 +3,7 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
+  Generated,
   Index,
 } from 'typeorm';
 
@@ -11,6 +12,14 @@ import {
 export class DeviceCommand {
   @PrimaryGeneratedColumn('uuid')
   id: string;
+
+  /**
+   * رقم الأمر كما يُرسل للجهاز (`C:<seq>:…`) ويعود في نتيجته: أجهزة ZKTeco
+   * تقرأه عدداً صحيحاً، ومعرّف UUID تتجاهل سطره فلا يُنفَّذ الأمر ولا يُرد عليه.
+   */
+  @Column({ unique: true })
+  @Generated('increment')
+  seq: number;
 
   @Column()
   deviceId: string;
