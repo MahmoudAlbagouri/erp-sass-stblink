@@ -57,6 +57,11 @@
   وعنوان بلا إنترنت؛ الدفع `courier` (تحصيل عبر التوصيل — خارج الدرج) أو مدفوع
   الآن، وعملية `sale` تحمل `delivery` فيُنشأ أوردر التوصيل عند رفعها. التفاصيل في
   [delivery.md](delivery.md) و[../pos-screen.md](../pos-screen.md#بيع-توصيل).
+- **عرض السعر** (ميزة الشاشة `quotes`): ورقة أسعار لا تخضع للمخزون ولا تُسجَّل
+  بيعاً. عملية `quote.create` في الطابور بعدّاد مستقل (`pos_devices.lastQuoteCounter`)
+  فلا يترك فجوة في أرقام الفواتير، والمستند نفسه في [sales.md](sales.md). `sale`
+  تقبل `quoteUuid` فيتحوّل العرض. الوردية للنسبة فقط: لا يدخل أرقامها ولا يعيد
+  حسابها. التفاصيل في [../pos-screen.md](../pos-screen.md#عرض-السعر).
 - **العروض** (`pos_promotions`): سعر خاص، خصم نسبة، اشترِ X واحصل على Y — لفترة
   أو لعميل. تُحسب على الجهاز، والسيرفر يتحقق من اتساق المبالغ فقط.
 - **سجل التدقيق** (`pos_audit_logs`): ما لا يترك أثراً في الفواتير. للقراءة فقط.
@@ -67,18 +72,18 @@
   الكاشير (باركود الميزان والموافقات).
 - **مميزات الشاشة لكل شركة** (`pos-screen-settings.service.ts`،
   `common/constants/pos-features.ts` — المصدر الوحيد للقائمة والقوالب):
-  21 ميزة تُشغَّل وتُقفل (العميل، الآجل، الخصمان، تغيير السعر، الوحدات، التعليق،
-  الشبكة، الدفع السريع، الطباعة التلقائية، الدرج، المرتجع، الميزان، الرصيد، لوحة
+  22 ميزة تُشغَّل وتُقفل (العميل، الآجل، الخصمان، تغيير السعر، الوحدات، التعليق،
+  عرض السعر، الشبكة، الدفع السريع، الطباعة التلقائية، الدرج، المرتجع، الميزان، الرصيد، لوحة
   الأرقام، شاشة العميل، التوصيل، الطاولات، المطبخ) وخمسة قوالب. تُحفظ في
-  `sales_settings.posOptions` (`features`، `template`، `featureDisabledAt`) فتنزل
-  للجهاز مع البوتستراب. `resolvePosOptions` يكمّل الغائب بالافتراضي (مفعّل)،
+  `sales_settings.posOptions` (`features`، `template`، `featureDisabledAt`،
+  `quoteValidityDays` مدة صلاحية عرض السعر الافتراضية) فتنزل للجهاز مع البوتستراب. `resolvePosOptions` يكمّل الغائب بالافتراضي (مفعّل)،
   و`scaleBarcode` مشتقة من `scale.enabled`. الباقة تحكم التوصيل والمطاعم.
   - **البيع الآجل المقفل يرفضه السيرفر** (`assertCreditAllowed`) إلا فاتورة
     `issuedAt` قبل `featureDisabledAt.creditSales` (بيعت بلا إنترنت قبل الإقفال).
   - `SalesSettingsService.update` **يدمج** `posOptions` (كانت تُستبدل كاملة فتمسح
     ما يُحفظ من غير صفحة الفوترة)، و`updatePosOptions` لتعديل جزء منها.
-- عمليات الطابور: `shift.open`، `customer.create`، `sale`، `return`،
-  `cash.move`، `audit`، `shift.close`، `kitchen.send`، `kitchen.close`.
+- عمليات الطابور: `shift.open`، `customer.create`، `sale`، `quote.create`،
+  `return`، `cash.move`، `audit`، `shift.close`، `kitchen.send`، `kitchen.close`.
 - **المطاعم** (ميزة `restaurant_module`، `restaurant.service.ts`):
   - **الطاولات** (`dining_tables`): اسم وقسم وكراسي، لفرع أو لكل الفروع (null).
     تنزل للجهاز مع البوتستراب (`restaurant`: طاولات فرعه الفعّالة + إعدادات
@@ -116,7 +121,8 @@
 - `/pos/display` — شاشة العميل (نافذة ثانية تعرض السلة والإجمالي).
 - `/dashboard/pos/devices`، `/cashiers`، `/shifts`.
 - `/dashboard/pos/promotions` — العروض والأسعار الخاصة.
-- `/dashboard/pos/settings` — إعدادات شاشة الكاشير: القوالب والمميزات.
+- `/dashboard/pos/settings` — إعدادات شاشة الكاشير: القوالب والمميزات ومدة صلاحية
+  عرض السعر.
 - `/dashboard/pos/restaurant` — الطاولات (واحدة أو متتالية: «طاولة 1» … «طاولة
   20») وإعدادات المطبخ.
 - `/kitchen` — شاشة المطبخ (ملء الشاشة، تتحدث كل 5 ثوانٍ).
@@ -146,7 +152,7 @@
 | `kitchen_orders` | `KitchenOrder` | `restaurant.entity.ts` |
 | `restaurant_settings` | `RestaurantSettings` | `restaurant.entity.ts` |
 
-### المسارات (38)
+### المسارات (39)
 
 **شاشة الكاشير** — `pos-device.controller.ts` (القسم في Swagger: «شاشة الكاشير»)
 
@@ -156,6 +162,7 @@
 | GET | `/pos/device/bootstrap` | الأصناف والأسعار والعملاء والكاشيرات (كلها أو ما تغيّر منذ `since`) | — | — |
 | POST | `/pos/device/sync` | رفع طابور الشاشة: ورديات ومبيعات ومرتجعات تمّت محلياً | — | — |
 | GET | `/pos/device/invoices/:number` | فاتورة برقمها المطبوع: لاختيار ما يُرجَع منها | — | — |
+| GET | `/pos/device/quotes/:number` | عرض سعر برقمه: لطباعته أو تحويله لفاتورة من أي شاشة في الشركة | — | — |
 | GET | `/pos/device/kitchen` | بونات المطبخ من هذه الشاشة التي لم تُسلَّم: حالتها (للتنبيه بالجاهز) | — | — |
 | POST | `/pos/device/kitchen/:id/served` | الكاشير استلم طلباً جاهزاً من المطبخ | — | — |
 

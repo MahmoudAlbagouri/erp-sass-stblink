@@ -1,4 +1,4 @@
-import { Controller, Post, Body, HttpCode, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, HttpCode, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { apiTag } from '../../config/swagger.config';
 import { AuthService } from './auth.service';
@@ -25,6 +25,12 @@ export class AuthController {
   @Post('register')
   register(@Body() dto: RegisterDto) {
     return this.authService.register(dto);
+  }
+
+  /** إعدادات تطبيق الجوال قبل الدخول: أقل إصدار يقبله السيرفر */
+  @Get('app-config')
+  appConfig() {
+    return { minMobileVersion: process.env.MOBILE_MIN_VERSION ?? '1.0.0' };
   }
 
   /** تسجيل الدخول بالبريد وكلمة المرور */

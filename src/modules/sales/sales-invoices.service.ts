@@ -70,7 +70,7 @@ const NUMBER_PREFIX = 'INV-';
 const amountTolerance = (decimals: number): number => 2 / 10 ** decimals;
 
 /** سطر محسوب جاهز للحفظ */
-type ComputedLine = Pick<
+export type ComputedLine = Pick<
   SalesInvoiceLine,
   | 'sortOrder'
   | 'productId'
@@ -798,9 +798,9 @@ export class SalesInvoicesService {
     };
   }
 
-  /** أسطر فاتورة الكاشير: بيانات الصنف من السيرفر، والمبالغ كما طُبعت */
-  private async posLines(
-    sale: PosSaleInput,
+  /** أسطر مستند الكاشير: بيانات الصنف من السيرفر، والمبالغ كما طُبعت */
+  async posLines(
+    sale: Pick<PosSaleInput, 'lines' | 'pricesIncludeTax'>,
     tenantId: string,
     decimals: number,
     /** منشأة غير مسجّلة: نسبة الضريبة المتوقعة صفر لكل الأصناف */
@@ -1204,7 +1204,7 @@ function assertPricing(
   }
 }
 
-function totalsOf(lines: ComputedLine[]): Totals {
+export function totalsOf(lines: ComputedLine[]): Totals {
   return {
     subtotal: sumMoney(lines.map((l) => l.subtotal)),
     discountTotal: sumMoney(lines.map((l) => l.discount)),

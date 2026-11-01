@@ -1,6 +1,7 @@
 // src/modules/employees/entities/employee.entity.ts
 import {
   Entity,
+  Index,
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
@@ -37,6 +38,10 @@ export enum NationalityType {
 }
 
 @Entity('employees')
+@Index('UQ_employees_mobile_device', ['tenantId', 'mobileDeviceId'], {
+  unique: true,
+  where: '"mobile_device_id" IS NOT NULL',
+})
 export class Employee {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -58,6 +63,37 @@ export class Employee {
     nullable: true,
   })
   attendancePin?: string | null;
+
+  /** يُسمح له بالبصمة من تطبيق الجوال، داخل نطاق فرعه */
+  @Column({ name: 'mobile_punch_enabled', default: false })
+  mobilePunchEnabled!: boolean;
+
+  /**
+   * الجوال المربوط بالموظف: يُربط بأول بصمة، ولا تُقبل بصمته من غيره حتى تفكّه
+   * الإدارة. الجوال الواحد لا يُربط بموظفين في نفس الشركة.
+   */
+  @Column({
+    name: 'mobile_device_id',
+    type: 'varchar',
+    length: 64,
+    nullable: true,
+  })
+  mobileDeviceId?: string | null;
+
+  @Column({
+    name: 'mobile_device_name',
+    type: 'varchar',
+    length: 120,
+    nullable: true,
+  })
+  mobileDeviceName?: string | null;
+
+  @Column({
+    name: 'mobile_device_bound_at',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  mobileDeviceBoundAt?: Date | null;
 
   @Column({
     type: 'enum',

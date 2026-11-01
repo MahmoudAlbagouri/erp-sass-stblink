@@ -16,10 +16,13 @@ import {
   SalesInvoice,
   SalesInvoiceLine,
 } from './entities/sales-invoice.entity';
+import { SalesQuote } from './entities/sales-quote.entity';
 import { SalesReturn, SalesReturnLine } from './entities/sales-return.entity';
 import { SalesSettings } from './entities/sales-settings.entity';
 import { SalesInvoicesController } from './sales-invoices.controller';
 import { SalesInvoicesService } from './sales-invoices.service';
+import { SalesQuotesController } from './sales-quotes.controller';
+import { SalesQuotesService } from './sales-quotes.service';
 import { SalesReturnsController } from './sales-returns.controller';
 import { SalesReturnsService } from './sales-returns.service';
 import { SalesSettingsService } from './sales-settings.service';
@@ -37,7 +40,7 @@ export class SalesInvoicesQuotaResolver implements QuotaResolver {
 
 /**
  * موديول المبيعات: العملاء وكشوف حساباتهم، فواتير البيع (ترقيم تسلسلي + QR
- * هيئة الزكاة والضريبة)، مرتجعات البيع، والمقبوضات.
+ * هيئة الزكاة والضريبة)، عروض الأسعار، مرتجعات البيع، والمقبوضات.
  *
  * يعتمد على الأصناف والمخزون: البضاعة تخرج وتعود عبر StockService.apply فقط.
  * شاشة الكاشير (نقاط البيع) تُبنى فوق خدماته المُصدَّرة.
@@ -49,6 +52,7 @@ export class SalesInvoicesQuotaResolver implements QuotaResolver {
       SalesSettings,
       SalesInvoice,
       SalesInvoiceLine,
+      SalesQuote,
       SalesReturn,
       SalesReturnLine,
       CustomerPayment,
@@ -60,6 +64,7 @@ export class SalesInvoicesQuotaResolver implements QuotaResolver {
   controllers: [
     // SalesInvoicesController أولاً: مساره الثابت "summary" قبل أي ":id"
     SalesInvoicesController,
+    SalesQuotesController,
     CustomersController,
     SalesReturnsController,
     CustomerPaymentsController,
@@ -68,6 +73,7 @@ export class SalesInvoicesQuotaResolver implements QuotaResolver {
     CustomersService,
     SalesSettingsService,
     SalesInvoicesService,
+    SalesQuotesService,
     SalesReturnsService,
     CustomerPaymentsService,
     SalesInvoicesQuotaResolver,
@@ -76,6 +82,7 @@ export class SalesInvoicesQuotaResolver implements QuotaResolver {
     CustomersService,
     SalesSettingsService,
     SalesInvoicesService,
+    SalesQuotesService,
     SalesReturnsService,
     CustomerPaymentsService,
   ],

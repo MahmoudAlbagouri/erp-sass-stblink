@@ -1,6 +1,6 @@
 // src/modules/attendance/punch-ingest.service.ts
 // المدخل الواحد لحفظ بصمات تصل من أي مصدر: أجهزة ZKTeco، أجهزة Hikvision،
-// أي جهاز عبر الـ API، أو ملف Excel مستورد. يمنع التكرار، ويربط كل بصمة
+// أي جهاز عبر الـ API، ملف Excel مستورد، أو تطبيق الجوال. يمنع التكرار، ويربط كل بصمة
 // بموظفها، ويقرر هل يُقبل اتصال الجهاز أصلاً (القفل على عنوان IP).
 import { Injectable, Logger } from '@nestjs/common';
 import { DataSource, EntityManager, In } from 'typeorm';
@@ -22,6 +22,8 @@ export interface IncomingPunch {
   rawLogId: string;
   punchType: PunchType;
   verifyMode: VerifyMode;
+  /** بصمة الجوال: موقعها وبعدها عن الفرع */
+  location?: { latitude: number; longitude: number; distanceMeters: number };
 }
 
 export interface PunchSource {
@@ -87,6 +89,9 @@ export class PunchIngestService {
             originalPunchTime: punch.punchTime,
             punchType: punch.punchType,
             verifyMode: punch.verifyMode,
+            latitude: punch.location?.latitude,
+            longitude: punch.location?.longitude,
+            distanceMeters: punch.location?.distanceMeters,
             deviceSn: source.sourceKey,
             rawLogId: punch.rawLogId,
             isManualEntry: false,

@@ -31,6 +31,17 @@ export class Branch extends TenantOwnedEntity {
   @Column({ type: 'varchar', length: 30, nullable: true })
   phone?: string | null;
 
+  /** موقع الفرع: بدونه لا تُقبل بصمة الجوال من موظفيه */
+  @Column({ type: 'decimal', precision: 9, scale: 6, nullable: true })
+  latitude?: number | null;
+
+  @Column({ type: 'decimal', precision: 9, scale: 6, nullable: true })
+  longitude?: number | null;
+
+  /** نصف قطر نطاق البصمة من الجوال حول موقع الفرع، بالمتر */
+  @Column({ type: 'int', default: 150 })
+  punchRadiusMeters!: number;
+
   /** الفرع الرئيسي: لا يُحذف ولا يُوقف، وإليه يُنسب ما لم يُحدَّد فرعه */
   @Column({ default: false })
   isMain!: boolean;

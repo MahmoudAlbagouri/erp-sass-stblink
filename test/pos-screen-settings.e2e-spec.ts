@@ -162,7 +162,7 @@ describe('POS screen settings (e2e)', () => {
     ]);
     expect(
       initial.groups.flatMap((g) => g.features.map((f) => f.key)),
-    ).toHaveLength(21);
+    ).toHaveLength(22);
 
     const market = data<ScreenSettings>(
       await patch('/pos/screen-settings', { template: 'supermarket' }),
@@ -226,6 +226,103 @@ describe('POS screen settings (e2e)', () => {
       // الميزان أُقفل من صفحة الفوترة: يظهر مقفلاً هنا أيضاً
       scaleBarcode: false,
     });
+  });
+
+  it('makes quotes optional, with a default validity that reaches the device', async () => {
+    const initial = data<ScreenSettings & { quoteValidityDays: number }>(
+      await get('/pos/screen-settings'),
+    );
+    expect(initial.features.quotes).toBe(true);
+    expect(initial.quoteValidityDays).toBe(7);
+    expect(
+      initial.templates.find((t) => t.key === 'restaurant')?.features.quotes,
+    ).toBe(false);
+
+    await patch('/pos/screen-settings', {
+      features: { quotes: false },
+      quoteValidityDays: 30,
+    });
+    const boot = data<{
+      posOptions: { features: Features; quoteValidityDays: number };
+    }>(await api().get('/pos/device/bootstrap').set(asDevice()));
+    expect(boot.posOptions.features.quotes).toBe(false);
+    expect(boot.posOptions.quoteValidityDays).toBe(30);
+
+    // تعديل غيرها لا يعيد المدة للافتراضي
+    await patch('/pos/screen-settings', { features: { quotes: true } });
+    const after = data<{ quoteValidityDays: number }>(
+      await get('/pos/screen-settings'),
+    );
+    expect(after.quoteValidityDays).toBe(30);
+
+    expect(
+      (await patch('/pos/screen-settings', { quoteValidityDays: 0 })).status,
+    ).toBe(400);
+  });
+
+  it('follows a quote from the device to the dashboard', async () => {
+    const shiftId = randomUUID();
+    const number = 'QT-SC-000001';
+    const synced = results(
+      await deviceSync([
+        {
+          id: `open-${shiftId}`,
+          type: 'shift.open',
+          payload: {
+            id: shiftId,
+            openedAt: new Date().toISOString(),
+            openingCash: 0,
+          },
+        },
+        {
+          id: 'quote-1',
+          type: 'quote.create',
+          payload: {
+            uuid: randomUUID(),
+            number,
+            issuedAt: new Date().toISOString(),
+            validUntil: '2099-01-01',
+            shiftId,
+            customerName: 'مؤسسة الريف',
+            pricesIncludeTax: true,
+            lines: [
+              {
+                productId,
+                quantity: 2,
+                unitPrice: 2.3,
+                discount: 0,
+                taxRate: 15,
+                subtotal: 4,
+                taxAmount: 0.6,
+                total: 4.6,
+              },
+            ],
+          },
+        },
+      ]),
+    );
+    expect(synced.map((r) => r.status)).toEqual(['ok', 'ok']);
+
+    // من أي شاشة برقمه المطبوع
+    const lookup = await api()
+      .get(`/pos/device/quotes/${number}`)
+      .set(asDevice());
+    expect(data<{ total: number }>(lookup).total).toBe(4.6);
+
+    const list = data<{ data: { id: string; number: string }[] }>(
+      await get(
+        `/sales/quotes?status=open&search=${encodeURIComponent('الريف')}`,
+      ),
+    );
+    expect(list.data.map((q) => q.number)).toEqual([number]);
+    const { id } = list.data[0];
+
+    const cancelled = await post(`/sales/quotes/${id}/cancel`);
+    expect(cancelled.status).toBe(200);
+    expect(data<{ status: string }>(cancelled).status).toBe('cancelled');
+    expect(
+      data<{ data: unknown[] }>(await get('/sales/quotes?status=open')).data,
+    ).toHaveLength(0);
   });
 
   it('rejects credit sales once disabled — except those made before', async () => {

@@ -1,6 +1,6 @@
 # المبيعات (`sales`)
 
-> العملاء، فواتير البيع، مرتجعاتها، مقبوضات العملاء، وإعدادات الفوترة.
+> العملاء، فواتير البيع، مرتجعاتها، عروض الأسعار، مقبوضات العملاء، وإعدادات الفوترة.
 
 ## الغرض
 
@@ -32,6 +32,19 @@
   به فعلاً. سعر غير سعر الصنف بلا `listPrice` يُبلَّغ عنه (`sale_anomaly`).
 - **البيع الآجل من الكاشير**: `recordPosSale` يقبل مقبوضاً أقل من الإجمالي لعميل
   مسجّل. `shiftTotals` يحسب المقبوض بسندات تحمل الوردية (`shiftId`).
+- **عرض السعر** (`sales_quotes`، `sales-quotes.service.ts`): يصدره الكاشير للعميل
+  برقم `QT-كود الجهاز-عدّاد`. **ليس فاتورة**: لا يدخل `sales_invoices` ولا يمس
+  المخزون ولا حساب العميل ولا الوردية ولا `max_invoices`، وبلا QR ولا ترقيم ضريبي.
+  - الحالات: قائم (`open`) ← حُوّل لفاتورة (`converted`) أو ملغي (`cancelled`).
+    **منتهي** ليست حالة مخزّنة: قائم تجاوز `validUntil` بتوقيت الشركة (`expired`
+    في الرد، و`status=expired` في الفلتر).
+  - الأسطر `jsonb`: لقطة تُطبع ولا تدخل تقريراً. المبالغ تُعتمد كما طُبعت بعد
+    التحقق من اتساقها (`posLines` نفسها)، والأسعار والموافقات فُحصت على الجهاز.
+  - **التحويل**: فاتورة الكاشير تحمل `quoteUuid`، و`markConverted` بعد تسجيلها.
+    لا يرفض البيع أبداً: عرض لم يصل، أو ملغي، أو حُوّل من شاشة أخرى بلا إنترنت (الأول
+    يبقى المسجّل). الفاتورة نفسها تمر بالمخزون والترقيم كأي بيع.
+  - الإلغاء من لوحة التحكم فقط، وما تحوّل لا يُلغى.
+  - غير موديول [quotation](quotation.md) الخاص بمالك النظام.
 - **إعدادات الفوترة**: صف واحد للشركة (اسم البائع، الرقم الضريبي، السجل، العنوان،
   تذييل الفاتورة) ومعه إعدادات شاشة الكاشير `posOptions` (باركود الميزان وما
   يحتاج موافقة مشرف). عنوان الفرع وهاتفه يُطبعان بدل عنوان الشركة إن وُجدا.
@@ -66,7 +79,8 @@
 ## علاقته بباقي النظام
 
 - يعتمد على `catalog` و`inventory` و`branches`.
-- `pos` يسجّل مبيعاته ومرتجعاته عبر `recordPosSale` و`recordPosReturn` هنا.
+- `pos` يسجّل مبيعاته ومرتجعاته عبر `recordPosSale` و`recordPosReturn` هنا،
+  وعروض أسعاره عبر `SalesQuotesService.recordPosQuote`.
 - `delivery` ينشئ فواتير أوردرات التوصيل (`isDelivery`): لا تُعدَّل ولا تصدر ولا
   تُلغى من هنا، ويصدرها داخل معاملته (`issueWithin`) ويُرجعها كاملة
   (`returnInFull`). طريقة الدفع `courier` (تحصيل عبر جهة التوصيل) يسجّلها وحده —
@@ -84,6 +98,8 @@
   دفع)، وإجمالي المستحق (`customer.previousBalance` — انظر
   [../pos-screen.md](../pos-screen.md#البيع-الآجل-على-الحساب)). الإيصال الحراري بعرض 72مم وهامش 3مم يمين وشمال، وخطوطه سوداء (الرمادي
   يخرج باهتاً). الطباعة بلا شريط تمرير (`_documents.scss`).
+- `/dashboard/sales/quotes` — عروض أسعار العملاء: المتابعة والطباعة (A4 أو حراري
+  عبر `SalesInvoicePrint`) والإلغاء. الإنشاء والتحويل من شاشة الكاشير.
 - `/dashboard/sales/returns`، `/payments`، `/customers`، `/settings`.
 
 ## المرجع
@@ -93,7 +109,7 @@
 ### الملفات
 
 - المجلد: `src/modules/sales/`
-- الخدمات: `customer-payments.service.ts`، `customers.service.ts`، `sales-invoices.service.ts`، `sales-returns.service.ts`، `sales-settings.service.ts`
+- الخدمات: `customer-payments.service.ts`، `customers.service.ts`، `sales-invoices.service.ts`، `sales-quotes.service.ts`، `sales-returns.service.ts`، `sales-settings.service.ts`
 
 ### جداول قاعدة البيانات
 
@@ -103,11 +119,12 @@
 | `customers` | `Customer` | `customer.entity.ts` |
 | `sales_invoices` | `SalesInvoice` | `sales-invoice.entity.ts` |
 | `sales_invoice_lines` | `SalesInvoiceLine` | `sales-invoice.entity.ts` |
+| `sales_quotes` | `SalesQuote` | `sales-quote.entity.ts` |
 | `sales_returns` | `SalesReturn` | `sales-return.entity.ts` |
 | `sales_return_lines` | `SalesReturnLine` | `sales-return.entity.ts` |
 | `sales_settings` | `SalesSettings` | `sales-settings.entity.ts` |
 
-### المسارات (23)
+### المسارات (26)
 
 **مقبوضات العملاء** — `customer-payments.controller.ts` (القسم في Swagger: «مقبوضات العملاء»)
 
@@ -141,6 +158,14 @@
 | PATCH | `/sales/invoices/:id` | تعديل مسودة فاتورة بيع | إنشاء وتعديل فواتير البيع (مسودة) `manage_sales` | موديول المبيعات والعملاء `sales_module` |
 | POST | `/sales/invoices/:id/issue` | إصدار الفاتورة: تأخذ رقمها، تخرج البضاعة، ويُسجَّل ما قُبض | إصدار فواتير البيع `issue_sales` | موديول المبيعات والعملاء `sales_module` · حد: `max_invoices` |
 | POST | `/sales/invoices/:id/cancel` | إلغاء مسودة فاتورة بيع | إنشاء وتعديل فواتير البيع (مسودة) `manage_sales` | موديول المبيعات والعملاء `sales_module` |
+
+**عروض أسعار العملاء** — `sales-quotes.controller.ts` (القسم في Swagger: «عروض أسعار العملاء»)
+
+| الطريقة | المسار | الوظيفة | الصلاحية | ميزة الباقة |
+|---|---|---|---|---|
+| GET | `/sales/quotes` | قائمة عروض أسعار العملاء | عرض فواتير البيع `view_sales` | موديول المبيعات والعملاء `sales_module` |
+| GET | `/sales/quotes/:id` | عرض سعر واحد ببنوده | عرض فواتير البيع `view_sales` | موديول المبيعات والعملاء `sales_module` |
+| POST | `/sales/quotes/:id/cancel` | إلغاء عرض سعر قائم: لا يتحول لفاتورة بعدها | إنشاء وتعديل فواتير البيع (مسودة) `manage_sales` | موديول المبيعات والعملاء `sales_module` |
 
 **مرتجعات البيع** — `sales-returns.controller.ts` (القسم في Swagger: «مرتجعات البيع»)
 

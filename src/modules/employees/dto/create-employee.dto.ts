@@ -1,5 +1,6 @@
 // src/modules/employees/dto/create-employee.dto.ts
 import {
+  IsBoolean,
   IsString,
   IsNotEmpty,
   IsOptional,
@@ -35,6 +36,11 @@ export class CreateEmployeeDto {
   @MaxLength(20)
   @Matches(/^[A-Za-z0-9]+$/, { message: 'رقم البصمة حروف وأرقام فقط' })
   attendancePin?: string | null;
+
+  /** يسمح له بالبصمة من تطبيق الجوال، داخل نطاق فرعه */
+  @IsOptional()
+  @IsBoolean()
+  mobilePunchEnabled?: boolean;
 
   @IsEnum(NationalityType)
   @IsNotEmpty({ message: 'نوع الجنسية مطلوب' })

@@ -39,8 +39,13 @@ import {
   SalesInvoice,
   SalesInvoiceStatus,
 } from '../src/modules/sales/entities/sales-invoice.entity';
+import {
+  SalesQuote,
+  SalesQuoteStatus,
+} from '../src/modules/sales/entities/sales-quote.entity';
 import { SalesSettings } from '../src/modules/sales/entities/sales-settings.entity';
 import { SalesInvoicesService } from '../src/modules/sales/sales-invoices.service';
+import { SalesQuotesService } from '../src/modules/sales/sales-quotes.service';
 import { SalesReturnsService } from '../src/modules/sales/sales-returns.service';
 import { SalesReturn } from '../src/modules/sales/entities/sales-return.entity';
 import { SalesSettingsService } from '../src/modules/sales/sales-settings.service';
@@ -59,6 +64,7 @@ describe('pos module', () => {
   let customers: CustomersService;
   let invoices: SalesInvoicesService;
   let pos: PosService;
+  let quotes: SalesQuotesService;
   let cashiers: PosCashiersService;
 
   let tenantA: string;
@@ -125,6 +131,34 @@ describe('pos module', () => {
           },
         ],
         payments: [{ method: 'cash', amount: total }],
+        ...overrides,
+      },
+    };
+  };
+
+  /** عرض سعر: `quantity` قطعة مياه لعميل عابر */
+  const quoteOp = (
+    shiftId: string,
+    counter: number,
+    quantity = 2,
+    overrides: Record<string, unknown> = {},
+  ): PosOperationDto => {
+    const { lines } = saleOp(shiftId, counter, quantity).payload as {
+      lines: object[];
+    };
+    return {
+      id: `quote-${counter}`,
+      type: 'quote.create',
+      payload: {
+        uuid: randomUUID(),
+        number: `QT-${device.code}-${String(counter).padStart(6, '0')}`,
+        issuedAt: '2026-10-12T07:00:00.000Z',
+        validUntil: '2099-01-01',
+        shiftId,
+        customerName: 'مؤسسة الريف',
+        customerPhone: '0500000000',
+        pricesIncludeTax: true,
+        lines,
         ...overrides,
       },
     };
@@ -214,6 +248,12 @@ describe('pos module', () => {
       dataSource,
     );
     cashiers = new PosCashiersService(dataSource.getRepository(PosCashier));
+    quotes = new SalesQuotesService(
+      dataSource.getRepository(SalesQuote),
+      invoices,
+      salesSettings,
+      dataSource,
+    );
     pos = new PosService(
       dataSource.getRepository(PosDevice),
       dataSource.getRepository(PosShift),
@@ -223,6 +263,7 @@ describe('pos module', () => {
       customers,
       salesSettings,
       invoices,
+      quotes,
       new SalesReturnsService(
         dataSource.getRepository(SalesReturn),
         invoices,
@@ -1321,6 +1362,172 @@ describe('pos module', () => {
       await pos.updateDevice(device.id, { isActive: false }, tenantA);
 
       await expect(sync([])).rejects.toThrow('موقوف');
+    });
+  });
+
+  // ─── عرض السعر ──────────────────────────────────────────────
+  describe('quotes', () => {
+    const quoteUuid = (op: PosOperationDto) => op.payload.uuid as string;
+    const stored = (op: PosOperationDto) =>
+      dataSource
+        .getRepository(SalesQuote)
+        .findOneByOrFail({ uuid: quoteUuid(op) });
+
+    it('records a quote for a product out of stock, with no effect on stock, shift or invoices', async () => {
+      const shiftId = randomUUID();
+      const quote = quoteOp(shiftId, 1, 5);
+      const { results } = await sync([openOp(shiftId, 100), quote]);
+
+      expect(results.map((r) => r.status)).toEqual(['ok', 'ok']);
+      expect(await stored(quote)).toMatchObject({
+        number: 'QT-POS1-000001',
+        status: SalesQuoteStatus.OPEN,
+        warehouseId: branch.id,
+        cashierName: 'سالم',
+        customerName: 'مؤسسة الريف',
+        total: 11.5,
+        lines: [
+          {
+            productId: water.id,
+            productName: 'مياه 330 مل',
+            unitName: 'قطعة',
+            quantity: 5,
+            total: 11.5,
+          },
+        ],
+      });
+
+      expect(await quantityIn(branch)).toBe(0);
+      expect(await dataSource.getRepository(SalesInvoice).count()).toBe(0);
+
+      // عدّاد الفواتير لا يتحرك، وعدّاد العروض مستقل يكمل منه الجهاز بعد تهيئته
+      expect(await pos.findDevice(device.id, tenantA)).toMatchObject({
+        lastCounter: 0,
+        lastQuoteCounter: 1,
+      });
+
+      await sync([closeOp(shiftId, 100)]);
+      expect(
+        await dataSource
+          .getRepository(PosShift)
+          .findOneByOrFail({ id: shiftId }),
+      ).toMatchObject({
+        invoicesCount: 0,
+        salesTotal: 0,
+        expectedCash: 100,
+        cashDifference: 0,
+      });
+    });
+
+    it('does not repeat a quote uploaded twice', async () => {
+      const shiftId = randomUUID();
+      const quote = quoteOp(shiftId, 1);
+
+      await sync([openOp(shiftId), quote]);
+      const { results } = await sync([quote]);
+
+      expect(results[0].status).toBe('duplicate');
+      expect(await dataSource.getRepository(SalesQuote).count()).toBe(1);
+    });
+
+    it('rejects a quote numbered for another device, or with inconsistent amounts', async () => {
+      const shiftId = randomUUID();
+      const { results } = await sync([
+        openOp(shiftId),
+        quoteOp(shiftId, 1, 2, { number: 'QT-POS9-000001' }),
+        quoteOp(shiftId, 2, 2, {
+          lines: [
+            {
+              productId: water.id,
+              quantity: 2,
+              unitPrice: 2.3,
+              discount: 0,
+              taxRate: 15,
+              subtotal: 1,
+              taxAmount: 0.15,
+              total: 1.15,
+            },
+          ],
+        }),
+      ]);
+
+      expect(results[1]).toMatchObject({
+        status: 'error',
+        message: expect.stringContaining('لا يخص الجهاز'),
+      });
+      expect(results[2]).toMatchObject({
+        status: 'error',
+        message: expect.stringContaining('لا تطابق الحساب'),
+      });
+      expect(await dataSource.getRepository(SalesQuote).count()).toBe(0);
+    });
+
+    it('converts through the sale that carries it, once, and never rejects that sale', async () => {
+      const shiftId = randomUUID();
+      const quote = quoteOp(shiftId, 1);
+      const sale = saleOp(shiftId, 1, 2, { quoteUuid: quoteUuid(quote) });
+      // الفاتورة تُسجَّل بأرقامها، والعرض يصير محوّلاً
+      await sync([openOp(shiftId), quote, sale]);
+
+      expect(await stored(quote)).toMatchObject({
+        status: SalesQuoteStatus.CONVERTED,
+        convertedInvoiceNumber: 'POS1-000001',
+      });
+      expect(await quantityIn(branch)).toBe(-2);
+
+      // نفس العرض من شاشة أخرى بلا إنترنت: البيع حصل، والتحويل الأول يبقى
+      const second = await sync([
+        saleOp(shiftId, 2, 2, { quoteUuid: quoteUuid(quote) }),
+        // عرض لم يصل السيرفر: لا يوقف البيع
+        saleOp(shiftId, 3, 2, { quoteUuid: randomUUID() }),
+      ]);
+      expect(second.results.map((r) => r.status)).toEqual(['ok', 'ok']);
+      expect(await stored(quote)).toMatchObject({
+        convertedInvoiceNumber: 'POS1-000001',
+      });
+    });
+
+    it('finds a quote by its printed number within the company and flags expiry', async () => {
+      const shiftId = randomUUID();
+      const quote = quoteOp(shiftId, 1, 2, { validUntil: '2020-01-01' });
+      await sync([openOp(shiftId), quote]);
+
+      expect(await pos.lookupQuote(' qt-pos1-000001 ', tenantA)).toMatchObject({
+        number: 'QT-POS1-000001',
+        status: SalesQuoteStatus.OPEN,
+        expired: true,
+      });
+      await expect(pos.lookupQuote('QT-POS1-000001', tenantB)).rejects.toThrow(
+        'لا يوجد عرض سعر',
+      );
+
+      const open = await quotes.findAll(tenantA, { status: 'open' });
+      const expired = await quotes.findAll(tenantA, { status: 'expired' });
+      expect(open.total).toBe(0);
+      expect(expired.data.map((q) => q.number)).toEqual(['QT-POS1-000001']);
+    });
+
+    it('cancels an open quote but not a converted one', async () => {
+      const shiftId = randomUUID();
+      const open = quoteOp(shiftId, 1);
+      const converted = quoteOp(shiftId, 2);
+      await sync([
+        openOp(shiftId),
+        open,
+        converted,
+        saleOp(shiftId, 1, 2, { quoteUuid: quoteUuid(converted) }),
+      ]);
+
+      const cancelled = await quotes.cancel((await stored(open)).id, tenantA);
+      expect(cancelled.status).toBe(SalesQuoteStatus.CANCELLED);
+
+      // بيع على جهاز لم يعرف بالإلغاء: يُقبل، والعرض يبقى ملغياً
+      await sync([saleOp(shiftId, 2, 2, { quoteUuid: quoteUuid(open) })]);
+      expect((await stored(open)).status).toBe(SalesQuoteStatus.CANCELLED);
+
+      await expect(
+        quotes.cancel((await stored(converted)).id, tenantA),
+      ).rejects.toThrow('ولا يُلغى');
     });
   });
 });

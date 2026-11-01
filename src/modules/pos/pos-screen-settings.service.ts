@@ -34,6 +34,7 @@ export class PosScreenSettingsService {
     return {
       template: options.template,
       features: options.features,
+      quoteValidityDays: options.quoteValidityDays,
       /** ما تسمح به الباقة: false = الميزة مقفلة "ليست في باقتك" */
       available: await this.available(tenantId),
       groups: POS_FEATURE_GROUPS,
@@ -76,6 +77,7 @@ export class PosScreenSettingsService {
       features: next,
       template: matchingTemplate(next),
       featureDisabledAt: disabledAt,
+      quoteValidityDays: dto.quoteValidityDays ?? current.quoteValidityDays,
       // باركود الميزان مصدره الوحيد scale.enabled (وتفاصيله في صفحة الفوترة)
       scale: { ...current.scale, enabled: next.scaleBarcode },
     });

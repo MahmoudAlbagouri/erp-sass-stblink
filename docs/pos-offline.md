@@ -226,6 +226,7 @@ Authorization:       Bearer <توكن المستخدم>   ← اختياري
 | `offlinePolicy`, `lastContactAt`, `clock` | حد العمل بلا اتصال |
 | `suspended` | رسالة توقف الاشتراك (فارغة = سارٍ) |
 | `shift`, `counter`, `lastSync`, `cashierName`, `drawer` | كما كانت |
+| `quotes`, `quoteCounter` | عروض الأسعار على هذه الشاشة وعدّادها المستقل |
 
 العملة والتوقيت: `stores/pos` يضع `tenant` في `auth.setDeviceLocale()` ما دامت
 شاشة الكاشير مفتوحة، وله الأولوية على ما في التوكن.

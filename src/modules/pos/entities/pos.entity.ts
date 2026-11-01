@@ -49,6 +49,10 @@ export class PosDevice extends TenantOwnedEntity {
   @Column({ type: 'int', default: 0 })
   lastCounter!: number;
 
+  /** آخر عدّاد عرض سعر وصل من الجهاز: عدّاد مستقل لا يترك فجوة في أرقام الفواتير */
+  @Column({ type: 'int', default: 0 })
+  lastQuoteCounter!: number;
+
   /**
    * المتصفح (التثبيت) المربوط بهذا الجهاز — واحد فقط.
    *

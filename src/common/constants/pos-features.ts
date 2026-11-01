@@ -16,6 +16,7 @@ export const POS_FEATURE_KEYS = [
   'priceChange',
   'units',
   'holdSales',
+  'quotes',
   'cardPayments',
   'quickPay',
   'autoPrint',
@@ -91,6 +92,12 @@ export const POS_FEATURE_GROUPS: PosFeatureGroup[] = [
         label: 'تعليق الفاتورة',
         description:
           'العميل ذهب ليحضر شيئاً: تُعلَّق فاتورته ويخدم الكاشير غيره (F6 / F7).',
+      },
+      {
+        key: 'quotes',
+        label: 'عرض سعر للعميل',
+        description:
+          'ورقة أسعار برقمها لا تخضع للمخزون ولا تُسجَّل بيعاً، وتتحول لفاتورة حين يعود العميل.',
       },
       {
         key: 'returns',
@@ -253,6 +260,7 @@ export const POS_TEMPLATES: PosTemplate[] = [
     description: 'الطاولات والمطبخ ودفع سريع، بلا ميزان ولا وحدات ولا آجل.',
     features: all({
       creditSales: false,
+      quotes: false,
       lineDiscount: false,
       priceChange: false,
       units: false,

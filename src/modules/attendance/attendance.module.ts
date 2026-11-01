@@ -18,6 +18,9 @@ import { BiometricSyncService } from './biometric-sync.service';
 import { DevicePushController } from './device-push.controller';
 import { DevicePushService } from './device-push.service';
 import { PunchIngestService } from './punch-ingest.service';
+import { MyAttendanceController } from './my-attendance.controller';
+import { MyAttendanceService } from './my-attendance.service';
+import { MobileDevicesController } from './mobile-devices.controller';
 import { ShiftsModule } from '../shifts/shifts.module';
 import { BiometricDevicesQuotaResolver } from './biometric-devices-quota.resolver';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
@@ -42,6 +45,8 @@ import { ReportService } from '../../common/reports/report.service'; // ✅ لت
     DevicePushController,
     AttendanceController,
     AttendanceSettingsController,
+    MyAttendanceController,
+    MobileDevicesController,
   ],
   providers: [
     AdmsService,
@@ -51,6 +56,7 @@ import { ReportService } from '../../common/reports/report.service'; // ✅ لت
     BiometricSyncService,
     DevicePushService,
     PunchIngestService,
+    MyAttendanceService,
     BiometricDevicesQuotaResolver,
     ReportService, // ✅ جديد
   ],

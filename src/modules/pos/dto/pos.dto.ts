@@ -362,6 +362,82 @@ export class PosSaleOp {
   @IsString()
   @MaxLength(150)
   approvedBy?: string;
+
+  /** عرض السعر الذي تحوّل لهذه الفاتورة (معرّفه على الجهاز الذي أصدره) */
+  @IsOptional()
+  @IsUUID()
+  quoteUuid?: string;
+}
+
+/** عرض سعر أصدره الكاشير: ورقة للعميل، لا بيع ولا مخزون ولا درج */
+export class PosQuoteOp {
+  /** معرّف العرض على الجهاز — يمنع تكراره عند إعادة الرفع */
+  @IsUUID()
+  uuid!: string;
+
+  /** رقم العرض كما طُبع: QT-كود الجهاز-العدّاد */
+  @Matches(/^QT-[A-Z0-9]{2,10}-\d{1,9}$/, {
+    message: 'رقم عرض السعر يجب أن يكون بصيغة: QT-كود الجهاز-رقم',
+  })
+  number!: string;
+
+  @IsDateString()
+  issuedAt!: string;
+
+  /** آخر يوم صلاحية بتوقيت الشركة */
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'تاريخ الصلاحية يجب أن يكون بصيغة YYYY-MM-DD',
+  })
+  validUntil!: string;
+
+  /** الوردية التي صدر فيها: للنسبة فقط، لا يدخل أرقامها */
+  @IsUUID()
+  shiftId!: string;
+
+  @IsOptional()
+  @IsUUID()
+  customerId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  customerName?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  customerPhone?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  customerTaxNumber?: string | null;
+
+  @IsBoolean()
+  pricesIncludeTax!: boolean;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => PosSaleLineOp)
+  lines!: PosSaleLineOp[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  note?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  cashierName?: string;
+
+  /** المشرف الذي وافق على ما يتجاوز صلاحية الكاشير في العرض */
+  @IsOptional()
+  @IsString()
+  @MaxLength(150)
+  approvedBy?: string;
 }
 
 export class PosReturnLineOp {
@@ -511,6 +587,7 @@ export const POS_OPERATION_TYPES = [
   'shift.open',
   'customer.create',
   'sale',
+  'quote.create',
   'return',
   'cash.move',
   'audit',

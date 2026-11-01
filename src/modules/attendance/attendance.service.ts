@@ -1223,8 +1223,13 @@ export class AttendanceService {
     });
     if (!employee) throw new NotFoundException('الموظف غير موجود');
     assertBranchVisible(employee.branchId, 'الموظف غير موجود');
+    return this.monthlyReportFor(employee, month, year);
+  }
 
-    const zone = await this.zoneOf(user.tenantId);
+  /** تقرير شهر لموظف محمَّل بورديته — بلا تحقق صلاحية: على المستدعي */
+  async monthlyReportFor(employee: Employee, month: number, year: number) {
+    const { id: employeeId, tenantId } = employee;
+    const zone = await this.zoneOf(tenantId);
     const first = `${year}-${String(month).padStart(2, '0')}-01`;
     const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
     const last = addDays(first, daysInMonth - 1);
@@ -1234,9 +1239,9 @@ export class AttendanceService {
     const days =
       until < first
         ? []
-        : ((
-            await this.attendanceDays(user.tenantId, [employee], first, until)
-          ).get(employee.id) ?? []);
+        : ((await this.attendanceDays(tenantId, [employee], first, until)).get(
+            employee.id,
+          ) ?? []);
 
     const dailyBreakdown = days.map((d) => ({
       date: d.date,

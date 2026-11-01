@@ -5,6 +5,8 @@ import { Payroll } from './entities/payroll.entity';
 import { PayrollItem } from './entities/payroll-item.entity';
 import { PayrollService } from './payroll.service';
 import { PayrollController } from './payroll.controller';
+import { MyPayslipsController } from './my-payslips.controller';
+import { MyPayslipsService } from './my-payslips.service';
 import { ReportService } from '../../common/reports/report.service';
 import { Salary } from '../salaries/entities/salary.entity';
 import { Loan } from '../loans/entities/loan.entity';
@@ -33,8 +35,9 @@ import { AttendanceModule } from '../attendance/attendance.module';
     SubscriptionsModule, // استيراد موديول الاشتراكات
     AttendanceModule, // الغياب والتأخير والإضافي في المسير
   ],
-  controllers: [PayrollController],
-  providers: [PayrollService, ReportService],
+  // MyPayslipsController أولاً: انظر تعليقه
+  controllers: [MyPayslipsController, PayrollController],
+  providers: [PayrollService, MyPayslipsService, ReportService],
   exports: [PayrollService],
 })
 export class PayrollModule {}

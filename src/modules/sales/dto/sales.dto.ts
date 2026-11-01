@@ -31,6 +31,10 @@ import {
   SalesPaymentMethod,
 } from '../entities/customer-payment.entity';
 import { SalesInvoiceStatus } from '../entities/sales-invoice.entity';
+import {
+  SALES_QUOTE_FILTERS,
+  type SalesQuoteFilter,
+} from '../entities/sales-quote.entity';
 import { SalesReturnStatus } from '../entities/sales-return.entity';
 
 const MAX_LINES = 500;
@@ -350,6 +354,19 @@ export class SalesInvoiceQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsDateString()
   to?: string;
+}
+
+// ══════════════════════════ عروض الأسعار ══════════════════════════
+
+export class SalesQuoteQueryDto extends PaginationQueryDto {
+  /** بحث برقم العرض أو اسم العميل أو جواله */
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @IsOptional()
+  @IsIn(SALES_QUOTE_FILTERS)
+  status?: SalesQuoteFilter;
 }
 
 // ══════════════════════════ المرتجعات ══════════════════════════

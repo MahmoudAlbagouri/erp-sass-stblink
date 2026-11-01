@@ -32,12 +32,14 @@ import { ProductsService } from '../catalog/products.service';
 import { WarehousesService } from '../inventory/warehouses.service';
 import { CustomersService } from '../sales/customers.service';
 import { Customer } from '../sales/entities/customer.entity';
+import { SalesQuote } from '../sales/entities/sales-quote.entity';
 import { SalesSettings } from '../sales/entities/sales-settings.entity';
 import {
   OverdrawnLine,
   PosLineCheck,
   SalesInvoicesService,
 } from '../sales/sales-invoices.service';
+import { SalesQuotesService } from '../sales/sales-quotes.service';
 import { SalesReturnsService } from '../sales/sales-returns.service';
 import { DeliveryService } from '../delivery/delivery.service';
 import { KitchenCloseOp, KitchenSendOp } from './dto/restaurant.dto';
@@ -53,6 +55,7 @@ import {
   PosCashMoveOp,
   PosCustomerOp,
   PosOperationDto,
+  PosQuoteOp,
   PosReturnOp,
   PosSaleOp,
   PosShiftQueryDto,
@@ -250,6 +253,7 @@ export class PosService {
     private readonly customers: CustomersService,
     private readonly salesSettings: SalesSettingsService,
     private readonly invoices: SalesInvoicesService,
+    private readonly quotes: SalesQuotesService,
     private readonly returns: SalesReturnsService,
     private readonly cashiers: PosCashiersService,
     private readonly extras: PosExtrasService,
@@ -642,6 +646,13 @@ export class PosService {
           affectedShiftId = op.shiftId;
           break;
         }
+        case 'quote.create':
+          duplicate = await this.recordQuote(
+            await validated(PosQuoteOp, operation.payload),
+            device,
+            actor,
+          );
+          break;
         case 'return': {
           const op = await validated(PosReturnOp, operation.payload);
           duplicate = await this.recordReturn(op, device, actor);
@@ -817,17 +828,14 @@ export class PosService {
         actor.id,
       );
 
-    // أعلى عدّاد وصل: منه يكمل الجهاز لو أُعيدت تهيئته
-    await this.devices
-      .createQueryBuilder()
-      .update()
-      .set({ lastCounter: () => `GREATEST("lastCounter", :counter)` })
-      .where('id = :id', { id: device.id })
-      .setParameter('counter', Number(counterText))
-      .execute();
+    await this.raiseCounter(device, 'lastCounter', Number(counterText));
 
     if (!duplicate) {
       await this.reportSaleIssues(op, device, shift, overdrawn, checks);
+    }
+    // مع الرفع المكرر أيضاً: فشل سابق بعد تسجيل الفاتورة لا يترك العرض قائماً
+    if (op.quoteUuid) {
+      await this.quotes.markConverted(op.quoteUuid, invoice, device.tenantId);
     }
     // بعد الفاتورة لا معها: رفع مكرر (أو فشل سابق بعد تسجيلها) يكمل الأوردر
     if (op.delivery) {
@@ -844,6 +852,71 @@ export class PosService {
       );
     }
     return duplicate;
+  }
+
+  /** أعلى عدّاد وصل: منه يكمل الجهاز لو أُعيدت تهيئته فلا تتكرر أرقامه */
+  private async raiseCounter(
+    device: PosDevice,
+    column: 'lastCounter' | 'lastQuoteCounter',
+    counter: number,
+  ): Promise<void> {
+    await this.devices
+      .createQueryBuilder()
+      .update()
+      .set({ [column]: () => `GREATEST("${column}", :counter)` })
+      .where('id = :id', { id: device.id })
+      .setParameter('counter', counter)
+      .execute();
+  }
+
+  /**
+   * عرض سعر: يُسجَّل للمتابعة والتحويل من أي شاشة. ليس بيعاً: لا يمس المخزون
+   * ولا أرقام الوردية، والوردية للنسبة فقط — فلا يعيد حسابها بعد تقفيلها.
+   *
+   * @returns true إذا كان العرض مسجّلاً من قبل (رفع مكرر)
+   */
+  private async recordQuote(
+    op: PosQuoteOp,
+    device: PosDevice,
+    actor: Actor,
+  ): Promise<boolean> {
+    const [, code, counterText] = op.number.split('-');
+    if (code !== device.code) {
+      throw new BadRequestException(
+        `رقم عرض السعر "${op.number}" لا يخص الجهاز "${device.code}"`,
+      );
+    }
+    const shift = await this.shiftOf(op.shiftId, device);
+
+    const { duplicate } = await this.quotes.recordPosQuote(
+      {
+        uuid: op.uuid,
+        number: op.number,
+        issuedAt: new Date(op.issuedAt),
+        validUntil: op.validUntil,
+        warehouseId: device.warehouseId,
+        deviceId: device.id,
+        shiftId: shift.id,
+        customerId: op.customerId,
+        customerName: op.customerName,
+        customerPhone: op.customerPhone,
+        customerTaxNumber: op.customerTaxNumber,
+        pricesIncludeTax: op.pricesIncludeTax,
+        lines: op.lines,
+        note: op.note,
+        cashierName: op.cashierName ?? shift.cashierName,
+        approvedBy: op.approvedBy,
+      },
+      device.tenantId,
+      actor.id,
+    );
+    await this.raiseCounter(device, 'lastQuoteCounter', Number(counterText));
+    return duplicate;
+  }
+
+  /** عرض سعر برقمه: لطباعته أو تحويله من أي شاشة في الشركة */
+  lookupQuote(number: string, tenantId: string): Promise<SalesQuote> {
+    return this.quotes.findByNumber(number, tenantId);
   }
 
   /**

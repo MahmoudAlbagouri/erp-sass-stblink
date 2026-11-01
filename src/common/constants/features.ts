@@ -99,6 +99,10 @@ export const FEATURES = {
     name: 'multi_branch',
     labelAr: 'دعم الفروع المتعددة',
   },
+  MOBILE_ATTENDANCE: {
+    name: 'mobile_attendance',
+    labelAr: 'البصمة من الجوال (تطبيق الموظف)',
+  },
   API_ACCESS: {
     name: 'api_access',
     labelAr: 'الوصول عبر API خارجي',

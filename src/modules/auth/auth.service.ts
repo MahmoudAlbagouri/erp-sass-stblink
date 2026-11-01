@@ -35,6 +35,7 @@ import type {
 import {
   extendSession,
   openSession,
+  sessionTtlDays,
   revokeSession,
   revokeUserSessions,
 } from './auth-sessions';
@@ -171,7 +172,11 @@ export class AuthService {
       }
     }
 
-    const sessionId = await openSession(this.entityManager, user.id);
+    const sessionId = await openSession(
+      this.entityManager,
+      user.id,
+      dto.client,
+    );
     return { userId: user.id, ...(await this.getTokens(user.id, sessionId)) };
   }
 
@@ -328,6 +333,7 @@ export class AuthService {
       sid: sessionId,
     };
 
+    const refreshDays = await sessionTtlDays(this.entityManager, sessionId);
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(jwtPayload, {
         secret: getJwtAccessSecret(),
@@ -335,7 +341,7 @@ export class AuthService {
       }),
       this.jwtService.signAsync(jwtPayload, {
         secret: getJwtRefreshSecret(),
-        expiresIn: '7d',
+        expiresIn: `${refreshDays}d`,
       }),
     ]);
 

@@ -28,6 +28,11 @@
 - الصرف يُرحَّل للمحاسبة إن كانت مفعّلة (انظر [accounting.md](accounting.md)).
 - التقريب بخانات عملة الشركة.
 
+- **قسائم الموظف لنفسه** (`GET /payroll/me` و`/payroll/me/:id`): بلا صلاحية خاصة،
+  ولمسيرات **تأكّد صرفها** فقط — المسودة قد تتغير. القسيمة تعرض السطور التي لها
+  قيمة، بأسماء عربية من السيرفر (`my-payslips.service.ts`). `MyPayslipsController`
+  يُسجَّل قبل `PayrollController` حتى لا يلتقط `GET /payroll/:id` مسار `/payroll/me`.
+
 ## علاقته بباقي النظام
 
 - يقرأ: `salaries`، `bonuses`، `deduction`، `loans`، `advances`، `leaves`،
@@ -44,7 +49,7 @@
 ### الملفات
 
 - المجلد: `src/modules/payroll/`
-- الخدمات: `payroll.service.ts`
+- الخدمات: `my-payslips.service.ts`، `payroll.service.ts`
 
 ### جداول قاعدة البيانات
 
@@ -53,7 +58,14 @@
 | `payroll_items` | `PayrollItem` | `payroll-item.entity.ts` |
 | `payrolls` | `Payroll` | `payroll.entity.ts` |
 
-### المسارات (5)
+### المسارات (7)
+
+**مسير الرواتب** — `my-payslips.controller.ts` (القسم في Swagger: «مسير الرواتب»)
+
+| الطريقة | المسار | الوظيفة | الصلاحية | ميزة الباقة |
+|---|---|---|---|---|
+| GET | `/payroll/me` | قسائم راتبي بعد تأكيد الصرف، الأحدث أولاً | — | موديول مسير الرواتب `payroll_module` |
+| GET | `/payroll/me/:id` | تفاصيل قسيمة: المستحقات والخصومات والصافي | — | موديول مسير الرواتب `payroll_module` |
 
 **مسير الرواتب** — `payroll.controller.ts` (القسم في Swagger: «مسير الرواتب»)
 

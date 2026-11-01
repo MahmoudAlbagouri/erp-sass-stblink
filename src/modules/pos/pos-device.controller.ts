@@ -73,6 +73,15 @@ export class PosDeviceController {
     return this.pos.lookupInvoice(number, context.device.tenantId);
   }
 
+  /** عرض سعر برقمه: لطباعته أو تحويله لفاتورة من أي شاشة في الشركة */
+  @Get('quotes/:number')
+  lookupQuote(
+    @Param('number') number: string,
+    @PosContext() context: PosDeviceContext,
+  ) {
+    return this.pos.lookupQuote(number, context.device.tenantId);
+  }
+
   /** بونات المطبخ من هذه الشاشة التي لم تُسلَّم: حالتها (للتنبيه بالجاهز) */
   @Get('kitchen')
   kitchen(@PosContext() context: PosDeviceContext) {

@@ -9,6 +9,7 @@ import {
   Index,
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
+import type { SessionClient } from '../auth-sessions';
 
 /**
  * جلسة دخول واحدة (جهاز/متصفح). توكن التجديد يحمل معرّفها، ولا يُجدَّد إلا
@@ -29,6 +30,10 @@ export class AuthSession {
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;
+
+  /** مصدر الدخول، ومنه عمر الجلسة (انظر auth-sessions) */
+  @Column({ type: 'varchar', length: 10, default: 'web' })
+  client!: SessionClient;
 
   /** آخر تجديد: الجلسة تمتد مع كل تجديد ما دام صاحبها يستخدمها */
   @Column({ name: 'last_used_at', type: 'timestamptz' })

@@ -53,6 +53,8 @@ export enum VerifyMode {
   FINGERPRINT_CARD = 'fingerprint_card',
   MANUAL = 'manual', // ✅ جديد — بصمة/سجل تم إدخاله يدويًا من لوحة التحكم
   PALM = 'palm',
+  /** من تطبيق الموظف: بموقعه داخل نطاق فرعه وجواله المربوط */
+  MOBILE = 'mobile',
   /** طريقة لا نعرفها، أو بصمة مستوردة من ملف */
   OTHER = 'other',
 }
@@ -148,6 +150,18 @@ export class AttendanceLog {
   // للتحقق من نافذة الـ 24 ساعة المسموح بها للتعديل، حتى بعد تعديل punchTime
   @Column({ name: 'original_punch_time', nullable: true, type: 'timestamptz' })
   originalPunchTime?: Date;
+
+  // ══════════════ بصمة الجوال ══════════════
+
+  // ✅ موقع البصمة وبعدها عن الفرع: مرجع المراجعة، ولا يُحفظ غير لحظة البصمة
+  @Column({ type: 'double precision', nullable: true })
+  latitude?: number;
+
+  @Column({ type: 'double precision', nullable: true })
+  longitude?: number;
+
+  @Column({ name: 'distance_meters', type: 'int', nullable: true })
+  distanceMeters?: number;
 
   // ══════════════ حقول الإجازة وساعات العمل ══════════════
 

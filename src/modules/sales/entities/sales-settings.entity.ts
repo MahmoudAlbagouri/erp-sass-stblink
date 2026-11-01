@@ -114,6 +114,8 @@ export interface PosOptions {
    * إقفال جاء بعدها
    */
   featureDisabledAt: Partial<Record<PosFeatureKey, string>>;
+  /** مدة صلاحية عرض السعر الافتراضية بالأيام (الكاشير يغيّرها لكل عرض) */
+  quoteValidityDays: number;
 }
 
 export const DEFAULT_POS_OPTIONS: PosOptions = {
@@ -133,6 +135,7 @@ export const DEFAULT_POS_OPTIONS: PosOptions = {
   features: DEFAULT_POS_FEATURES,
   template: 'all',
   featureDisabledAt: {},
+  quoteValidityDays: 7,
 };
 
 /** الإعدادات المحفوظة فوق الافتراضية (شركة لم تحفظ شيئاً تأخذ الافتراضي) */
@@ -155,5 +158,7 @@ export function resolvePosOptions(
     },
     template: saved?.template ?? 'all',
     featureDisabledAt: saved?.featureDisabledAt ?? {},
+    quoteValidityDays:
+      saved?.quoteValidityDays ?? DEFAULT_POS_OPTIONS.quoteValidityDays,
   };
 }

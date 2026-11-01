@@ -5,13 +5,23 @@
 import { EntityManager, IsNull, LessThan, MoreThan } from 'typeorm';
 import { AuthSession } from './entities/auth-session.entity';
 
-/** عمر الجلسة بلا استخدام = عمر توكن التجديد */
-export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export type SessionClient = 'web' | 'mobile';
+
+/**
+ * عمر الجلسة بلا استخدام (= عمر توكن التجديد) بالأيام. الجوال أطول: الموظف قد
+ * يفتح التطبيق مرة في الشهر، ولا يصح أن يُخرجه ذلك.
+ */
+const SESSION_TTL_DAYS: Record<SessionClient, number> = { web: 7, mobile: 60 };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const expiryOf = (client: SessionClient, from: Date): Date =>
+  new Date(from.getTime() + SESSION_TTL_DAYS[client] * DAY_MS);
 
 /** جلسة جديدة، مع حذف جلسات المستخدم المنتهية والملغاة */
 export async function openSession(
   manager: EntityManager,
   userId: string,
+  client: SessionClient = 'web',
 ): Promise<string> {
   const now = new Date();
   await manager.delete(AuthSession, { userId, expiresAt: LessThan(now) });
@@ -19,8 +29,9 @@ export async function openSession(
   const session = await manager.save(
     manager.create(AuthSession, {
       userId,
+      client,
       lastUsedAt: now,
-      expiresAt: new Date(now.getTime() + SESSION_TTL_MS),
+      expiresAt: expiryOf(client, now),
     }),
   );
   return session.id;
@@ -33,20 +44,32 @@ export async function extendSession(
   userId: string,
 ): Promise<boolean> {
   const now = new Date();
-  const result = await manager.update(
-    AuthSession,
-    {
+  const session = await manager.findOne(AuthSession, {
+    where: {
       id: sessionId,
       userId,
       revokedAt: IsNull(),
       expiresAt: MoreThan(now),
     },
-    {
-      lastUsedAt: now,
-      expiresAt: new Date(now.getTime() + SESSION_TTL_MS),
-    },
-  );
-  return (result.affected ?? 0) > 0;
+  });
+  if (!session) return false;
+  await manager.update(AuthSession, session.id, {
+    lastUsedAt: now,
+    expiresAt: expiryOf(session.client, now),
+  });
+  return true;
+}
+
+/** عمر توكن التجديد لهذه الجلسة، بالأيام */
+export async function sessionTtlDays(
+  manager: EntityManager,
+  sessionId: string,
+): Promise<number> {
+  const session = await manager.findOne(AuthSession, {
+    where: { id: sessionId },
+    select: { id: true, client: true },
+  });
+  return SESSION_TTL_DAYS[session?.client ?? 'web'];
 }
 
 export async function revokeSession(

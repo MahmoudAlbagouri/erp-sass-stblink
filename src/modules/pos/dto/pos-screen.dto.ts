@@ -1,6 +1,14 @@
 // src/modules/pos/dto/pos-screen.dto.ts
 import { Type } from 'class-transformer';
-import { IsBoolean, IsIn, IsOptional, ValidateNested } from 'class-validator';
+import {
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsOptional,
+  Max,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 import {
   POS_TEMPLATE_KEYS,
   type PosTemplateKey,
@@ -16,6 +24,7 @@ export class PosFeaturesPatchDto {
   @IsOptional() @IsBoolean() priceChange?: boolean;
   @IsOptional() @IsBoolean() units?: boolean;
   @IsOptional() @IsBoolean() holdSales?: boolean;
+  @IsOptional() @IsBoolean() quotes?: boolean;
   @IsOptional() @IsBoolean() cardPayments?: boolean;
   @IsOptional() @IsBoolean() quickPay?: boolean;
   @IsOptional() @IsBoolean() autoPrint?: boolean;
@@ -41,4 +50,11 @@ export class UpdatePosScreenSettingsDto {
   @ValidateNested()
   @Type(() => PosFeaturesPatchDto)
   features?: PosFeaturesPatchDto;
+
+  /** مدة صلاحية عرض السعر الافتراضية بالأيام */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  quoteValidityDays?: number;
 }
