@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Param,
   Res,
   UseGuards,
@@ -87,6 +88,18 @@ export class PayrollController {
   ) {
     if (!user.id) throw new BadRequestException('User ID is missing');
     return this.payrollService.disbursePayroll(id, tenantId, user.id);
+  }
+
+  /** حذف مسودة مسير لم يُصرف، لإعادة إعدادها بعد تصحيح ما فيها (المصروف لا يُحذف) */
+  @Delete(':id')
+  @Permissions(PERMS.PAYROLL_DELETE)
+  @RequiresFeature(FEATURES.PAYROLL_MODULE)
+  @UseGuards(PermissionsGuard)
+  deleteDraft(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.payrollService.deleteDraft(id, tenantId);
   }
 
   /** مسير واحد ببنود موظفيه */

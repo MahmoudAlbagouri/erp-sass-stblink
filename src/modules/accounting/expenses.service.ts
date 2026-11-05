@@ -34,6 +34,7 @@ import {
   ExpenseVoucherStatus,
 } from './entities/expense-voucher.entity';
 import { LedgerLineInput, LedgerService } from './ledger.service';
+import { FilesService } from '../files/files.service';
 import { SetupService } from './setup.service';
 
 const NOT_FOUND = 'سند الصرف غير موجود';
@@ -58,6 +59,7 @@ export class ExpensesService {
     private readonly dataSource: DataSource,
     private readonly ledger: LedgerService,
     private readonly setup: SetupService,
+    private readonly files: FilesService,
   ) {}
 
   async findAll(
@@ -101,7 +103,7 @@ export class ExpensesService {
   async findOne(id: string, tenantId: string): Promise<ExpenseVoucherView> {
     const voucher = await this.dataSource.manager.findOne(ExpenseVoucher, {
       where: { id, tenantId },
-      relations: ['paidFromAccount'],
+      relations: ['paidFromAccount', 'receipt'],
       withDeleted: true,
     });
     if (!voucher) throw new NotFoundException(NOT_FOUND);
@@ -147,6 +149,7 @@ export class ExpensesService {
     const id = await this.dataSource.transaction(async (manager) => {
       await this.assertAccounts(manager, tenantId, dto);
       await this.assertBranches(manager, tenantId, dto);
+      await this.files.assertOwned([dto.receiptFileId], tenantId, manager);
 
       const decimals = await moneyDecimalsOf(manager, tenantId);
       const round = (v: Decimal) =>
@@ -187,6 +190,7 @@ export class ExpensesService {
           payeeTaxNumber: dto.payeeTaxNumber?.trim() || null,
           reference: dto.reference?.trim() || null,
           description: dto.description.trim(),
+          receiptFileId: dto.receiptFileId ?? null,
           status: ExpenseVoucherStatus.POSTED,
           subtotal: subtotal.toNumber(),
           taxTotal: taxTotal.toNumber(),

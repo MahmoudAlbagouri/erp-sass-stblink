@@ -55,6 +55,7 @@ import { AccountingModule } from './modules/accounting/accounting.module';
 import { SalesModule } from './modules/sales/sales.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { BranchesModule } from './modules/branches/branches.module';
+import { IdempotencyModule } from './common/idempotency/idempotency.module';
 
 @Module({
   imports: [
@@ -125,6 +126,8 @@ import { BranchesModule } from './modules/branches/branches.module';
     PosModule,
     DeliveryModule,
     AccountingModule,
+    // طوابير العمل بلا إنترنت: إعادة إرسال عملية لا تكررها
+    IdempotencyModule,
   ],
   providers: [
     {

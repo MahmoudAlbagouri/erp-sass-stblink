@@ -76,7 +76,10 @@ async function bootstrap() {
       // هوية شاشة الطيار (DriverGuard)
       'X-Driver-Agent',
       'X-Driver-Key',
+      // طابور العمل بلا إنترنت في لوحة التحكم: إعادة الإرسال لا تكرر العملية
+      'Idempotency-Key',
     ],
+    exposedHeaders: ['Idempotent-Replayed'],
     credentials: true,
   });
 

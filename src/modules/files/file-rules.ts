@@ -2,7 +2,12 @@
 // قواعد الملفات المرفوعة: أنواعها، وحجمها، وما يُقبل في كل تصنيف.
 
 /** تصنيف الملف = غرض رفعه (مسار الرفع POST /files/:category) */
-export const FILE_CATEGORIES = ['employee', 'contract', 'product'] as const;
+export const FILE_CATEGORIES = [
+  'employee',
+  'contract',
+  'product',
+  'expense',
+] as const;
 export type FileCategory = (typeof FILE_CATEGORIES)[number];
 
 export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB لكل ملف
@@ -21,6 +26,7 @@ export const ALLOWED_KINDS: Record<FileCategory, string[]> = {
   employee: DOCUMENT_KINDS,
   contract: DOCUMENT_KINDS,
   product: IMAGE_KINDS,
+  expense: DOCUMENT_KINDS,
 };
 
 export const isFileCategory = (value: string): value is FileCategory =>

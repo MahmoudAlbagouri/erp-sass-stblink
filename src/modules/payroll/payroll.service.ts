@@ -751,6 +751,31 @@ export class PayrollService {
     }
   }
 
+  /**
+   * حذف مسودة: الإعداد لا يترك أثراً خارج المسير وبنوده، فحذفهما يعيد الشهر كما
+   * كان ويسمح بإعداده من جديد. يقفل الصف أولاً فلا يسبق تأكيدَ صرفٍ جارٍ.
+   */
+  async deleteDraft(payrollId: string, tenantId: string): Promise<void> {
+    await this.dataSource.transaction(async (manager) => {
+      const payroll = await manager.findOne(Payroll, {
+        where: { id: payrollId, tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!payroll) {
+        throw new NotFoundException(
+          'المسير غير موجود أو لا ينتمي لهذه المؤسسة',
+        );
+      }
+      if (payroll.isDisbursed) {
+        throw new BadRequestException(
+          'لا يُحذف مسير تم صرفه: أثره المالي سُجّل في القروض والخصومات',
+        );
+      }
+      await manager.delete(PayrollItem, { payrollId: payroll.id });
+      await manager.delete(Payroll, { id: payroll.id });
+    });
+  }
+
   async findAllPayrolls(tenantId: string, year?: number, month?: number) {
     const where: FindOptionsWhere<Payroll> = { tenantId };
     if (year) where.year = year;

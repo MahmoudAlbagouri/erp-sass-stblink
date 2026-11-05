@@ -13,6 +13,7 @@ import {
 } from 'typeorm';
 import { TenantOwnedEntity } from '../../../common/entities/tenant-owned.entity';
 import { decimalTransformer } from '../../../common/utils/decimal.transformer';
+import { StoredFile } from '../../files/entities/stored-file.entity';
 import { Account } from './accounting.entity';
 
 const money = {
@@ -106,6 +107,14 @@ export class ExpenseVoucher extends TenantOwnedEntity {
 
   @Column({ type: 'uuid', nullable: true })
   createdById?: string | null;
+
+  /** صورة الإيصال أو فاتورة المستفيد (صورة أو PDF) */
+  @Column({ type: 'uuid', nullable: true })
+  receiptFileId?: string | null;
+
+  @ManyToOne(() => StoredFile, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'receiptFileId' })
+  receipt?: StoredFile | null;
 
   @OneToMany(() => ExpenseVoucherLine, (line) => line.voucher)
   lines?: ExpenseVoucherLine[];

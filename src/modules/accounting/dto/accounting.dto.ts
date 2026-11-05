@@ -322,6 +322,11 @@ export class CreateExpenseVoucherDto {
   @MaxLength(500)
   description!: string;
 
+  /** صورة الإيصال: معرّف ملف رُفع على `POST /files/expense` */
+  @IsOptional()
+  @IsUUID(undefined, { message: 'ملف الإيصال غير صالح' })
+  receiptFileId?: string | null;
+
   @IsArray()
   @ArrayMinSize(1, { message: 'أضف بنداً واحداً على الأقل' })
   @ArrayMaxSize(100)

@@ -10,11 +10,12 @@
 
 ## المفاهيم والقواعد
 
-- **الرفع** `POST /files/:category` (`employee` · `contract` · `product`): حتى 10
+- **الرفع** `POST /files/:category` (`employee` · `contract` · `product` ·
+  `expense`): حتى 10
   ملفات و5MB للملف، لمستخدمي الشركات فقط. يعيد لكل ملف
   `{ id, name, mimeType, size, url }`، والنموذج يرسل `id` فقط
   (`nationalIdCardFileId`، `attachmentFileIds`، `attachmentFileId`،
-  `imageFileId`).
+  `imageFileId`، `receiptFileId`).
 - **نوع الملف من محتواه** (`detectFileKind`: بدايات JPEG/PNG/WebP/PDF) لا من اسمه
   أو مما يعلنه المتصفح؛ صورة الصنف صورة فقط. يُحفظ بامتداد النوع المكتشف ويُخدَّم
   بنوعه مع `X-Content-Type-Options: nosniff`، فملف HTML باسم صورة يُرفض.
@@ -43,7 +44,8 @@
 ## علاقته بباقي النظام
 
 - تشير إليه: `employees.national_id_card_file_id` · `employee_educations.attachment_file_id`
-  · `employee_contract_attachments` (مرفقات العقد) · `products.imageFileId`.
+  · `employee_contract_attachments` (مرفقات العقد) · `products.imageFileId`
+  · `expense_vouchers.receiptFileId` (إيصال سند الصرف).
 - عمود ملف جديد في أي موديول: علاقة `ManyToOne(() => StoredFile, { onDelete: 'SET NULL' })`
   + عمود `…FileId` في الكيان، ومعرّف في الـ DTO بـ `@IsUUID`، و`files.assertOwned`
   قبل الحفظ، وتحميل العلاقة مع السجل في الاستعلام (الرابط يُضاف تلقائياً).

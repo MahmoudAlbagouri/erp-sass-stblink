@@ -156,6 +156,14 @@ export class UsersService {
     delete changes.disclaimerAcceptedAt;
 
     const passwordChanged = !!changes.password;
+    // إيقاف الحساب يسري فوراً: جلساته تنتهي فلا يجدّد توكنه (يبقى ما بيده حتى انتهائه)
+    const suspended =
+      changes.status !== undefined &&
+      changes.status !== UserStatus.ACTIVE &&
+      user.status === UserStatus.ACTIVE;
+    if (suspended && user.id === currentUser.id) {
+      throw new BadRequestException('لا يمكنك إيقاف حسابك الشخصي');
+    }
     if (changes.password)
       changes.password = await argon2.hash(changes.password);
     if (
@@ -187,8 +195,8 @@ export class UsersService {
     }
 
     const saved = await this.userRepository.save(user);
-    // كلمة مرور جديدة: كل جلساته بالقديمة تنتهي (يدخل من جديد)
-    if (passwordChanged) {
+    // كلمة مرور جديدة أو حساب أُوقف: كل جلساته تنتهي (يدخل من جديد)
+    if (passwordChanged || suspended) {
       await revokeUserSessions(this.userRepository.manager, user.id);
     }
     return saved;
