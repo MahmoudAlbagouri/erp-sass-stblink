@@ -143,6 +143,22 @@ export class CreateDeliveryOrderDto {
   @MaxLength(500)
   address!: string;
 
+  /** موقع المستلم: خط العرض (اختياري، مع خط الطول معاً) */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsNumber({}, { message: 'خط العرض غير صالح' })
+  @Min(-90)
+  @Max(90)
+  latitude?: number | null;
+
+  /** موقع المستلم: خط الطول */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsNumber({}, { message: 'خط الطول غير صالح' })
+  @Min(-180)
+  @Max(180)
+  longitude?: number | null;
+
   @IsOptional()
   @IsUUID()
   zoneId?: string | null;

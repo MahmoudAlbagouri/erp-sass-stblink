@@ -20,6 +20,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination.dto';
@@ -77,6 +78,14 @@ export class CreateSupplierDto {
   @Min(0)
   @Max(365)
   paymentTermsDays?: number;
+
+  /** مدة التوريد المعتادة بالأيام (من الطلب حتى الوصول). null = غير معروفة */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsInt({ message: 'مدة التوريد عدد أيام صحيح' })
+  @Min(0)
+  @Max(365)
+  leadTimeDays?: number | null;
 
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 3 })
@@ -148,6 +157,22 @@ export class PurchaseLineDto {
   @IsOptional()
   @IsUUID()
   taxRateId?: string;
+
+  // ─── الدفعة (لصنف يتتبع دفعاته؛ تُهمل لغيره) ───
+  /** رقم الدفعة كما على العبوة. فارغ = رقم الفاتورة */
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  lotNumber?: string;
+
+  /** تاريخ الانتهاء. فارغ = يُقترح من مدة صلاحية الصنف */
+  @IsOptional()
+  @Matches(DATE_ONLY, { message: DATE_MESSAGE })
+  expiryDate?: string;
+
+  @IsOptional()
+  @Matches(DATE_ONLY, { message: DATE_MESSAGE })
+  manufactureDate?: string;
 }
 
 export class CreatePurchaseInvoiceDto {
@@ -169,6 +194,15 @@ export class CreatePurchaseInvoiceDto {
   @IsOptional()
   @Matches(DATE_ONLY, { message: DATE_MESSAGE })
   dueDate?: string;
+
+  /**
+   * تاريخ طلب البضاعة من المورد (لا يسبق تاريخ الفاتورة). منه ومن تاريخ
+   * الفاتورة تُقاس مدة التوريد الفعلية لكل طلب. null = غير معروف
+   */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @Matches(DATE_ONLY, { message: DATE_MESSAGE })
+  orderDate?: string | null;
 
   @IsOptional()
   @IsBoolean()

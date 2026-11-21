@@ -140,7 +140,7 @@ const TABLE = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
       ) as {
         operations: { id: string; type: string; payload: object }[];
         expect: Record<
-          'cash' | 'credit' | 'delivery',
+          'cash' | 'credit' | 'delivery' | 'dineIn',
           { number: string; total: string }
         >;
         quote: string;
@@ -171,6 +171,37 @@ const TABLE = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
         expect(Number(data<{ total: number }>(invoice).total)).toBe(
           Number(sale.total),
         );
+      }
+
+      // فاتورة الصالة: سياق الطلب (طاولة وضيوف ووقت الفتح) والإضافة على السطر
+      if (dump.expect.dineIn) {
+        const [dine] = await dataSource.query<
+          {
+            id: string;
+            orderType: string;
+            tableId: string;
+            guestCount: number;
+            orderOpenedAt: Date | null;
+          }[]
+        >(
+          `SELECT id, "orderType", "tableId", "guestCount", "orderOpenedAt"
+             FROM sales_invoices WHERE "tenantId" = $1 AND number = $2`,
+          [tenant.tenantId, dump.expect.dineIn.number],
+        );
+        expect(dine).toMatchObject({
+          orderType: 'dine_in',
+          tableId,
+          guestCount: 3,
+        });
+        expect(dine.orderOpenedAt).not.toBeNull();
+        const [dineLine] = await dataSource.query<
+          { modifiers: { name: string; priceDelta: number }[] }[]
+        >(`SELECT modifiers FROM sales_invoice_lines WHERE "invoiceId" = $1`, [
+          dine.id,
+        ]);
+        expect(dineLine.modifiers).toEqual([
+          expect.objectContaining({ name: 'ثلج', priceDelta: 0.5 }),
+        ]);
       }
 
       // عرض السعر وصل وتحوّل لفاتورة التوصيل، ولها أوردر توصيل

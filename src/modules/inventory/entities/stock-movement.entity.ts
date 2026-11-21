@@ -22,6 +22,42 @@ export enum StockMovementType {
   TRANSFER_IN = 'transfer_in',
   ADJUSTMENT = 'adjustment',
   STOCKTAKE = 'stocktake',
+  /** صرف خامات لأمر إنتاج (المصانع) */
+  PRODUCTION_ISSUE = 'production_issue',
+  /** ردّ خامات لم تُستعمل من أمر إنتاج */
+  PRODUCTION_RETURN = 'production_return',
+  /** استلام إنتاج تام أو منتج ثانوي من أمر إنتاج */
+  PRODUCTION_OUTPUT = 'production_output',
+  /** استهلاك مكوّنات وصفة صنف مركّب عند بيعه (المطاعم) أو هالكه */
+  CONSUMPTION = 'consumption',
+  /** تعيين رصيد غير معيّن لدفعة: كمية الحركة صفر، والأثر في توزيع الدفعات */
+  LOT_ASSIGNMENT = 'lot_assignment',
+}
+
+/**
+ * سبب التسوية اليدوية: لماذا زاد الرصيد أو نقص خارج البيع والشراء. يُسجَّل
+ * لأن تحليل الهالك والفاقد (وتقدير الطلب الحقيقي لاحقاً) يحتاج أن يفرّق بين
+ * تالف ومنتهي وسرقة واستهلاك داخلي — ولا يمكن استرجاع السبب بعد مروره.
+ * انظر docs/operations-research.md.
+ */
+export enum StockAdjustmentReason {
+  /** تالف: كسر، عطب، سوء تخزين */
+  DAMAGE = 'damage',
+  /** انتهت صلاحيته */
+  EXPIRY = 'expiry',
+  /** هالك تشغيل: تحضير مطبخ، فاقد تصنيع، قص */
+  WASTE = 'waste',
+  /** فاقد بلا سبب معروف / سرقة */
+  THEFT = 'theft',
+  /** استهلاك داخلي (للمحل أو الموظفين) */
+  INTERNAL_USE = 'internal_use',
+  /** عينات أو ضيافة أو هدايا */
+  SAMPLE = 'sample',
+  /** زيادة وُجدت (دخول) */
+  FOUND = 'found',
+  /** تصحيح خطأ إدخال سابق */
+  CORRECTION = 'correction',
+  OTHER = 'other',
 }
 
 /**
@@ -94,6 +130,10 @@ export class StockMovement {
 
   @Column({ type: 'varchar', length: 500, nullable: true })
   note?: string | null;
+
+  /** سبب التسوية (StockAdjustmentReason) — للتسويات اليدوية فقط، null لغيرها */
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  reason?: StockAdjustmentReason | null;
 
   @Column({ type: 'uuid', nullable: true })
   createdById?: string | null;

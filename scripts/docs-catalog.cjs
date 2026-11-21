@@ -61,6 +61,17 @@ const TAGS = loadTags();
 const label = (table, key) =>
   table[key] ? `${table[key].labelAr} \`${table[key].name}\`` : `\`${key}\``;
 
+/**
+ * مفاتيح @RequiresFeature في نص: FEATURES.X، أو مصفوفة [FEATURES.A, FEATURES.B]
+ * (تكفي أي واحدة) ← "A|B". undefined إن لم يوجد
+ */
+function featuresIn(text) {
+  const match = text.match(/@RequiresFeature\(\s*\[?([^)]*?)\]?\s*\)/);
+  if (!match) return undefined;
+  const keys = [...match[1].matchAll(/FEATURES\.(\w+)/g)].map((m) => m[1]);
+  return keys.length ? keys.join('|') : undefined;
+}
+
 /** مسارات controller واحد مع عنوانها وصلاحيتها وميزتها */
 function parseController(file) {
   const lines = read(file).split('\n');
@@ -71,8 +82,7 @@ function parseController(file) {
     /^export class \w+Controller/.test(line),
   );
   const header = lines.slice(0, classStart).join('\n');
-  const classFeature = (header.match(/@RequiresFeature\(FEATURES\.(\w+)\)/) ||
-    [])[1];
+  const classFeature = featuresIn(header);
 
   const routes = [];
   for (let i = classStart; i < lines.length; i++) {
@@ -107,9 +117,7 @@ function parseController(file) {
       path: `/${[prefix, route[2]].filter(Boolean).join('/')}`,
       summary,
       permissions: [...block.matchAll(/PERMS\.(\w+)/g)].map((m) => m[1]),
-      feature:
-        (block.match(/@RequiresFeature\(FEATURES\.(\w+)\)/) || [])[1] ??
-        classFeature,
+      feature: featuresIn(block) ?? classFeature,
       quota: (block.match(/@CheckQuota\('([^']+)'\)/) || [])[1],
     });
   }
@@ -195,7 +203,12 @@ function renderAuto(module) {
           .map((p) => label(PERMS, p))
           .join(' + ');
         const feature = [
-          r.feature ? label(FEATURES, r.feature) : '',
+          r.feature
+            ? r.feature
+                .split('|')
+                .map((key) => label(FEATURES, key))
+                .join(' أو ')
+            : '',
           r.quota ? `حد: \`${r.quota}\`` : '',
         ]
           .filter(Boolean)

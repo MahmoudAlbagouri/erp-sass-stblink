@@ -121,6 +121,8 @@ export interface PosDeliveryInput {
   recipientName: string;
   phone: string;
   address: string;
+  latitude?: number | null;
+  longitude?: number | null;
   zoneId?: string | null;
   deliveryFee?: number;
   agentId?: string | null;
@@ -573,6 +575,7 @@ export class DeliveryService {
   ): Promise<DeliveryOrder> {
     assertWarehouseAllowed(dto.warehouseId);
     const prepaidMethod = paymentMethodOf(dto.paymentMode, dto.prepaidMethod);
+    const location = geoPoint(dto.latitude, dto.longitude, true);
 
     const zone = dto.zoneId
       ? await this.activeZone(dto.zoneId, tenantId)
@@ -627,6 +630,7 @@ export class DeliveryService {
             recipientName: dto.recipientName.trim(),
             phone: dto.phone.trim(),
             address: dto.address.trim(),
+            ...location,
             zoneId: zone?.id ?? null,
             agentId: agent?.id ?? null,
             status: agent
@@ -1153,6 +1157,8 @@ export class DeliveryService {
             recipientName: delivery.recipientName.trim(),
             phone: delivery.phone.trim(),
             address: delivery.address.trim(),
+            // بيع الكاشير وقع فعلاً: موقع غير صالح يُهمل ولا يُرفض به
+            ...geoPoint(delivery.latitude, delivery.longitude, false),
             zoneId: zone?.id ?? null,
             agentId: agent?.id ?? null,
             status: dispatched
@@ -1554,6 +1560,40 @@ async function suggestedAgentFee(
  * وقت حدث على الأوردر (خروج، تسليم، عدم تسليم). من الجوال قد يسبق التسجيل
  * بساعات؛ ساعة الجوال قد تخطئ، فلا يتجاوز الآن ولا يسبق الحدث السابق.
  */
+/**
+ * موقع المستلم: الاثنان معاً أو لا شيء. strict (لوحة التحكم) يرفض الناقص
+ * والخارج عن النطاق؛ غيره (بيع كاشير وقع فعلاً) يهمله بصمت.
+ */
+function geoPoint(
+  latitude: number | null | undefined,
+  longitude: number | null | undefined,
+  strict: boolean,
+): { latitude: number | null; longitude: number | null } {
+  const none = { latitude: null, longitude: null };
+  const hasLat = latitude !== null && latitude !== undefined;
+  const hasLng = longitude !== null && longitude !== undefined;
+  if (!hasLat && !hasLng) return none;
+
+  const valid =
+    hasLat &&
+    hasLng &&
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    Math.abs(latitude) <= 90 &&
+    Math.abs(longitude) <= 180;
+  if (valid) {
+    // دقة العمود: 6 خانات (≈ 10 سم)
+    return {
+      latitude: Math.round(latitude * 1e6) / 1e6,
+      longitude: Math.round(longitude * 1e6) / 1e6,
+    };
+  }
+  if (strict) {
+    throw new BadRequestException('موقع المستلم: أدخل خطي العرض والطول معاً');
+  }
+  return none;
+}
+
 function eventTime(at: Date | undefined, notBefore?: Date | null): Date {
   const now = new Date();
   if (!at || Number.isNaN(at.getTime()) || at > now) return now;

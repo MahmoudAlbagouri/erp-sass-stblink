@@ -14,6 +14,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   MaxLength,
   Min,
   NotEquals,
@@ -21,12 +22,17 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination.dto';
-import { StockMovementType } from '../entities/stock-movement.entity';
+import {
+  StockAdjustmentReason,
+  StockMovementType,
+} from '../entities/stock-movement.entity';
 import { StockTransferStatus } from '../entities/stock-transfer.entity';
 import { StocktakeStatus } from '../entities/stocktake.entity';
 
 /** أقصى عدد أسطر في مستند واحد (تحويل / جرد / تسوية) */
 export const MAX_LINES = 500;
+/** تاريخ بلا وقت: 2026-10-12 */
+export const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 // ══════════════════════════ المخازن ══════════════════════════
 
@@ -98,6 +104,11 @@ export class MovementQueryDto extends PaginationQueryDto {
   @IsEnum(StockMovementType)
   type?: StockMovementType;
 
+  /** سبب التسوية (تالف، منتهي، هالك...) */
+  @IsOptional()
+  @IsEnum(StockAdjustmentReason)
+  reason?: StockAdjustmentReason;
+
   @IsOptional()
   @IsDateString()
   from?: string;
@@ -135,6 +146,26 @@ export class AdjustmentLineDto {
   @IsNumber({ maxDecimalPlaces: 4 })
   @Min(0)
   unitCost?: number;
+
+  // ─── الدفعات (لصنف يتتبع دفعاته؛ تُهمل لغيره) ───
+  /** دفعة الكمية الداخلة (تُنشأ إن لم توجد). غيابها = رصيد غير معيّن */
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  lotNumber?: string;
+
+  @IsOptional()
+  @Matches(DATE_ONLY, { message: 'التاريخ يجب أن يكون بصيغة YYYY-MM-DD' })
+  expiryDate?: string;
+
+  @IsOptional()
+  @Matches(DATE_ONLY, { message: 'التاريخ يجب أن يكون بصيغة YYYY-MM-DD' })
+  manufactureDate?: string;
+
+  /** الدفعة التي تخرج منها الكمية الناقصة. غيابها = الأقرب انتهاءً */
+  @IsOptional()
+  @IsUUID()
+  lotId?: string;
 }
 
 export class CreateAdjustmentDto {
@@ -144,6 +175,14 @@ export class CreateAdjustmentDto {
   /** opening = رصيد افتتاحي (دخول فقط)، adjustment = تسوية يدوية */
   @IsIn([StockMovementType.OPENING, StockMovementType.ADJUSTMENT])
   type!: StockMovementType.OPENING | StockMovementType.ADJUSTMENT;
+
+  /**
+   * سبب التسوية (للتسوية فقط، لا للرصيد الافتتاحي). اختياري للتوافق مع
+   * الأجهزة القديمة، والشاشات تطلبه: منه يُحلَّل الهالك والفاقد.
+   */
+  @IsOptional()
+  @IsEnum(StockAdjustmentReason, { message: 'سبب التسوية غير معروف' })
+  reason?: StockAdjustmentReason;
 
   @IsOptional()
   @IsString()

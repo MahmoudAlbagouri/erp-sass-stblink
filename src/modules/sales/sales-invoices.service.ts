@@ -37,7 +37,8 @@ import { Product, ProductType } from '../catalog/entities/product.entity';
 import { TaxCategory } from '../catalog/entities/tax-rate.entity';
 import { ProductsService } from '../catalog/products.service';
 import { StockMovementType } from '../inventory/entities/stock-movement.entity';
-import { StockService } from '../inventory/stock.service';
+import { StockEntry, StockService } from '../inventory/stock.service';
+import { RecipeConsumptionService } from '../manufacturing/recipe-consumption.service';
 import { WarehousesService } from '../inventory/warehouses.service';
 import { CustomersService } from './customers.service';
 import {
@@ -55,6 +56,7 @@ import {
   SalesInvoiceLine,
   SalesInvoiceStatus,
   SalesInvoiceType,
+  SalesLineModifier,
 } from './entities/sales-invoice.entity';
 import { SalesSettings } from './entities/sales-settings.entity';
 import { SalesSettingsService } from './sales-settings.service';
@@ -91,7 +93,11 @@ export type ComputedLine = Pick<
   | 'taxAmount'
   | 'total'
   | 'baseQuantity'
->;
+> &
+  // تملؤها شاشة الكاشير وحدها
+  Partial<
+    Pick<SalesInvoiceLine, 'promotionId' | 'promotionSaving' | 'modifiers'>
+  >;
 
 /** فاتورة أصدرها جهاز كاشير، كما يرفعها */
 export interface PosSaleInput {
@@ -119,8 +125,27 @@ export interface PosSaleInput {
     /** السعر الأصلي حين غيّر الكاشير السعر في هذه الفاتورة */
     listPrice?: number;
     priceReason?: string;
+    /** العرض المطبَّق على السطر وما وفّره */
+    promotionId?: string;
+    promotionSaving?: number;
+    /** الإضافات المختارة (سعرها داخل unitPrice) */
+    modifiers?: {
+      optionId?: string | null;
+      name: string;
+      priceDelta: number;
+      quantity?: number;
+    }[];
   }[];
   payments: TenderDto[];
+  /** سياق طلب المطعم (اختياري) */
+  order?: {
+    orderType?: string | null;
+    tableId?: string | null;
+    tableName?: string | null;
+    guestCount?: number | null;
+    openedAt?: Date | null;
+    waiterName?: string | null;
+  };
 }
 
 export interface ShiftTotals {
@@ -217,6 +242,7 @@ export class SalesInvoicesService {
     private readonly stock: StockService,
     private readonly settings: SalesSettingsService,
     private readonly dataSource: DataSource,
+    private readonly recipes: RecipeConsumptionService,
   ) {}
 
   // ══════════════════════════ القراءة ══════════════════════════
@@ -762,6 +788,7 @@ export class SalesInvoicesService {
             dueDate: onAccount ? defaultDueDate(saleDay, customer) : saleDay,
             pricesIncludeTax: sale.pricesIncludeTax,
             createdById: userId ?? null,
+            ...orderContextOf(sale.order),
             ...totals,
           }),
         );
@@ -869,8 +896,15 @@ export class SalesInvoicesService {
       const netUnitPrice = expected.baseQuantity
         ? input.subtotal / expected.baseQuantity
         : 0;
+      // الإضافات المختارة تزيد سعر الوحدة بأسعارها (بأساس سعر الصنف)
+      const modifiers = normalizeModifiers(input.modifiers);
+      const modifiersDelta = modifiers.reduce(
+        (sum, m) => sum.plus(new Decimal(m.priceDelta).mul(m.quantity)),
+        new Decimal(0),
+      );
       // سعر الكتالوج بأساس الفاتورة: شاشة الكاشير تبيع شاملاً الضريبة دائماً
       const expectedPrice = new Decimal(catalogPrice)
+        .plus(modifiersDelta)
         .mul(
           product.priceIncludesTax === sale.pricesIncludeTax
             ? 1
@@ -913,6 +947,11 @@ export class SalesInvoicesService {
         unitPrice: input.unitPrice,
         listPrice: priceChanged ? input.listPrice! : null,
         priceReason: priceChanged ? (input.priceReason ?? null) : null,
+        promotionId: input.promotionId ?? null,
+        promotionSaving: input.promotionId
+          ? roundMoney(Math.max(input.promotionSaving ?? 0, 0), decimals)
+          : null,
+        modifiers: modifiers.length ? modifiers : null,
         discount: input.discount,
         taxRate: input.taxRate,
         // بيع بلا ضريبة لمنشأة غير مسجّلة: خارج النطاق. وما حُسبت عليه ضريبة
@@ -931,6 +970,139 @@ export class SalesInvoicesService {
   }
 
   // ══════════════════════════ داخلي ══════════════════════════
+
+  /**
+   * الأصناف المركّبة (أطباق) والإضافات ذات الأثر المخزني: تُفك مكوّناتها
+   * وتخرج بحركات استهلاك (consumption) بمتوسط تكلفتها، وتكلفتها على سطرها.
+   * البيع واقع (طعام قُدّم): لا يُرفض لنقص مكوّن. @returns تكلفة ما خرج
+   */
+  private async consumeRecipes(
+    manager: EntityManager,
+    invoice: SalesInvoice,
+    lines: SalesInvoiceLine[],
+    options: FinalizeOptions,
+  ): Promise<Decimal> {
+    const candidates = lines.filter(
+      (line) => !line.isStocked || (line.modifiers?.length ?? 0) > 0,
+    );
+    if (!candidates.length) return new Decimal(0);
+
+    const productRows = await manager.query<{ id: string; type: string }[]>(
+      `SELECT "id", "type" FROM products WHERE "id" = ANY($1::uuid[])`,
+      [[...new Set(candidates.map((l) => l.productId))]],
+    );
+    const typeOf = new Map(productRows.map((p) => [p.id, p.type]));
+    const optionIds = candidates.flatMap((line) =>
+      (line.modifiers ?? [])
+        .map((m) => m.optionId)
+        .filter((id): id is string => !!id),
+    );
+    const optionRows = optionIds.length
+      ? await manager.query<
+          {
+            id: string;
+            productId: string | null;
+            quantity: string;
+            removesProductId: string | null;
+          }[]
+        >(
+          `SELECT "id", "productId", "quantity", "removesProductId"
+             FROM modifier_options WHERE "tenantId" = $1 AND "id" = ANY($2::uuid[])`,
+          [invoice.tenantId, [...new Set(optionIds)]],
+        )
+      : [];
+    const optionOf = new Map(optionRows.map((o) => [o.id, o]));
+
+    const items = candidates
+      .map((line) => {
+        const composite = typeOf.get(line.productId) === ProductType.COMPOSITE;
+        const extras: { productId: string; quantity: number }[] = [];
+        const removals: string[] = [];
+        for (const modifier of line.modifiers ?? []) {
+          const option = modifier.optionId
+            ? optionOf.get(modifier.optionId)
+            : undefined;
+          if (option?.productId) {
+            extras.push({
+              productId: option.productId,
+              quantity: new Decimal(option.quantity)
+                .mul(modifier.quantity || 1)
+                .toNumber(),
+            });
+          }
+          if (option?.removesProductId) removals.push(option.removesProductId);
+        }
+        return {
+          line,
+          item: {
+            productId: composite ? line.productId : null,
+            quantity: line.baseQuantity,
+            extras,
+            removals,
+          },
+        };
+      })
+      .filter(({ item }) => item.productId || item.extras.length);
+    if (!items.length) return new Decimal(0);
+
+    const consumption = await this.recipes.explode(
+      manager,
+      invoice.tenantId,
+      items.map((i) => i.item),
+    );
+    const entries: StockEntry[] = [];
+    const owners: number[] = [];
+    consumption.forEach((components, index) => {
+      for (const [productId, quantity] of components) {
+        if (quantity.lte(0)) continue;
+        entries.push({
+          warehouseId: invoice.warehouseId,
+          productId,
+          type: StockMovementType.CONSUMPTION,
+          quantity: -quantity.toNumber(),
+          note: `مكوّن: ${items[index].line.productName}`,
+        });
+        owners.push(index);
+      }
+    });
+    if (!entries.length) return new Decimal(0);
+
+    const results = await this.stock.apply(manager, invoice.tenantId, entries, {
+      referenceType: SALES_INVOICE_REFERENCE,
+      referenceId: invoice.id,
+      userId: options.userId,
+      occurredAt: options.issuedAt,
+      allowNegative: true,
+    });
+    const costs = new Map<number, Decimal>();
+    entries.forEach((entry, i) => {
+      const cost = new Decimal(-entry.quantity!).mul(results[i].unitCost);
+      costs.set(owners[i], (costs.get(owners[i]) ?? new Decimal(0)).plus(cost));
+    });
+
+    let total = new Decimal(0);
+    for (const [index, cost] of costs) {
+      const { line } = items[index];
+      total = total.plus(cost);
+      if (!line.baseQuantity) continue;
+      // صنف مخزني بإضافات: تكلفة الإضافة فوق تكلفته
+      const base = new Decimal(line.isStocked ? (line.unitCost ?? 0) : 0).mul(
+        line.baseQuantity,
+      );
+      await manager.update(
+        SalesInvoiceLine,
+        { id: line.id },
+        {
+          unitCost: base
+            .plus(cost)
+            .div(line.baseQuantity)
+            .toDecimalPlaces(4)
+            .toNumber(),
+        },
+      );
+    }
+    return total;
+  }
 
   /**
    * إتمام الإصدار داخل معاملة المستدعي: خروج المخزون، الرقم، سلسلة البصمات،
@@ -977,9 +1149,15 @@ export class SalesInvoicesService {
     let costTotal = new Decimal(0);
     for (const [index, line] of stocked.entries()) {
       const unitCost = movements[index].unitCost;
+      line.unitCost = unitCost;
       costTotal = costTotal.plus(new Decimal(unitCost).mul(line.baseQuantity));
       await manager.update(SalesInvoiceLine, { id: line.id }, { unitCost });
     }
+
+    // ─── الأصناف المركّبة والإضافات: مكوّنات الوصفة تخرج بمتوسط تكلفتها ───
+    costTotal = costTotal.plus(
+      await this.consumeRecipes(manager, invoice, lines, options),
+    );
 
     // ─── الترقيم وسلسلة البصمات: القفل يجعل الإصدارات تتوالى واحداً واحداً ───
     // رقم الكاشير يولّده الجهاز (يعمل بلا إنترنت)؛ غيره تسلسلي من السيرفر
@@ -1259,4 +1437,47 @@ function assertStatus(
       `لا يمكن ${action} فاتورة حالتها "${STATUS_LABEL[invoice.status]}"`,
     );
   }
+}
+
+/** إضافات سطر الكاشير بشكل ثابت: اسم وسعر وكمية (لا يُرفض بها بيع طُبع) */
+function normalizeModifiers(
+  modifiers: PosSaleInput['lines'][number]['modifiers'],
+): SalesLineModifier[] {
+  return (modifiers ?? [])
+    .filter((m) => m && typeof m.name === 'string')
+    .map((m) => ({
+      optionId:
+        m.optionId && /^[0-9a-f-]{36}$/i.test(m.optionId) ? m.optionId : null,
+      name: m.name.trim().slice(0, 100),
+      priceDelta: Number.isFinite(Number(m.priceDelta))
+        ? Number(m.priceDelta)
+        : 0,
+      quantity:
+        Number.isFinite(Number(m.quantity)) && Number(m.quantity) > 0
+          ? Number(m.quantity)
+          : 1,
+    }));
+}
+
+/** سياق طلب المطعم على الفاتورة: قيم غير صالحة تُهمل ولا تُرفض */
+function orderContextOf(order: PosSaleInput['order']): Partial<SalesInvoice> {
+  if (!order) return {};
+  const types = ['dine_in', 'takeaway', 'delivery'];
+  const guests = Number(order.guestCount);
+  const opened = order.openedAt ? new Date(order.openedAt) : null;
+  return {
+    orderType:
+      order.orderType && types.includes(order.orderType)
+        ? order.orderType
+        : null,
+    tableId:
+      order.tableId && /^[0-9a-f-]{36}$/i.test(order.tableId)
+        ? order.tableId
+        : null,
+    tableName: order.tableName?.trim().slice(0, 60) || null,
+    guestCount:
+      Number.isInteger(guests) && guests > 0 && guests < 1000 ? guests : null,
+    orderOpenedAt: opened && !Number.isNaN(opened.getTime()) ? opened : null,
+    waiterName: order.waiterName?.trim().slice(0, 150) || null,
+  };
 }

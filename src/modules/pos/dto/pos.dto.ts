@@ -188,6 +188,58 @@ export class CloseShiftOp {
   drawerOpens?: number;
 }
 
+/**
+ * إضافة مختارة على سطر (المطاعم). قيود خفيفة: بيع طُبع لا يُرفض بسببها —
+ * السيرفر يقرأ أثرها من الخيار نفسه ويهمل ما لا يعرفه
+ */
+export class PosLineModifierOp {
+  @IsOptional()
+  @IsString()
+  optionId?: string | null;
+
+  @IsString()
+  name!: string;
+
+  /** يُضاف لسعر الوحدة (داخل unitPrice) */
+  @IsNumber()
+  priceDelta!: number;
+
+  /** كم مرة اختير لكل وحدة (الافتراضي 1) */
+  @IsOptional()
+  @IsNumber()
+  quantity?: number;
+}
+
+/** سياق طلب المطعم على فاتورة الكاشير: لدوران الطاولات وإيراد الضيف */
+export class PosOrderContextOp {
+  /** dine_in | takeaway | delivery */
+  @IsOptional()
+  @IsString()
+  orderType?: string | null;
+
+  @IsOptional()
+  @IsString()
+  tableId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  tableName?: string | null;
+
+  /** عدد الضيوف */
+  @IsOptional()
+  @IsNumber()
+  guestCount?: number | null;
+
+  /** متى فُتح الطلب على الطاولة (ISO) */
+  @IsOptional()
+  @IsString()
+  openedAt?: string | null;
+
+  @IsOptional()
+  @IsString()
+  waiterName?: string | null;
+}
+
 export class PosSaleLineOp {
   @IsUUID()
   productId!: string;
@@ -233,6 +285,28 @@ export class PosSaleLineOp {
   @Min(0)
   listPrice?: number;
 
+  /** العرض الذي طبّقته الشاشة على السطر (من عروض الجهاز) */
+  @IsOptional()
+  @IsUUID()
+  promotionId?: string;
+
+  /**
+   * ما وفّره العرض على السطر: خصمه، أو فرق السعر الخاص عن سعر القائمة ×
+   * الكمية. يُحفظ لقياس أثر العروض، ولا يدخل في حساب المبالغ. بلا قيود دقة
+   * ولا حد أدنى: السيرفر يقرّبه ويحصره، فلا يُرفض بيع طُبع بسببه
+   */
+  @IsOptional()
+  @IsNumber()
+  promotionSaving?: number;
+
+  /** الإضافات المختارة على السطر (سعرها داخل unitPrice) */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => PosLineModifierOp)
+  modifiers?: PosLineModifierOp[];
+
   /** سبب تغيير السعر (إلزامي في الشاشة عند التخفيض) */
   @IsOptional()
   @IsString()
@@ -274,6 +348,16 @@ export class PosDeliveryOp {
   @IsNotEmpty({ message: 'عنوان التوصيل مطلوب' })
   @MaxLength(500)
   address!: string;
+
+  /**
+   * موقع المستلم (اختياري). موقع ناقص أو خارج النطاق يُهمل ولا يُرفض به البيع:
+   * الفاتورة طُبعت فعلاً
+   */
+  @IsOptional()
+  latitude?: number | null;
+
+  @IsOptional()
+  longitude?: number | null;
 
   @IsOptional()
   @IsUUID()
@@ -367,6 +451,12 @@ export class PosSaleOp {
   @IsOptional()
   @IsUUID()
   quoteUuid?: string;
+
+  /** سياق طلب المطعم: نوعه، طاولته، ضيوفه، ومتى فُتح */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PosOrderContextOp)
+  order?: PosOrderContextOp;
 }
 
 /** عرض سعر أصدره الكاشير: ورقة للعميل، لا بيع ولا مخزون ولا درج */

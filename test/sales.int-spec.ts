@@ -1,3 +1,9 @@
+import { Bom } from '../src/modules/manufacturing/entities/bom.entity';
+import { WorkCenter } from '../src/modules/manufacturing/entities/work-center.entity';
+import { BomsService } from '../src/modules/manufacturing/boms.service';
+import { RecipeConsumptionService } from '../src/modules/manufacturing/recipe-consumption.service';
+import { WorkCentersService } from '../src/modules/manufacturing/work-centers.service';
+import { StockLotsService } from '../src/modules/inventory/stock-lots.service';
 import { DataSource } from 'typeorm';
 import { CatalogSettingsService } from '../src/modules/catalog/catalog-settings.service';
 import { ProductBarcode } from '../src/modules/catalog/entities/product-barcode.entity';
@@ -139,6 +145,7 @@ describe('sales module', () => {
       warehouses,
       products,
       dataSource,
+      new StockLotsService(),
     );
     customers = new CustomersService(
       dataSource.getRepository(Customer),
@@ -155,6 +162,16 @@ describe('sales module', () => {
       stock,
       salesSettings,
       dataSource,
+      new RecipeConsumptionService(
+        new BomsService(
+          dataSource.getRepository(Bom),
+          new WorkCentersService(
+            dataSource.getRepository(WorkCenter),
+            dataSource,
+          ),
+          dataSource,
+        ),
+      ),
     );
     returns = new SalesReturnsService(
       dataSource.getRepository(SalesReturn),

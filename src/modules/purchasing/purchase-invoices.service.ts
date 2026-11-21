@@ -20,6 +20,7 @@ import { CatalogSettingsService } from '../catalog/catalog-settings.service';
 import { ProductType } from '../catalog/entities/product.entity';
 import { ProductsService } from '../catalog/products.service';
 import { StockMovementType } from '../inventory/entities/stock-movement.entity';
+import { StockLotSource } from '../inventory/entities/stock-lot.entity';
 import { StockService } from '../inventory/stock.service';
 import { WarehousesService } from '../inventory/warehouses.service';
 import {
@@ -60,6 +61,9 @@ type ComputedLine = Pick<
   | 'total'
   | 'baseQuantity'
   | 'unitCost'
+  | 'lotNumber'
+  | 'expiryDate'
+  | 'manufactureDate'
 >;
 
 interface Totals {
@@ -198,6 +202,7 @@ export class PurchaseInvoicesService {
   ): Promise<PurchaseInvoice> {
     const supplier = await this.suppliers.findActive(dto.supplierId, tenantId);
     await this.warehouses.findActiveByIds([dto.warehouseId], tenantId);
+    assertOrderDate(dto.orderDate, dto.invoiceDate);
 
     const pricesIncludeTax = dto.pricesIncludeTax ?? false;
     const lines = await this.computeLines(
@@ -222,6 +227,7 @@ export class PurchaseInvoicesService {
           invoiceDate: dto.invoiceDate,
           dueDate:
             dto.dueDate ?? addDays(dto.invoiceDate, supplier.paymentTermsDays),
+          orderDate: dto.orderDate ?? null,
           pricesIncludeTax,
           note: dto.note ?? null,
           createdById: userId ?? null,
@@ -245,6 +251,10 @@ export class PurchaseInvoicesService {
 
     const supplierId = dto.supplierId ?? current.supplierId;
     const warehouseId = dto.warehouseId ?? current.warehouseId;
+    assertOrderDate(
+      dto.orderDate !== undefined ? dto.orderDate : current.orderDate,
+      dto.invoiceDate ?? current.invoiceDate,
+    );
     if (dto.supplierId) await this.suppliers.findActive(supplierId, tenantId);
     if (dto.warehouseId) {
       await this.warehouses.findActiveByIds([warehouseId], tenantId);
@@ -261,6 +271,9 @@ export class PurchaseInvoicesService {
         unitPrice: line.unitPrice,
         discount: line.discount,
         taxRateId: line.taxRateId ?? undefined,
+        lotNumber: line.lotNumber ?? undefined,
+        expiryDate: line.expiryDate ?? undefined,
+        manufactureDate: line.manufactureDate ?? undefined,
       }));
     const lines = await this.computeLines(
       lineInputs,
@@ -281,6 +294,7 @@ export class PurchaseInvoicesService {
           pricesIncludeTax,
           invoiceDate: dto.invoiceDate ?? current.invoiceDate,
           ...(dto.dueDate !== undefined ? { dueDate: dto.dueDate } : {}),
+          ...(dto.orderDate !== undefined ? { orderDate: dto.orderDate } : {}),
           ...(dto.supplierReference !== undefined
             ? { supplierReference: dto.supplierReference }
             : {}),
@@ -340,6 +354,16 @@ export class PurchaseInvoicesService {
           quantity: line.baseQuantity,
           unitCost: line.unitCost,
           note: `فاتورة شراء ${invoice.number}`,
+          // صنف يتتبع دفعاته: دفعة السطر، أو رقم الفاتورة إن لم تُكتب
+          lot: {
+            lotNumber: line.lotNumber ?? invoice.number,
+            expiryDate: line.expiryDate ?? null,
+            manufactureDate: line.manufactureDate ?? null,
+            source: StockLotSource.PURCHASE,
+            sourceType: PURCHASE_INVOICE_REFERENCE,
+            sourceId: id,
+            supplierId: invoice.supplierId,
+          },
         })),
         {
           referenceType: PURCHASE_INVOICE_REFERENCE,
@@ -392,6 +416,10 @@ export class PurchaseInvoicesService {
             type: StockMovementType.PURCHASE_RETURN,
             quantity: -line.baseQuantity,
             note: `إلغاء فاتورة شراء ${invoice.number}`,
+            lotsFrom: {
+              referenceType: PURCHASE_INVOICE_REFERENCE,
+              referenceId: id,
+            },
           })),
           {
             referenceType: PURCHASE_INVOICE_REFERENCE,
@@ -488,6 +516,10 @@ export class PurchaseInvoicesService {
         discount,
         taxRateId: input.taxRateId ?? null,
         taxRate,
+        // الدفعة (تُهمل لصنف لا يتتبع دفعاته)
+        lotNumber: input.lotNumber?.trim() || null,
+        expiryDate: input.expiryDate ?? null,
+        manufactureDate: input.manufactureDate ?? null,
         ...computeLine({
           quantity: input.quantity,
           unitPrice: input.unitPrice,
@@ -530,6 +562,18 @@ function addDays(date: string, days: number): string {
   const result = new Date(`${date}T00:00:00Z`);
   result.setUTCDate(result.getUTCDate() + days);
   return result.toISOString().slice(0, 10);
+}
+
+/** البضاعة لا تصل قبل طلبها: تاريخ الطلب لا يتأخر عن تاريخ الفاتورة */
+function assertOrderDate(
+  orderDate: string | null | undefined,
+  invoiceDate: string,
+): void {
+  if (orderDate && orderDate > invoiceDate) {
+    throw new BadRequestException(
+      'تاريخ الطلب من المورد لا يمكن أن يكون بعد تاريخ الفاتورة',
+    );
+  }
 }
 
 const STATUS_LABEL: Record<PurchaseInvoiceStatus, string> = {

@@ -44,7 +44,10 @@ import {
   SalesReturnLine,
   SalesReturnStatus,
 } from './entities/sales-return.entity';
-import { SalesInvoicesService } from './sales-invoices.service';
+import {
+  SALES_INVOICE_REFERENCE,
+  SalesInvoicesService,
+} from './sales-invoices.service';
 import { dateOnly, recordPayment } from './utils/payment-recorder';
 
 const REFERENCE_TYPE = 'sales_return';
@@ -436,6 +439,12 @@ export class SalesReturnsService {
       }
 
       const issuedAt = options.issuedAt ?? new Date();
+      const ownCost = await this.ownCosts(
+        manager,
+        tenantId,
+        salesReturn.invoiceId,
+        [...invoiceLines.values()],
+      );
       await this.stock.apply(
         manager,
         tenantId,
@@ -447,7 +456,12 @@ export class SalesReturnsService {
             type: StockMovementType.SALE_RETURN,
             quantity: line.baseQuantity,
             // تعود بالتكلفة التي خرجت بها، فلا يتشوّه متوسط التكلفة
-            unitCost: invoiceLines.get(line.invoiceLineId)!.unitCost,
+            unitCost: ownCost(invoiceLines.get(line.invoiceLineId)!),
+            // وإلى الدفعات التي خرجت منها
+            lotsFrom: {
+              referenceType: SALES_INVOICE_REFERENCE,
+              referenceId: salesReturn.invoiceId,
+            },
           })),
         {
           referenceType: REFERENCE_TYPE,
@@ -557,6 +571,38 @@ export class SalesReturnsService {
     if (!salesReturn) throw new NotFoundException('المرتجع غير موجود');
     assertWarehouseVisible(salesReturn.warehouseId, 'المرتجع غير موجود');
     return salesReturn;
+  }
+
+  /**
+   * تكلفة الصنف نفسه حين خرج. تكلفة السطر تشمل ما استهلكته إضافاته (جبنة
+   * زيادة) لهامش صحيح، لكن الإضافة لا تعود للمخزن مع الصنف: سطر بإضافات يعود
+   * بتكلفة حركة بيعه، وغيره بتكلفة سطره.
+   */
+  private async ownCosts(
+    manager: EntityManager,
+    tenantId: string,
+    invoiceId: string,
+    invoiceLines: SalesInvoiceLine[],
+  ): Promise<(line: SalesInvoiceLine) => number> {
+    const withModifiers = invoiceLines.some(
+      (line) => line.isStocked && (line.modifiers?.length ?? 0) > 0,
+    );
+    if (!withModifiers) return (line) => line.unitCost;
+    const rows = await manager.query<{ productId: string; unitCost: string }[]>(
+      `SELECT DISTINCT ON ("productId") "productId", "unitCost"
+         FROM stock_movements
+        WHERE "tenantId" = $1 AND "referenceType" = $2 AND "referenceId" = $3
+          AND "type" = $4
+        ORDER BY "productId", "occurredAt"`,
+      [tenantId, SALES_INVOICE_REFERENCE, invoiceId, StockMovementType.SALE],
+    );
+    const saleCost = new Map(
+      rows.map((r) => [r.productId, Number(r.unitCost)]),
+    );
+    return (line) =>
+      line.modifiers?.length
+        ? (saleCost.get(line.productId) ?? line.unitCost)
+        : line.unitCost;
   }
 }
 

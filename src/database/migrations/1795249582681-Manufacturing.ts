@@ -1,0 +1,128 @@
+import { MigrationInterface, QueryRunner } from "typeorm";
+
+export class Manufacturing1795249582681 implements MigrationInterface {
+    name = 'Manufacturing1795249582681'
+
+    public async up(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`CREATE TABLE "work_centers" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deletedAt" TIMESTAMP WITH TIME ZONE, "code" character varying(20) NOT NULL, "name" character varying(120) NOT NULL, "branchId" uuid, "parallelUnits" integer NOT NULL DEFAULT '1', "hoursPerDay" numeric(5,2) NOT NULL DEFAULT '8', "workingDays" smallint array NOT NULL DEFAULT '{0,1,2,3,4}', "efficiencyPercent" numeric(5,2) NOT NULL DEFAULT '100', "costPerHour" numeric(13,3) NOT NULL DEFAULT '0', "overheadPerHour" numeric(13,3) NOT NULL DEFAULT '0', "note" character varying(500), "isActive" boolean NOT NULL DEFAULT true, CONSTRAINT "PK_efd461c689b6b2894c3ab1c930a" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_db89c63df187163ecc375e043d" ON "work_centers" ("tenantId") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_2db594c70fb6351881047abeff" ON "work_centers" ("tenantId", "name") WHERE "deletedAt" IS NULL`);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_f2178638b1338dcd11a2cffd45" ON "work_centers" ("tenantId", "code") WHERE "deletedAt" IS NULL`);
+        await queryRunner.query(`CREATE TABLE "boms" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deletedAt" TIMESTAMP WITH TIME ZONE, "code" character varying(20) NOT NULL, "kind" character varying(20) NOT NULL, "productId" uuid NOT NULL, "name" character varying(150) NOT NULL, "version" integer NOT NULL DEFAULT '1', "isDefault" boolean NOT NULL DEFAULT true, "outputQuantity" numeric(14,4) NOT NULL DEFAULT '1', "expectedYieldPercent" numeric(5,2) NOT NULL DEFAULT '100', "prepMinutes" integer, "note" text, "isActive" boolean NOT NULL DEFAULT true, CONSTRAINT "PK_59659fde3f22d3869fee0f78822" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_17c7df0ebef0385a9ae195378f" ON "boms" ("tenantId") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_2e77ca5103b377e4022774873c" ON "boms" ("tenantId", "productId", "kind") WHERE "isDefault" = true AND "deletedAt" IS NULL`);
+        await queryRunner.query(`CREATE INDEX "IDX_97458015913764e9d28db4a565" ON "boms" ("tenantId", "productId") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_8da364d4510d7cfeb0b6900485" ON "boms" ("tenantId", "code") `);
+        await queryRunner.query(`CREATE TABLE "bom_lines" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "bomId" uuid NOT NULL, "sortOrder" integer NOT NULL DEFAULT '0', "componentId" uuid NOT NULL, "quantity" numeric(14,4) NOT NULL, "scrapPercent" numeric(5,2) NOT NULL DEFAULT '0', "operationSequence" integer, "note" character varying(300), CONSTRAINT "PK_21f5a9ce67fd2be354c61f7c615" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_158a057c069fea71ba482ccf12" ON "bom_lines" ("tenantId", "componentId") `);
+        await queryRunner.query(`CREATE INDEX "IDX_014ce7b0edadb2b12d65733c4c" ON "bom_lines" ("bomId") `);
+        await queryRunner.query(`CREATE TABLE "bom_operations" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "bomId" uuid NOT NULL, "sequence" integer NOT NULL, "name" character varying(150) NOT NULL, "workCenterId" uuid NOT NULL, "setupMinutes" numeric(14,4) NOT NULL DEFAULT '0', "runMinutes" numeric(14,4) NOT NULL DEFAULT '0', "instructions" text, CONSTRAINT "PK_a8179eb6e301a963a810e8e0186" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_5d35b4276fc7aa9692c6bcb578" ON "bom_operations" ("bomId") `);
+        await queryRunner.query(`CREATE TABLE "bom_byproducts" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "bomId" uuid NOT NULL, "productId" uuid NOT NULL, "quantity" numeric(14,4) NOT NULL, CONSTRAINT "PK_6f18b65e5688c013be457590fa3" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_7564ff0a200eb9104c0c44564f" ON "bom_byproducts" ("bomId") `);
+        await queryRunner.query(`CREATE TABLE "production_orders" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deletedAt" TIMESTAMP WITH TIME ZONE, "number" character varying(20) NOT NULL, "productId" uuid NOT NULL, "bomId" uuid NOT NULL, "status" character varying(20) NOT NULL DEFAULT 'draft', "priority" smallint NOT NULL DEFAULT '3', "plannedQuantity" numeric(14,4) NOT NULL DEFAULT '0', "producedQuantity" numeric(14,4) NOT NULL DEFAULT '0', "scrapQuantity" numeric(14,4) NOT NULL DEFAULT '0', "warehouseId" uuid NOT NULL, "materialsWarehouseId" uuid NOT NULL, "plannedStartDate" date, "plannedEndDate" date, "outputLotNumber" character varying(60), "outputExpiryDate" date, "reference" character varying(200), "note" text, "plannedMaterialCost" numeric(15,3) NOT NULL DEFAULT '0', "plannedLaborCost" numeric(15,3) NOT NULL DEFAULT '0', "plannedOverheadCost" numeric(15,3) NOT NULL DEFAULT '0', "materialCost" numeric(15,3) NOT NULL DEFAULT '0', "laborCost" numeric(15,3) NOT NULL DEFAULT '0', "overheadCost" numeric(15,3) NOT NULL DEFAULT '0', "byproductValue" numeric(15,3) NOT NULL DEFAULT '0', "receivedValue" numeric(15,3) NOT NULL DEFAULT '0', "varianceValue" numeric(15,3) NOT NULL DEFAULT '0', "unitCost" numeric(14,4) NOT NULL DEFAULT '0', "createdById" uuid, "releasedAt" TIMESTAMP WITH TIME ZONE, "releasedById" uuid, "startedAt" TIMESTAMP WITH TIME ZONE, "completedAt" TIMESTAMP WITH TIME ZONE, "completedById" uuid, "cancelledAt" TIMESTAMP WITH TIME ZONE, CONSTRAINT "PK_44d72e026027e3448b5d655e16e" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_7fd2c50fcd5b747cb4300f9e11" ON "production_orders" ("tenantId") `);
+        await queryRunner.query(`CREATE INDEX "IDX_f010bba4d9345d837f59e6aeb6" ON "production_orders" ("tenantId", "productId") `);
+        await queryRunner.query(`CREATE INDEX "IDX_60268e9db1cd7689f8587f4760" ON "production_orders" ("tenantId", "status", "plannedStartDate") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_b1f2b5a94a95e4f265b82b08e9" ON "production_orders" ("tenantId", "number") `);
+        await queryRunner.query(`CREATE TABLE "production_order_materials" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "orderId" uuid NOT NULL, "sortOrder" integer NOT NULL DEFAULT '0', "productId" uuid NOT NULL, "plannedQuantity" numeric(14,4) NOT NULL DEFAULT '0', "issuedQuantity" numeric(14,4) NOT NULL DEFAULT '0', "returnedQuantity" numeric(14,4) NOT NULL DEFAULT '0', "cost" numeric(15,3) NOT NULL DEFAULT '0', "operationSequence" integer, CONSTRAINT "PK_3f39ac5cee9f538e259745d57e9" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_d22066853eddc3dca61108824d" ON "production_order_materials" ("tenantId", "productId") `);
+        await queryRunner.query(`CREATE INDEX "IDX_181a10443fa105dcd24ce41524" ON "production_order_materials" ("orderId") `);
+        await queryRunner.query(`CREATE TABLE "production_order_operations" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "orderId" uuid NOT NULL, "sequence" integer NOT NULL, "name" character varying(150) NOT NULL, "workCenterId" uuid NOT NULL, "status" character varying(20) NOT NULL DEFAULT 'pending', "plannedSetupMinutes" numeric(12,2) NOT NULL DEFAULT '0', "plannedRunMinutes" numeric(12,2) NOT NULL DEFAULT '0', "actualSetupMinutes" numeric(12,2) NOT NULL DEFAULT '0', "actualRunMinutes" numeric(12,2) NOT NULL DEFAULT '0', "downtimeMinutes" numeric(12,2) NOT NULL DEFAULT '0', "quantityDone" numeric(14,4) NOT NULL DEFAULT '0', "quantityScrapped" numeric(14,4) NOT NULL DEFAULT '0', "costPerHour" numeric(15,3) NOT NULL DEFAULT '0', "overheadPerHour" numeric(15,3) NOT NULL DEFAULT '0', "startedAt" TIMESTAMP WITH TIME ZONE, "finishedAt" TIMESTAMP WITH TIME ZONE, "instructions" text, CONSTRAINT "PK_c33a8f9ae75d2b3b10475f94d55" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_79b6530e4f8df6f5ad813ce523" ON "production_order_operations" ("tenantId", "workCenterId", "status") `);
+        await queryRunner.query(`CREATE INDEX "IDX_a39625fbc3cd677f06f87f9457" ON "production_order_operations" ("orderId") `);
+        await queryRunner.query(`CREATE TABLE "production_order_byproducts" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "orderId" uuid NOT NULL, "productId" uuid NOT NULL, "plannedQuantity" numeric(14,4) NOT NULL DEFAULT '0', "receivedQuantity" numeric(14,4) NOT NULL DEFAULT '0', "value" numeric(15,3) NOT NULL DEFAULT '0', CONSTRAINT "PK_73aed54acbcae2b81ef485f5267" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_f64ce63b38eb9a44576d2d9fe2" ON "production_order_byproducts" ("orderId") `);
+        await queryRunner.query(`CREATE TABLE "production_time_logs" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "orderId" uuid NOT NULL, "operationId" uuid NOT NULL, "workCenterId" uuid NOT NULL, "kind" character varying(20) NOT NULL, "startedAt" TIMESTAMP WITH TIME ZONE NOT NULL, "endedAt" TIMESTAMP WITH TIME ZONE, "minutes" numeric(12,2) NOT NULL DEFAULT '0', "downtimeReason" character varying(30), "employeeId" uuid, "operatorName" character varying(150), "userId" uuid, "quantity" numeric(14,4) NOT NULL DEFAULT '0', "scrapQuantity" numeric(14,4) NOT NULL DEFAULT '0', "scrapReason" character varying(30), "note" character varying(500), "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_740065d0b24d1b6bba89498813a" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_be4c4c32d9d84f0b13fc29dc20" ON "production_time_logs" ("tenantId", "workCenterId", "startedAt") `);
+        await queryRunner.query(`CREATE INDEX "IDX_f0e14a3bae42438f406eebb7f0" ON "production_time_logs" ("tenantId", "orderId") `);
+        await queryRunner.query(`CREATE TABLE "production_transactions" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "tenantId" uuid NOT NULL, "orderId" uuid NOT NULL, "type" character varying(20) NOT NULL, "value" numeric(15,3) NOT NULL DEFAULT '0', "quantity" numeric(14,4) NOT NULL DEFAULT '0', "scrapQuantity" numeric(14,4) NOT NULL DEFAULT '0', "scrapReason" character varying(30), "warehouseId" uuid NOT NULL, "note" character varying(500), "userId" uuid, "occurredAt" TIMESTAMP WITH TIME ZONE NOT NULL, "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "PK_af95549d00d1747ce8476cd8176" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_b01f52e080394b5b8e57048b55" ON "production_transactions" ("tenantId", "occurredAt") `);
+        await queryRunner.query(`CREATE INDEX "IDX_e46939a855bd8d7d72891c4608" ON "production_transactions" ("tenantId", "orderId") `);
+        await queryRunner.query(`ALTER TABLE "work_centers" ADD CONSTRAINT "FK_db89c63df187163ecc375e043d2" FOREIGN KEY ("tenantId") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "work_centers" ADD CONSTRAINT "FK_3733db6867559bf9e6744039f62" FOREIGN KEY ("branchId") REFERENCES "branches"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "boms" ADD CONSTRAINT "FK_17c7df0ebef0385a9ae195378f1" FOREIGN KEY ("tenantId") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "boms" ADD CONSTRAINT "FK_aa572bae154904a33a982c0a539" FOREIGN KEY ("productId") REFERENCES "products"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "bom_lines" ADD CONSTRAINT "FK_014ce7b0edadb2b12d65733c4c5" FOREIGN KEY ("bomId") REFERENCES "boms"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "bom_lines" ADD CONSTRAINT "FK_3a6ee8db9565255209ae5507af7" FOREIGN KEY ("componentId") REFERENCES "products"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "bom_operations" ADD CONSTRAINT "FK_5d35b4276fc7aa9692c6bcb578e" FOREIGN KEY ("bomId") REFERENCES "boms"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "bom_operations" ADD CONSTRAINT "FK_eb507723eaf8f9fb7fc5c5d3740" FOREIGN KEY ("workCenterId") REFERENCES "work_centers"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "bom_byproducts" ADD CONSTRAINT "FK_7564ff0a200eb9104c0c44564f4" FOREIGN KEY ("bomId") REFERENCES "boms"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "bom_byproducts" ADD CONSTRAINT "FK_2c586a5bdf20398854a7035636b" FOREIGN KEY ("productId") REFERENCES "products"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "production_orders" ADD CONSTRAINT "FK_7fd2c50fcd5b747cb4300f9e11c" FOREIGN KEY ("tenantId") REFERENCES "tenants"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "production_orders" ADD CONSTRAINT "FK_8584be8f232016b2c24a4e12589" FOREIGN KEY ("productId") REFERENCES "products"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "production_orders" ADD CONSTRAINT "FK_e01ab106eaf872aef04cddc858e" FOREIGN KEY ("bomId") REFERENCES "boms"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "production_orders" ADD CONSTRAINT "FK_99e1c4fbdc4c2ad3834fa2ad5dd" FOREIGN KEY ("warehouseId") REFERENCES "warehouses"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "production_orders" ADD CONSTRAINT "FK_2538d2ef39edfccc67940b77ee4" FOREIGN KEY ("materialsWarehouseId") REFERENCES "warehouses"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "production_order_materials" ADD CONSTRAINT "FK_181a10443fa105dcd24ce415241" FOREIGN KEY ("orderId") REFERENCES "production_orders"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "production_order_materials" ADD CONSTRAINT "FK_7ceda4a31fc148971eed2a72286" FOREIGN KEY ("productId") REFERENCES "products"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "production_order_operations" ADD CONSTRAINT "FK_a39625fbc3cd677f06f87f94577" FOREIGN KEY ("orderId") REFERENCES "production_orders"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "production_order_operations" ADD CONSTRAINT "FK_ba8563d2e22ee81b8b8a49f0543" FOREIGN KEY ("workCenterId") REFERENCES "work_centers"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "production_order_byproducts" ADD CONSTRAINT "FK_f64ce63b38eb9a44576d2d9fe20" FOREIGN KEY ("orderId") REFERENCES "production_orders"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "production_order_byproducts" ADD CONSTRAINT "FK_bffc37f7534a9236dae7749129b" FOREIGN KEY ("productId") REFERENCES "products"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "production_time_logs" ADD CONSTRAINT "FK_1bf977d0e1d0a07d7a831e21257" FOREIGN KEY ("operationId") REFERENCES "production_order_operations"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "production_transactions" ADD CONSTRAINT "FK_7a93865fc86f2e85d5b62e6669f" FOREIGN KEY ("orderId") REFERENCES "production_orders"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+    }
+
+    public async down(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`ALTER TABLE "production_transactions" DROP CONSTRAINT "FK_7a93865fc86f2e85d5b62e6669f"`);
+        await queryRunner.query(`ALTER TABLE "production_time_logs" DROP CONSTRAINT "FK_1bf977d0e1d0a07d7a831e21257"`);
+        await queryRunner.query(`ALTER TABLE "production_order_byproducts" DROP CONSTRAINT "FK_bffc37f7534a9236dae7749129b"`);
+        await queryRunner.query(`ALTER TABLE "production_order_byproducts" DROP CONSTRAINT "FK_f64ce63b38eb9a44576d2d9fe20"`);
+        await queryRunner.query(`ALTER TABLE "production_order_operations" DROP CONSTRAINT "FK_ba8563d2e22ee81b8b8a49f0543"`);
+        await queryRunner.query(`ALTER TABLE "production_order_operations" DROP CONSTRAINT "FK_a39625fbc3cd677f06f87f94577"`);
+        await queryRunner.query(`ALTER TABLE "production_order_materials" DROP CONSTRAINT "FK_7ceda4a31fc148971eed2a72286"`);
+        await queryRunner.query(`ALTER TABLE "production_order_materials" DROP CONSTRAINT "FK_181a10443fa105dcd24ce415241"`);
+        await queryRunner.query(`ALTER TABLE "production_orders" DROP CONSTRAINT "FK_2538d2ef39edfccc67940b77ee4"`);
+        await queryRunner.query(`ALTER TABLE "production_orders" DROP CONSTRAINT "FK_99e1c4fbdc4c2ad3834fa2ad5dd"`);
+        await queryRunner.query(`ALTER TABLE "production_orders" DROP CONSTRAINT "FK_e01ab106eaf872aef04cddc858e"`);
+        await queryRunner.query(`ALTER TABLE "production_orders" DROP CONSTRAINT "FK_8584be8f232016b2c24a4e12589"`);
+        await queryRunner.query(`ALTER TABLE "production_orders" DROP CONSTRAINT "FK_7fd2c50fcd5b747cb4300f9e11c"`);
+        await queryRunner.query(`ALTER TABLE "bom_byproducts" DROP CONSTRAINT "FK_2c586a5bdf20398854a7035636b"`);
+        await queryRunner.query(`ALTER TABLE "bom_byproducts" DROP CONSTRAINT "FK_7564ff0a200eb9104c0c44564f4"`);
+        await queryRunner.query(`ALTER TABLE "bom_operations" DROP CONSTRAINT "FK_eb507723eaf8f9fb7fc5c5d3740"`);
+        await queryRunner.query(`ALTER TABLE "bom_operations" DROP CONSTRAINT "FK_5d35b4276fc7aa9692c6bcb578e"`);
+        await queryRunner.query(`ALTER TABLE "bom_lines" DROP CONSTRAINT "FK_3a6ee8db9565255209ae5507af7"`);
+        await queryRunner.query(`ALTER TABLE "bom_lines" DROP CONSTRAINT "FK_014ce7b0edadb2b12d65733c4c5"`);
+        await queryRunner.query(`ALTER TABLE "boms" DROP CONSTRAINT "FK_aa572bae154904a33a982c0a539"`);
+        await queryRunner.query(`ALTER TABLE "boms" DROP CONSTRAINT "FK_17c7df0ebef0385a9ae195378f1"`);
+        await queryRunner.query(`ALTER TABLE "work_centers" DROP CONSTRAINT "FK_3733db6867559bf9e6744039f62"`);
+        await queryRunner.query(`ALTER TABLE "work_centers" DROP CONSTRAINT "FK_db89c63df187163ecc375e043d2"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_e46939a855bd8d7d72891c4608"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_b01f52e080394b5b8e57048b55"`);
+        await queryRunner.query(`DROP TABLE "production_transactions"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_f0e14a3bae42438f406eebb7f0"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_be4c4c32d9d84f0b13fc29dc20"`);
+        await queryRunner.query(`DROP TABLE "production_time_logs"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_f64ce63b38eb9a44576d2d9fe2"`);
+        await queryRunner.query(`DROP TABLE "production_order_byproducts"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_a39625fbc3cd677f06f87f9457"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_79b6530e4f8df6f5ad813ce523"`);
+        await queryRunner.query(`DROP TABLE "production_order_operations"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_181a10443fa105dcd24ce41524"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_d22066853eddc3dca61108824d"`);
+        await queryRunner.query(`DROP TABLE "production_order_materials"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_b1f2b5a94a95e4f265b82b08e9"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_60268e9db1cd7689f8587f4760"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_f010bba4d9345d837f59e6aeb6"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_7fd2c50fcd5b747cb4300f9e11"`);
+        await queryRunner.query(`DROP TABLE "production_orders"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_7564ff0a200eb9104c0c44564f"`);
+        await queryRunner.query(`DROP TABLE "bom_byproducts"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_5d35b4276fc7aa9692c6bcb578"`);
+        await queryRunner.query(`DROP TABLE "bom_operations"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_014ce7b0edadb2b12d65733c4c"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_158a057c069fea71ba482ccf12"`);
+        await queryRunner.query(`DROP TABLE "bom_lines"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_8da364d4510d7cfeb0b6900485"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_97458015913764e9d28db4a565"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_2e77ca5103b377e4022774873c"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_17c7df0ebef0385a9ae195378f"`);
+        await queryRunner.query(`DROP TABLE "boms"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_f2178638b1338dcd11a2cffd45"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_2db594c70fb6351881047abeff"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_db89c63df187163ecc375e043d"`);
+        await queryRunner.query(`DROP TABLE "work_centers"`);
+    }
+
+}

@@ -21,6 +21,17 @@ export enum ProductType {
   STOCKED = 'stocked',
   /** خدمة أو صنف بلا مخزون (توصيل، رسوم...) */
   SERVICE = 'service',
+  /**
+   * صنف مركّب (طبق، وجبة): لا رصيد له، وبيعه يخصم مكوّنات وصفته من المخزون
+   * (قائمة مكوّنات من نوع recipe — موديول bom). بلا وصفة فعّالة يُباع كخدمة.
+   */
+  COMPOSITE = 'composite',
+}
+
+/** مصدر الصنف حين ينقص: يُشترى أم يُصنَّع (أساس تخطيط الاحتياجات MRP) */
+export enum ProductProcurement {
+  BUY = 'buy',
+  MAKE = 'make',
 }
 
 @Entity('products')
@@ -101,6 +112,25 @@ export class Product extends TenantOwnedEntity {
    */
   @Column({ default: false })
   openPrice!: boolean;
+
+  /**
+   * تتبع الدفعات وتواريخ الانتهاء (للأصناف المخزنية): كل دخول بدفعة، وكل خروج
+   * يُوزَّع على الدفعات بالأقرب انتهاءً (FEFO). ميزة الباقة lot_tracking.
+   */
+  @Column({ default: false })
+  trackLots!: boolean;
+
+  /** مدة الصلاحية بالأيام: منها يُقترح تاريخ انتهاء الدفعة الداخلة */
+  @Column({ type: 'int', nullable: true })
+  shelfLifeDays?: number | null;
+
+  /** يُشترى أم يُصنَّع حين ينقص (تخطيط الاحتياجات) */
+  @Column({
+    type: 'varchar',
+    length: 10,
+    default: ProductProcurement.BUY,
+  })
+  procurement!: ProductProcurement;
 
   @Column({ type: 'text', nullable: true })
   description?: string | null;

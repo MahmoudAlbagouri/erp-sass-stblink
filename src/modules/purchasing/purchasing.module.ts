@@ -56,6 +56,6 @@ import { SuppliersService } from './suppliers.service';
     PurchaseReturnsService,
     SupplierPaymentsService,
   ],
-  exports: [SuppliersService],
+  exports: [SuppliersService, PurchaseInvoicesService],
 })
 export class PurchasingModule {}

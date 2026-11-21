@@ -62,6 +62,17 @@ export interface KitchenOrderLine {
   unitName: string | null;
   quantity: number;
   note: string | null;
+  /** أسماء الإضافات المختارة ("جبنة زيادة"، "بدون بصل") */
+  modifiers?: string[];
+  /** محطة المطبخ التي تحضّره (من تصنيف الصنف). null = المطبخ العام */
+  stationId?: string | null;
+}
+
+/** تقدّم محطة واحدة في البون: أوقاتها للمطبخ ولقياس زمن كل محطة */
+export interface KitchenStationProgress {
+  status: KitchenOrderStatus;
+  startedAt: string | null;
+  readyAt: string | null;
 }
 
 /**
@@ -122,6 +133,13 @@ export class KitchenOrder {
 
   @Column({ type: 'jsonb' })
   lines!: KitchenOrderLine[];
+
+  /**
+   * حالة كل محطة في البون (مفتاحها معرّف المحطة، و"general" لما بلا محطة).
+   * البون جاهز حين تجهز كل محطاته. فارغ = مطعم بلا محطات
+   */
+  @Column({ type: 'jsonb', default: () => `'{}'` })
+  stations!: Record<string, KitchenStationProgress>;
 
   @Column({
     type: 'enum',

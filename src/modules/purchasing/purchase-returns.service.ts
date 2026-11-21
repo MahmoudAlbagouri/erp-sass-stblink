@@ -33,7 +33,10 @@ import {
   PurchaseReturnLine,
   PurchaseReturnStatus,
 } from './entities/purchase-return.entity';
-import { PurchaseInvoicesService } from './purchase-invoices.service';
+import {
+  PURCHASE_INVOICE_REFERENCE,
+  PurchaseInvoicesService,
+} from './purchase-invoices.service';
 import {
   computeReturnShare,
   sumMoney,
@@ -239,6 +242,11 @@ export class PurchaseReturnsService {
           type: StockMovementType.PURCHASE_RETURN,
           quantity: -line.baseQuantity,
           note: `مرتجع شراء ${purchaseReturn.number}`,
+          // من الدفعات التي أدخلتها فاتورة الشراء نفسها
+          lotsFrom: {
+            referenceType: PURCHASE_INVOICE_REFERENCE,
+            referenceId: invoice.id,
+          },
         })),
         { referenceType: REFERENCE_TYPE, referenceId: id, userId },
       );

@@ -143,6 +143,13 @@ export class KitchenLineOp {
   @IsString()
   @MaxLength(200)
   note?: string | null;
+
+  /** أسماء الإضافات المختارة (تظهر تحت الصنف على شاشة المطبخ) */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  modifiers?: string[];
 }
 
 /** عملية طابور الجهاز kitchen.send: بون مطبخ */
@@ -224,4 +231,9 @@ export class KitchenBoardQueryDto {
   @IsOptional()
   @IsUUID()
   branchId?: string;
+
+  /** شاشة محطة: أسطرها وحالتها فقط (general = ما بلا محطة) */
+  @IsOptional()
+  @IsString()
+  stationId?: string;
 }

@@ -20,6 +20,18 @@ import {
   KitchenOrder,
   RestaurantSettings,
 } from './entities/restaurant.entity';
+import {
+  KitchenStation,
+  ModifierGroup,
+  ModifierOption,
+  ProductModifierGroup,
+  Reservation,
+} from './entities/restaurant-menu.entity';
+import { RestaurantMenuController } from './restaurant-menu.controller';
+import { RestaurantMenuService } from './restaurant-menu.service';
+import { ReservationsService } from './reservations.service';
+import { RestaurantReportsService } from './restaurant-reports.service';
+import { ManufacturingModule } from '../manufacturing/manufacturing.module';
 import { PosExtrasService } from './pos-extras.service';
 import { PosScreenSettingsService } from './pos-screen-settings.service';
 import { PosDeviceGuard } from './guards/pos-device.guard';
@@ -60,6 +72,11 @@ export class PosDevicesQuotaResolver implements QuotaResolver {
       DiningTable,
       KitchenOrder,
       RestaurantSettings,
+      ModifierGroup,
+      ModifierOption,
+      ProductModifierGroup,
+      KitchenStation,
+      Reservation,
     ]),
     JwtModule.register({}), // PosDeviceGuard: جلسة المستخدم الاختيارية
     CatalogModule, // ProductsService, CatalogSettingsService
@@ -67,14 +84,23 @@ export class PosDevicesQuotaResolver implements QuotaResolver {
     SalesModule, // SalesInvoicesService, CustomersService, SalesSettingsService
     SubscriptionsModule, // SubscriptionGuard
     DeliveryModule, // البيع "توصيل" من الكاشير
+    ManufacturingModule, // الوصفات: هالك الأطباق
   ],
-  controllers: [PosController, PosDeviceController, RestaurantController],
+  controllers: [
+    PosController,
+    PosDeviceController,
+    RestaurantController,
+    RestaurantMenuController,
+  ],
   providers: [
     PosService,
     PosCashiersService,
     PosExtrasService,
     PosScreenSettingsService,
     RestaurantService,
+    RestaurantMenuService,
+    ReservationsService,
+    RestaurantReportsService,
     PosDeviceGuard,
     PosDevicesQuotaResolver,
   ],

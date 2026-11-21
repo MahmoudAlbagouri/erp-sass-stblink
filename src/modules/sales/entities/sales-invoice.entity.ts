@@ -42,6 +42,17 @@ export enum SalesInvoiceType {
 
 export type PaymentStatus = 'unpaid' | 'partial' | 'paid';
 
+/** إضافة مختارة على سطر بيع (المطاعم) */
+export interface SalesLineModifier {
+  /** خيار الإضافة (modifier_options). قد يكون حُذف بعد البيع */
+  optionId: string | null;
+  name: string;
+  /** يُضاف لسعر الوحدة، وهو داخل unitPrice */
+  priceDelta: number;
+  /** كم مرة اختير لكل وحدة */
+  quantity: number;
+}
+
 const money = {
   type: 'numeric' as const,
   precision: 15,
@@ -180,6 +191,28 @@ export class SalesInvoice extends TenantOwnedEntity {
   @Column({ default: false })
   isDelivery!: boolean;
 
+  // ─── سياق طلب المطعم (من الكاشير): لدوران الطاولات وإيراد الضيف ───
+  /** dine_in | takeaway | delivery (null = بيع عادي) */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  orderType?: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  tableId?: string | null;
+
+  @Column({ type: 'varchar', length: 60, nullable: true })
+  tableName?: string | null;
+
+  /** عدد الضيوف (covers) */
+  @Column({ type: 'int', nullable: true })
+  guestCount?: number | null;
+
+  /** متى فُتح الطلب على الطاولة: منه حتى الإصدار = مدة جلوس الطاولة */
+  @Column({ type: 'timestamptz', nullable: true })
+  orderOpenedAt?: Date | null;
+
+  @Column({ type: 'varchar', length: 150, nullable: true })
+  waiterName?: string | null;
+
   @OneToMany(() => SalesInvoiceLine, (line) => line.invoice)
   lines?: SalesInvoiceLine[];
 
@@ -279,6 +312,29 @@ export class SalesInvoiceLine {
   /** سبب تغيير السعر */
   @Column({ type: 'varchar', length: 200, nullable: true })
   priceReason?: string | null;
+
+  /**
+   * العرض الذي طبّقته شاشة الكاشير على السطر (null = بلا عرض). بلا مفتاح
+   * أجنبي: بيع الجهاز وقع فعلاً ولا يُرفض لأن العرض حُذف بعده. مع
+   * promotionSaving يُقاس أثر كل عرض على المبيعات — ولا يُسترجع بعد البيع.
+   * انظر docs/operations-research.md.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  promotionId?: string | null;
+
+  /**
+   * ما وفّره العرض على السطر: خصمه، أو (للسعر الخاص) فرق سعر القائمة عن
+   * السعر الخاص × الكمية. جزء من discount أو من فرق unitPrice، لا إضافة عليهما
+   */
+  @Column({ ...money, nullable: true, default: null })
+  promotionSaving?: number | null;
+
+  /**
+   * الإضافات المختارة على السطر (من الكاشير): أسماؤها وسعرها الإضافي لكل وحدة
+   * (داخل unitPrice). أثرها في المخزون يُقرأ من الخيار نفسه عند الإصدار
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  modifiers?: SalesLineModifier[] | null;
 
   @Column(money)
   discount!: number;

@@ -58,10 +58,17 @@ import {
   DEFAULT_PAYMENT_ACCOUNTS,
   DEFAULT_RECEIPT_ACCOUNTS,
   JournalSource,
+  LATE_SYSTEM_ACCOUNTS,
   PartyType,
   SYNC_BATCH,
   SystemAccount,
 } from './accounting.constants';
+import { ensureLateSystemAccounts } from './templates/late-accounts';
+import {
+  ProductionOrder,
+  ProductionTransaction,
+  ProductionTransactionType,
+} from '../manufacturing/entities/production-order.entity';
 import {
   Account,
   AccountingSettings,
@@ -149,6 +156,7 @@ export class PostingService {
       this.leaveSettlements(),
       this.customerOpenings(),
       this.supplierOpenings(),
+      this.production(),
     ];
   }
 
@@ -276,6 +284,16 @@ export class PostingService {
     for (const account of accounts) {
       if (account.systemKey) keys.set(account.systemKey, account.id);
     }
+    // حسابات أُضيفت للشجرة بعد تفعيل الشركة (الإنتاج): تُنشأ مرة واحدة
+    if (LATE_SYSTEM_ACCOUNTS.some((key) => !keys.has(key))) {
+      for (const [key, id] of await ensureLateSystemAccounts(
+        manager,
+        tenantId,
+        keys,
+      )) {
+        keys.set(key, id);
+      }
+    }
 
     const warehouses = await manager.find(Warehouse, {
       where: { tenantId },
@@ -385,14 +403,25 @@ export class PostingService {
             })
           ).map((l) => [l.id, l]),
         );
-        const cost = sum(
-          lines.map((line) => {
-            const source = invoiceLines.get(line.invoiceLineId);
-            return source?.isStocked
-              ? new Decimal(line.baseQuantity).mul(source.unitCost)
-              : 0;
-          }),
+        // قيمة ما عاد للمخزن كما سُجّل في حركاته (سطر بإضافات يعود بتكلفة
+        // الصنف وحده، لا بتكلفة السطر الشاملة لما استهلكته الإضافة)
+        const [returned] = await manager.query<{ value: string | null }[]>(
+          `SELECT SUM("quantity" * "unitCost") AS "value" FROM stock_movements
+            WHERE "tenantId" = $1 AND "referenceType" = 'sales_return'
+              AND "referenceId" = $2 AND "type" = $3`,
+          [ctx.tenantId, id, StockMovementType.SALE_RETURN],
         );
+        const cost =
+          returned?.value != null
+            ? new Decimal(returned.value)
+            : sum(
+                lines.map((line) => {
+                  const source = invoiceLines.get(line.invoiceLineId);
+                  return source?.isStocked
+                    ? new Decimal(line.baseQuantity).mul(source.unitCost)
+                    : 0;
+                }),
+              );
         const branchId = this.branchOf(ctx, ret.warehouseId);
         const party = customerParty(ret.customerId ?? ret.invoice?.customerId);
         const e = new EntryLines(ctx);
@@ -695,6 +724,93 @@ export class PostingService {
               ? SystemAccount.OPENING_BALANCE
               : SystemAccount.INVENTORY_ADJUSTMENTS,
           ),
+        };
+      },
+    };
+  }
+
+  /**
+   * الإنتاج (المصانع): كل صرف خامات من المخزون إلى الإنتاج تحت التشغيل، والردّ
+   * والاستلام عكسه. عند الإكمال: وقت المراكز يُحمَّل على الإنتاج تحت التشغيل
+   * مقابل "تكاليف إنتاج محمّلة"، وما لم يحمله ناتج إلى فروقات الإنتاج.
+   */
+  private production(): SourceHandler {
+    const type = JournalSource.PRODUCTION;
+    return {
+      type,
+      candidates: async (ctx) => [
+        ...(await this.pick(
+          ctx,
+          ProductionTransaction,
+          't',
+          type,
+          'apply',
+          (qb) =>
+            qb
+              .andWhere('t.occurredAt >= :activatedAt')
+              .orderBy('t.occurredAt', 'ASC'),
+        )),
+        ...(await this.pick(ctx, ProductionOrder, 'o', type, 'close', (qb) =>
+          qb
+            .andWhere(`o.status = 'completed'`)
+            .andWhere('o.completedAt >= :activatedAt')
+            .orderBy('o.completedAt', 'ASC'),
+        )),
+      ],
+      build: async (manager, ctx, { id, event }) => {
+        if (event === 'close') {
+          const order = await manager.findOneOrFail(ProductionOrder, {
+            where: { id, tenantId: ctx.tenantId },
+            withDeleted: true,
+          });
+          const branchId = this.branchOf(ctx, order.warehouseId);
+          const absorbed = new Decimal(order.laborCost).plus(
+            order.overheadCost,
+          );
+          const variance = new Decimal(order.varianceValue);
+          const e = new EntryLines(ctx);
+          e.add(SystemAccount.WORK_IN_PROGRESS, absorbed, { branchId });
+          e.add(SystemAccount.PRODUCTION_ABSORBED, absorbed.neg(), {
+            branchId,
+          });
+          e.add(SystemAccount.PRODUCTION_VARIANCE, variance, { branchId });
+          e.add(SystemAccount.WORK_IN_PROGRESS, variance.neg(), { branchId });
+          return {
+            ...base(ctx, type, id, 'close', order.number),
+            date: dateOnly(order.completedAt!, ctx.timezone),
+            description: `إكمال أمر إنتاج ${order.number}: تحميل الوقت${variance.isZero() ? '' : ' وفروقات الإنتاج'}`,
+            lines: e.lines(SystemAccount.WORK_IN_PROGRESS),
+          };
+        }
+
+        const tx = await manager.findOneOrFail(ProductionTransaction, {
+          where: { id, tenantId: ctx.tenantId },
+        });
+        const [order] = await manager.query<{ number: string }[]>(
+          `SELECT "number" FROM production_orders WHERE "id" = $1`,
+          [tx.orderId],
+        );
+        const value = new Decimal(tx.value);
+        const branchId = this.branchOf(ctx, tx.warehouseId);
+        const toWip = tx.type === ProductionTransactionType.ISSUE;
+        const e = new EntryLines(ctx);
+        e.add(SystemAccount.WORK_IN_PROGRESS, toWip ? value : value.neg(), {
+          branchId,
+        });
+        e.add(SystemAccount.INVENTORY, toWip ? value.neg() : value, {
+          branchId,
+        });
+        const label =
+          tx.type === ProductionTransactionType.ISSUE
+            ? 'صرف خامات'
+            : tx.type === ProductionTransactionType.RETURN
+              ? 'ردّ خامات'
+              : 'استلام إنتاج';
+        return {
+          ...base(ctx, type, id, 'apply', order?.number ?? null),
+          date: dateOnly(tx.occurredAt, ctx.timezone),
+          description: `${label} — أمر إنتاج ${order?.number ?? ''}`,
+          lines: e.lines(SystemAccount.WORK_IN_PROGRESS),
         };
       },
     };

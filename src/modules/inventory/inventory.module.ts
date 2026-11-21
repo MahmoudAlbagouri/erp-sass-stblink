@@ -12,6 +12,14 @@ import {
 } from './entities/stock-transfer.entity';
 import { Stocktake, StocktakeLine } from './entities/stocktake.entity';
 import { Warehouse } from './entities/warehouse.entity';
+import {
+  StockLot,
+  StockLotLevel,
+  StockMovementLot,
+} from './entities/stock-lot.entity';
+import { LotsController } from './lots.controller';
+import { LotsService } from './lots.service';
+import { StockLotsService } from './stock-lots.service';
 import { StockController } from './stock.controller';
 import { StockImportService } from './stock-import.service';
 import { StockService } from './stock.service';
@@ -41,6 +49,9 @@ import { WarehousesService } from './warehouses.service';
       StockTransferLine,
       Stocktake,
       StocktakeLine,
+      StockLot,
+      StockLotLevel,
+      StockMovementLot,
     ]),
     CatalogModule, // ProductsService
     SubscriptionsModule, // SubscriptionGuard
@@ -50,6 +61,7 @@ import { WarehousesService } from './warehouses.service';
     StockController,
     TransfersController,
     StocktakesController,
+    LotsController,
   ],
   providers: [
     WarehousesService,
@@ -58,7 +70,9 @@ import { WarehousesService } from './warehouses.service';
     TransfersService,
     StocktakesService,
     WarehousesQuotaResolver,
+    StockLotsService,
+    LotsService,
   ],
-  exports: [WarehousesService, StockService],
+  exports: [WarehousesService, StockService, StockLotsService, LotsService],
 })
 export class InventoryModule {}

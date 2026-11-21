@@ -49,6 +49,7 @@ import { DepartmentsModule } from './modules/departments/departments.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
 import { PurchasingModule } from './modules/purchasing/purchasing.module';
+import { ManufacturingModule } from './modules/manufacturing/manufacturing.module';
 import { PosModule } from './modules/pos/pos.module';
 import { DeliveryModule } from './modules/delivery/delivery.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
@@ -121,6 +122,7 @@ import { IdempotencyModule } from './common/idempotency/idempotency.module';
     CatalogModule,
     InventoryModule,
     PurchasingModule,
+    ManufacturingModule,
     SalesModule,
     DashboardModule,
     PosModule,

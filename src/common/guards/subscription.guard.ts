@@ -6,7 +6,10 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { REQUIRES_FEATURE_KEY } from '../decorators/requires-feature.decorator';
+import {
+  ANY_FEATURE_SEPARATOR,
+  REQUIRES_FEATURE_KEY,
+} from '../decorators/requires-feature.decorator';
 import { CHECK_QUOTA_KEY } from '../decorators/check-quota.decorator';
 import { SubscriptionManagerService } from '../../modules/subscriptions/subscription-manager.service';
 import type { AuthenticatedRequest } from '../types/auth.types';
@@ -58,10 +61,14 @@ export class SubscriptionGuard implements CanActivate {
 
     // 2️⃣ Feature Gating
     if (featureKey) {
-      const hasFeature = await this.subscriptionManager.hasFeature(
-        tenantId,
-        featureKey,
-      );
+      // "a|b": تكفي أي ميزة منها
+      let hasFeature = false;
+      for (const key of featureKey.split(ANY_FEATURE_SEPARATOR)) {
+        if (await this.subscriptionManager.hasFeature(tenantId, key)) {
+          hasFeature = true;
+          break;
+        }
+      }
       if (!hasFeature) {
         throw new ForbiddenException(
           `هذه الميزة (${featureKey}) غير متاحة ضمن خطتكم الحالية`,

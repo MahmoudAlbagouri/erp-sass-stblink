@@ -3,6 +3,7 @@ import { Injectable, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { QuotaResolverFor } from '../../common/decorators/quota-resolver.decorator';
 import { CatalogModule } from '../catalog/catalog.module';
+import { ManufacturingModule } from '../manufacturing/manufacturing.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { QuotaResolver } from '../subscriptions/interfaces/quota-resolver.interface';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
@@ -59,6 +60,7 @@ export class SalesInvoicesQuotaResolver implements QuotaResolver {
     ]),
     CatalogModule, // ProductsService
     InventoryModule, // StockService, WarehousesService
+    ManufacturingModule, // RecipeConsumptionService: خصم مكوّنات الأطباق
     SubscriptionsModule, // SubscriptionGuard
   ],
   controllers: [

@@ -27,6 +27,11 @@ import {
   KitchenOrderStatus,
   RestaurantSettings,
 } from './entities/restaurant.entity';
+import {
+  GENERAL_STATION,
+  PosModifierGroup,
+  RestaurantMenuService,
+} from './restaurant-menu.service';
 
 /** ما ينزل لشاشة الكاشير (null في البوتستراب = الباقة بلا مطاعم) */
 export interface PosRestaurantOptions {
@@ -35,6 +40,9 @@ export interface PosRestaurantOptions {
   kitchenCategoryIds: string[];
   printKitchenTicket: boolean;
   sendOnPayment: boolean;
+  /** الإضافات والوجبات: المجموعات وخياراتها، وأي مجموعات لأي صنف */
+  modifierGroups: PosModifierGroup[];
+  productModifierGroups: Record<string, string[]>;
 }
 
 /** حالة بون كما تعرفها شاشة الكاشير (للتنبيه بالجاهز) */
@@ -110,6 +118,7 @@ export class RestaurantService {
     private readonly orders: Repository<KitchenOrder>,
     @InjectRepository(RestaurantSettings)
     private readonly settings: Repository<RestaurantSettings>,
+    private readonly menu: RestaurantMenuService,
   ) {}
 
   // ══════════════════════════ الطاولات ══════════════════════════
@@ -343,7 +352,7 @@ export class RestaurantService {
   async deviceOptions(device: PosDevice): Promise<PosRestaurantOptions> {
     const { tenantId } = device;
     const branchId = await this.deviceBranch(device);
-    const [tables, settings] = await Promise.all([
+    const [tables, settings, menu] = await Promise.all([
       this.tables.find({
         where: branchId
           ? [
@@ -354,8 +363,10 @@ export class RestaurantService {
         order: { area: 'ASC', sortOrder: 'ASC', name: 'ASC' },
       }),
       this.getSettings(tenantId),
+      this.menu.deviceMenu(tenantId),
     ]);
     return {
+      ...menu,
       tables: tables.map((t) => ({
         id: t.id,
         name: t.name,
@@ -390,12 +401,31 @@ export class RestaurantService {
       }
       return true;
     }
+    const branchId = await this.deviceBranch(device);
+    // كل سطر لمحطته (بتصنيف الصنف)، ولكل محطة في البون تقدّمها
+    const route = await this.menu.routeProducts(
+      device.tenantId,
+      branchId,
+      op.lines.map((l) => l.productId).filter((id): id is string => !!id),
+    );
+    const stationOf = (productId?: string | null) =>
+      route.size && productId ? (route.get(productId) ?? null) : null;
+    const stations: KitchenOrder['stations'] = {};
+    if (route.size) {
+      for (const line of op.lines) {
+        stations[stationOf(line.productId) ?? GENERAL_STATION] = {
+          status: KitchenOrderStatus.NEW,
+          startedAt: null,
+          readyAt: null,
+        };
+      }
+    }
     try {
       await this.orders.insert({
         id: op.id,
         tenantId: device.tenantId,
         deviceId: device.id,
-        branchId: await this.deviceBranch(device),
+        branchId,
         shiftId: op.shiftId ?? null,
         ticketNo: op.ticketNo,
         orderType: op.orderType,
@@ -412,7 +442,12 @@ export class RestaurantService {
           unitName: line.unitName?.trim() || null,
           quantity: line.quantity,
           note: line.note?.trim() || null,
+          ...(line.modifiers?.length
+            ? { modifiers: line.modifiers.map((m) => m.trim()).filter(Boolean) }
+            : {}),
+          ...(route.size ? { stationId: stationOf(line.productId) } : {}),
         })),
+        stations,
         status: KitchenOrderStatus.NEW,
         sentAt: sentTime(op.sentAt),
       });
@@ -498,7 +533,94 @@ export class RestaurantService {
    * طلبات المطبخ: الجديد وقيد التحضير، والجاهز الذي لم يُسلَّم (آخر ساعتين).
    * لفرع واحد، أو لكل فروع المستخدم.
    */
-  async board(tenantId: string, branchId?: string): Promise<KitchenOrder[]> {
+  async board(
+    tenantId: string,
+    branchId?: string,
+    stationId?: string,
+  ): Promise<KitchenOrder[]> {
+    const orders = await this.boardOrders(tenantId, branchId);
+    if (!stationId) return orders;
+    // شاشة محطة: البونات التي لها فيها نصيب لم يُسلَّم، بأسطرها وحالتها هي
+    const readyCutoff = Date.now() - READY_VISIBLE_HOURS * 3_600_000;
+    return orders
+      .filter((order) => {
+        const progress = order.stations?.[stationId];
+        if (!progress) return false;
+        if (progress.status === KitchenOrderStatus.READY) {
+          return (
+            order.status !== KitchenOrderStatus.SERVED &&
+            new Date(progress.readyAt ?? 0).getTime() > readyCutoff
+          );
+        }
+        return true;
+      })
+      .map((order) =>
+        Object.assign(order, {
+          lines: order.lines.filter(
+            (l) => (l.stationId ?? GENERAL_STATION) === stationId,
+          ),
+          status: order.stations[stationId].status,
+          startedAt: order.stations[stationId].startedAt
+            ? new Date(order.stations[stationId].startedAt)
+            : null,
+          readyAt: order.stations[stationId].readyAt
+            ? new Date(order.stations[stationId].readyAt)
+            : null,
+        }),
+      );
+  }
+
+  /**
+   * محطة تنقل نصيبها من البون. حالة البون من محطاته: جاهز حين تجهز كلها،
+   * وقيد التحضير حين تبدأ إحداها. @returns البون بحالته العامة
+   */
+  async updateStationStatus(
+    id: string,
+    stationId: string,
+    status: KitchenOrderStatus,
+    tenantId: string,
+  ): Promise<KitchenOrder> {
+    const order = await this.orders.findOne({ where: { id, tenantId } });
+    if (!order) throw new NotFoundException(ORDER_NOT_FOUND);
+    assertBranchVisible(order.branchId, ORDER_NOT_FOUND);
+    const progress = order.stations?.[stationId];
+    if (!progress) {
+      throw new BadRequestException('هذه المحطة ليس لها نصيب في البون');
+    }
+    if (
+      order.status === KitchenOrderStatus.SERVED ||
+      order.status === KitchenOrderStatus.CANCELLED
+    ) {
+      throw new BadRequestException(
+        `البون "${STATUS_LABEL[order.status]}" — لا تغيير بعده`,
+      );
+    }
+    const now = new Date().toISOString();
+    order.stations = {
+      ...order.stations,
+      [stationId]: {
+        status,
+        startedAt:
+          status === KitchenOrderStatus.NEW
+            ? null
+            : (progress.startedAt ?? now),
+        readyAt: status === KitchenOrderStatus.READY ? now : null,
+      },
+    };
+    const all = Object.values(order.stations);
+    const overall = all.every((s) => s.status === KitchenOrderStatus.READY)
+      ? KitchenOrderStatus.READY
+      : all.some((s) => s.status !== KitchenOrderStatus.NEW)
+        ? KitchenOrderStatus.PREPARING
+        : KitchenOrderStatus.NEW;
+    if (overall === order.status) return this.orders.save(order);
+    return this.applyStatus(order, overall);
+  }
+
+  private async boardOrders(
+    tenantId: string,
+    branchId?: string,
+  ): Promise<KitchenOrder[]> {
     const qb = this.orders
       .createQueryBuilder('o')
       .where('o.tenantId = :tenantId', { tenantId })
@@ -567,6 +689,30 @@ export class RestaurantService {
         break;
     }
     order.status = status;
+    // نقل البون كله (من شاشة المطبخ العامة أو الكاشير) ينقل محطاته معه
+    if (order.stations && Object.keys(order.stations).length) {
+      const at = now.toISOString();
+      for (const [key, progress] of Object.entries(order.stations)) {
+        if (status === KitchenOrderStatus.NEW) {
+          order.stations[key] = { status, startedAt: null, readyAt: null };
+        } else if (
+          status === KitchenOrderStatus.PREPARING &&
+          progress.status === KitchenOrderStatus.NEW
+        ) {
+          order.stations[key] = { status, startedAt: at, readyAt: null };
+        } else if (
+          (status === KitchenOrderStatus.READY ||
+            status === KitchenOrderStatus.SERVED) &&
+          progress.status !== KitchenOrderStatus.READY
+        ) {
+          order.stations[key] = {
+            status: KitchenOrderStatus.READY,
+            startedAt: progress.startedAt ?? at,
+            readyAt: at,
+          };
+        }
+      }
+    }
     return this.orders.save(order);
   }
 

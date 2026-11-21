@@ -23,7 +23,7 @@ import {
 } from './dto/product.dto';
 import { ProductBarcode } from './entities/product-barcode.entity';
 import { ProductUnit } from './entities/product-unit.entity';
-import { Product } from './entities/product.entity';
+import { Product, ProductType } from './entities/product.entity';
 import { FilesService } from '../files/files.service';
 
 const PRODUCT_RELATIONS = [
@@ -231,6 +231,7 @@ export class ProductsService {
       taxRateId,
     });
     this.assertPricing(fields.salePrice, fields.minSalePrice);
+    assertLotSettings(fields.type ?? ProductType.STOCKED, fields.trackLots);
     await this.assertUnitsValid(units, fields.baseUnitId, tenantId);
     this.assertBarcodeUnits(barcodes, units, fields.baseUnitId);
 
@@ -276,6 +277,10 @@ export class ProductsService {
     });
 
     const baseUnitId = fields.baseUnitId ?? product.baseUnitId;
+    assertLotSettings(
+      fields.type ?? product.type,
+      fields.trackLots ?? product.trackLots,
+    );
     this.assertPricing(
       fields.salePrice ?? product.salePrice,
       fields.minSalePrice === undefined
@@ -511,6 +516,15 @@ export class ProductsService {
           unitId: item.unitId ?? null,
         }),
       ),
+    );
+  }
+}
+
+/** الدفعات للأصناف المخزنية وحدها: الخدمة والمركّب لا رصيد لهما */
+function assertLotSettings(type: ProductType, trackLots?: boolean): void {
+  if (trackLots && type !== ProductType.STOCKED) {
+    throw new BadRequestException(
+      'تتبع الدفعات للأصناف المخزنية فقط (لا للخدمة ولا للصنف المركّب)',
     );
   }
 }

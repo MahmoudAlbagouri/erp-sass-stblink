@@ -171,6 +171,29 @@ export class DeliveryOrder extends TenantOwnedEntity {
   @Column({ type: 'varchar', length: 500 })
   address!: string;
 
+  /**
+   * موقع المستلم على الخريطة (اختياري، يأتي الاثنان معاً). لا يُستعمل في
+   * الحساب اليوم: يُجمع لأن تخطيط مسارات الطيارين وتقسيم المناطق لاحقاً يحتاج
+   * مواقع الطلبات الفعلية عبر الزمن. انظر docs/operations-research.md.
+   */
+  @Column({
+    type: 'decimal',
+    precision: 9,
+    scale: 6,
+    nullable: true,
+    transformer: decimalTransformer,
+  })
+  latitude?: number | null;
+
+  @Column({
+    type: 'decimal',
+    precision: 9,
+    scale: 6,
+    nullable: true,
+    transformer: decimalTransformer,
+  })
+  longitude?: number | null;
+
   @Column({ type: 'uuid', nullable: true })
   zoneId?: string | null;
 

@@ -25,11 +25,20 @@ import {
 import { InventoryItem } from './entities/inventory-item.entity';
 import { StockLevel } from './entities/stock-level.entity';
 import {
+  StockAdjustmentReason,
   StockMovement,
   StockMovementType,
 } from './entities/stock-movement.entity';
 import { Warehouse } from './entities/warehouse.entity';
 import { WarehousesService } from './warehouses.service';
+import { StockLotsService } from './stock-lots.service';
+import { StockLotSource } from './entities/stock-lot.entity';
+import type {
+  LotAllocation,
+  LotInput,
+  LotPick,
+  LotsFrom,
+} from './stock-lots.types';
 import {
   restrictToScopedWarehouses,
   scopedWarehouseIds,
@@ -53,6 +62,16 @@ export interface StockEntry {
    */
   unitCost?: number;
   note?: string;
+  /** سبب التسوية اليدوية (يُحفظ على الحركة لتحليل الهالك) */
+  reason?: StockAdjustmentReason;
+
+  // ─── الدفعات: تُهمل لصنف لا يتتبع دفعاته ───
+  /** دفعة الكمية الداخلة (تُنشأ برقمها إن لم توجد) */
+  lot?: LotInput;
+  /** توزيع صريح على دفعات قائمة (بالموجب) */
+  lots?: LotPick[];
+  /** يتبع دفعات مستند سابق: مرتجع البيع لدفعات البيع، استلام التحويل لدفعات إرساله */
+  lotsFrom?: LotsFrom;
 }
 
 /** المستند والمستخدم صاحبا الحركات */
@@ -78,6 +97,8 @@ export interface StockResult {
   overdrawn: boolean;
   /** تكلفة الوحدة المسجّلة على الحركة */
   unitCost: number;
+  /** توزيع الحركة على الدفعات (فارغ لصنف لا يتتبع دفعاته) */
+  lots: LotAllocation[];
 }
 
 /** صف في شاشة الأرصدة */
@@ -115,6 +136,8 @@ export interface StockLookupRow {
   allowsFractions: boolean;
   quantity: number;
   avgCost: number;
+  /** يتتبع دفعاته: الداخل يحتاج رقم دفعة */
+  trackLots: boolean;
 }
 
 interface ItemRow {
@@ -134,6 +157,7 @@ export class StockService {
     private readonly warehouses: WarehousesService,
     private readonly products: ProductsService,
     private readonly dataSource: DataSource,
+    private readonly lotAllocator: StockLotsService,
   ) {}
 
   // ══════════════════════════ الكتابة ══════════════════════════
@@ -226,6 +250,9 @@ export class StockService {
         throw new BadRequestException('التكلفة تُدخل للكميات الداخلة فقط');
       }
     }
+    if (dto.reason && dto.type === StockMovementType.OPENING) {
+      throw new BadRequestException('الرصيد الافتتاحي لا سبب له');
+    }
 
     const results = await this.dataSource.transaction((manager) =>
       this.apply(
@@ -238,6 +265,24 @@ export class StockService {
           quantity: line.quantity,
           unitCost: line.unitCost,
           note: dto.note,
+          reason: dto.reason,
+          // الدفعة: رقم للداخل، ودفعة مختارة للخارج
+          lot:
+            line.quantity > 0 && line.lotNumber
+              ? {
+                  lotNumber: line.lotNumber,
+                  expiryDate: line.expiryDate ?? null,
+                  manufactureDate: line.manufactureDate ?? null,
+                  source:
+                    dto.type === StockMovementType.OPENING
+                      ? StockLotSource.OPENING
+                      : StockLotSource.ADJUSTMENT,
+                }
+              : undefined,
+          lots:
+            line.quantity < 0 && line.lotId
+              ? [{ lotId: line.lotId, quantity: -line.quantity }]
+              : undefined,
         })),
         // كل طلب تسوية مستند واحد: به تُجمع حركاته في قيد محاسبي واحد
         { referenceType: 'adjustment', referenceId: randomUUID(), userId },
@@ -401,6 +446,9 @@ export class StockService {
     if (query.type) {
       qb.andWhere('movement.type = :type', { type: query.type });
     }
+    if (query.reason) {
+      qb.andWhere('movement.reason = :reason', { reason: query.reason });
+    }
     if (query.from) {
       qb.andWhere('movement.occurredAt >= :from', { from: query.from });
     }
@@ -456,6 +504,7 @@ export class StockService {
       allowsFractions: product.baseUnit?.allowsFractions ?? false,
       quantity: quantityOf.get(product.id) ?? 0,
       avgCost: costOf.get(product.id) ?? 0,
+      trackLots: product.trackLots,
     }));
   }
 
@@ -506,6 +555,7 @@ export class StockService {
         quantity: current.toNumber(),
         overdrawn: false,
         unitCost: avgCost.toNumber(),
+        lots: [],
       };
     }
 
@@ -568,10 +618,30 @@ export class StockService {
         referenceType: context.referenceType ?? null,
         referenceId: context.referenceId ?? null,
         note: entry.note ?? null,
+        reason: entry.reason ?? null,
         createdById: context.userId ?? null,
         occurredAt: context.occurredAt ?? new Date(),
       }),
     );
+
+    // الدفعات: توزيع الحركة (تحت قفل الصنف نفسه)
+    const lots = product.trackLots
+      ? await this.lotAllocator.allocate(manager, {
+          tenantId,
+          warehouseId: warehouse.id,
+          productId: product.id,
+          productName: product.name,
+          shelfLifeDays: product.shelfLifeDays ?? null,
+          movementId: movement.id,
+          quantity: delta.toDecimalPlaces(SCALE),
+          previousQuantity: current,
+          occurredAt: movement.occurredAt,
+          allowShortfall: !!context.allowNegative,
+          lot: entry.lot,
+          lots: entry.lots,
+          lotsFrom: entry.lotsFrom,
+        })
+      : [];
 
     return {
       movement,
@@ -579,6 +649,7 @@ export class StockService {
       quantity: balance.toDecimalPlaces(SCALE).toNumber(),
       overdrawn,
       unitCost,
+      lots,
     };
   }
 

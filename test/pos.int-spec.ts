@@ -1,3 +1,9 @@
+import { Bom } from '../src/modules/manufacturing/entities/bom.entity';
+import { WorkCenter } from '../src/modules/manufacturing/entities/work-center.entity';
+import { BomsService } from '../src/modules/manufacturing/boms.service';
+import { RecipeConsumptionService } from '../src/modules/manufacturing/recipe-consumption.service';
+import { WorkCentersService } from '../src/modules/manufacturing/work-centers.service';
+import { StockLotsService } from '../src/modules/inventory/stock-lots.service';
 import type { DeliveryService } from '../src/modules/delivery/delivery.service';
 import type { DomainEvents } from '../src/common/events/domain-events';
 import { randomUUID } from 'crypto';
@@ -230,6 +236,7 @@ describe('pos module', () => {
       warehouses,
       products,
       dataSource,
+      new StockLotsService(),
     );
     customers = new CustomersService(
       dataSource.getRepository(Customer),
@@ -246,6 +253,16 @@ describe('pos module', () => {
       stock,
       salesSettings,
       dataSource,
+      new RecipeConsumptionService(
+        new BomsService(
+          dataSource.getRepository(Bom),
+          new WorkCentersService(
+            dataSource.getRepository(WorkCenter),
+            dataSource,
+          ),
+          dataSource,
+        ),
+      ),
     );
     cashiers = new PosCashiersService(dataSource.getRepository(PosCashier));
     quotes = new SalesQuotesService(

@@ -1,3 +1,4 @@
+import { StockLotsService } from '../src/modules/inventory/stock-lots.service';
 import { DataSource } from 'typeorm';
 import type { DomainEvents } from '../src/common/events/domain-events';
 import { CatalogSettingsService } from '../src/modules/catalog/catalog-settings.service';
@@ -110,6 +111,7 @@ describe('inventory module', () => {
       warehouses,
       products,
       dataSource,
+      new StockLotsService(),
     );
     transfers = new TransfersService(
       dataSource.getRepository(StockTransfer),

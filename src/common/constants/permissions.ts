@@ -444,6 +444,53 @@ export const PERMS = {
     name: 'use_kitchen_display',
     labelAr: 'شاشة المطبخ: عرض الطلبات وتحديث حالتها',
   },
+  RESERVATION_MANAGE: {
+    name: 'manage_reservations',
+    labelAr: 'حجوزات الطاولات',
+  },
+  RESTAURANT_REPORTS_VIEW: {
+    name: 'view_restaurant_reports',
+    labelAr: 'تقارير المطعم: هندسة المنيو والاستهلاك النظري مقابل الفعلي',
+  },
+
+  // ─── قوائم المكوّنات والوصفات (مشتركة بين المصانع والمطاعم) ───
+  BOM_VIEW: { name: 'view_boms', labelAr: 'عرض قوائم المكوّنات والوصفات' },
+  BOM_MANAGE: {
+    name: 'manage_boms',
+    labelAr: 'إدارة قوائم المكوّنات والوصفات وخطوات التصنيع',
+  },
+
+  // ─── المصانع ────────────────────────────────────────
+  MANUFACTURING_VIEW: {
+    name: 'view_manufacturing',
+    labelAr: 'عرض أوامر الإنتاج ومراكز العمل وتقارير المصنع',
+  },
+  WORK_CENTER_MANAGE: {
+    name: 'manage_work_centers',
+    labelAr: 'إدارة مراكز العمل (الماكينات والخطوط)',
+  },
+  PRODUCTION_PLAN: {
+    name: 'plan_production',
+    labelAr: 'إنشاء أوامر الإنتاج وإطلاقها وإلغاؤها وتخطيط الاحتياجات',
+  },
+  PRODUCTION_EXECUTE: {
+    name: 'execute_production',
+    labelAr: 'تنفيذ الإنتاج: صرف الخامات وتسجيل الوقت والتوقف والاستلام',
+  },
+  PRODUCTION_CLOSE: {
+    name: 'close_production',
+    labelAr: 'إقفال أوامر الإنتاج واعتماد تكلفتها',
+  },
+
+  // ─── الدفعات وتواريخ الانتهاء ───────────────────────
+  LOT_VIEW: {
+    name: 'view_lots',
+    labelAr: 'عرض الدفعات وتتبعها وتواريخ انتهائها',
+  },
+  LOT_MANAGE: {
+    name: 'manage_lots',
+    labelAr: 'تعديل بيانات الدفعات وتعيين الرصيد غير المعيّن لدفعة',
+  },
 
   // ─── التوصيل والشحن ─────────────────────────────────
   DELIVERY_VIEW: {

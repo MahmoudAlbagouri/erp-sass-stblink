@@ -175,6 +175,10 @@ export function buildChartTemplate(
     key: SystemAccount.INVENTORY,
   });
   add('110402', 'بضاعة في الطريق', 'Goods in transit', { parent: '1104' });
+  add('110403', 'إنتاج تحت التشغيل', 'Work in progress', {
+    parent: '1104',
+    key: SystemAccount.WORK_IN_PROGRESS,
+  });
 
   group(
     '1105',
@@ -376,6 +380,16 @@ export function buildChartTemplate(
     key: SystemAccount.INVENTORY_ADJUSTMENTS,
   });
   add('5103', 'مصروفات نقل المشتريات', 'Freight-in', { parent: '51' });
+  add(
+    '5104',
+    'تكاليف إنتاج محمّلة (عمالة وتشغيل)',
+    'Applied production costs',
+    { parent: '51', key: SystemAccount.PRODUCTION_ABSORBED },
+  );
+  add('5105', 'فروقات الإنتاج', 'Production variances', {
+    parent: '51',
+    key: SystemAccount.PRODUCTION_VARIANCE,
+  });
 
   group(
     '52',

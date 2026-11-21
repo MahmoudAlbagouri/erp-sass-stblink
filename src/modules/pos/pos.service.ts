@@ -823,6 +823,14 @@ export class PosService {
           pricesIncludeTax: op.pricesIncludeTax,
           lines: op.lines,
           payments: op.payments,
+          order: op.order
+            ? {
+                ...op.order,
+                openedAt: op.order.openedAt
+                  ? new Date(op.order.openedAt)
+                  : null,
+              }
+            : undefined,
         },
         device.tenantId,
         actor.id,

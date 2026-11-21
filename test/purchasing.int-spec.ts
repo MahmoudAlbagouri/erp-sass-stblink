@@ -1,3 +1,4 @@
+import { StockLotsService } from '../src/modules/inventory/stock-lots.service';
 import { DataSource } from 'typeorm';
 import { CatalogSettingsService } from '../src/modules/catalog/catalog-settings.service';
 import { ProductBarcode } from '../src/modules/catalog/entities/product-barcode.entity';
@@ -125,6 +126,7 @@ describe('purchasing module', () => {
       warehouses,
       products,
       dataSource,
+      new StockLotsService(),
     );
     suppliers = new SuppliersService(
       dataSource.getRepository(Supplier),
@@ -445,7 +447,13 @@ describe('purchasing module', () => {
     });
 
     it('filters invoices that are due or overdue', async () => {
-      await postedInvoice(); // تستحق بعد 30 يوماً
+      // مستحقة لم يحن موعدها: تاريخ ثابت في المستقبل، لا "بعد 30 يوماً من
+      // TODAY" — TODAY ثابت فيصير ذلك متأخراً بمرور الأيام الحقيقية
+      const notYet = await newInvoice(
+        [{ productId: water.id, quantity: 10, unitPrice: 20 }],
+        { dueDate: '2099-12-31' },
+      );
+      await invoices.post(notYet.id, tenantA);
       const old = await newInvoice(
         [{ productId: rice.id, quantity: 1, unitPrice: 100 }],
         { dueDate: '2020-01-01' },

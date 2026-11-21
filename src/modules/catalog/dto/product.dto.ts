@@ -7,18 +7,21 @@ import {
   IsBoolean,
   IsEnum,
   IsIn,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
   IsUUID,
   Matches,
+  Max,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { PaginationQueryDto } from '../../../common/dto/pagination.dto';
-import { ProductType } from '../entities/product.entity';
+import { ProductProcurement, ProductType } from '../entities/product.entity';
 
 /** الباركود: أرقام/حروف وشرطات فقط (بلا مسافات) حتى يطابق ما يرسله القارئ */
 const BARCODE_PATTERN = /^[A-Za-z0-9._-]{3,64}$/;
@@ -111,6 +114,24 @@ export class CreateProductDto {
   @IsOptional()
   @IsBoolean()
   openPrice?: boolean;
+
+  /** تتبع الدفعات وتواريخ الانتهاء (للأصناف المخزنية — ميزة lot_tracking) */
+  @IsOptional()
+  @IsBoolean()
+  trackLots?: boolean;
+
+  /** مدة الصلاحية بالأيام: منها يُقترح تاريخ انتهاء الدفعة. null = بلا مدة */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsInt({ message: 'مدة الصلاحية عدد أيام صحيح' })
+  @Min(1)
+  @Max(36500)
+  shelfLifeDays?: number | null;
+
+  /** يُشترى (buy) أم يُصنَّع (make) حين ينقص — أساس تخطيط الاحتياجات */
+  @IsOptional()
+  @IsEnum(ProductProcurement)
+  procurement?: ProductProcurement;
 
   @IsOptional()
   @IsString()

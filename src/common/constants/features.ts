@@ -79,7 +79,17 @@ export const FEATURES = {
   },
   RESTAURANT_MODULE: {
     name: 'restaurant_module',
-    labelAr: 'المطاعم: الطاولات وشاشة المطبخ وبون المطبخ',
+    labelAr:
+      'المطاعم: الطاولات، شاشة المطبخ ومحطاته، الوصفات وخصم مكوّناتها، الإضافات والوجبات، الحجوزات وتقارير المنيو',
+  },
+  MANUFACTURING_MODULE: {
+    name: 'manufacturing_module',
+    labelAr:
+      'إدارة المصانع: مراكز العمل، قوائم المكوّنات، أوامر الإنتاج وتكلفتها، وتخطيط الاحتياجات',
+  },
+  LOT_TRACKING: {
+    name: 'lot_tracking',
+    labelAr: 'تتبع الدفعات وتواريخ الانتهاء (الصرف بالأقرب انتهاءً)',
   },
   ACCOUNTING_MODULE: {
     name: 'accounting_module',

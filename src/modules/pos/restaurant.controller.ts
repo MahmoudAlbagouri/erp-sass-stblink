@@ -32,6 +32,7 @@ import {
   UpdateDiningTableDto,
   UpdateRestaurantSettingsDto,
 } from './dto/restaurant.dto';
+import { StationStatusDto } from './dto/restaurant-menu.dto';
 import { RestaurantService } from './restaurant.service';
 
 /**
@@ -124,7 +125,24 @@ export class RestaurantController {
     @Query() query: KitchenBoardQueryDto,
     @CurrentTenantId() tenantId: string,
   ) {
-    return this.restaurant.board(tenantId, query.branchId);
+    return this.restaurant.board(tenantId, query.branchId, query.stationId);
+  }
+
+  /** محطة تنقل نصيبها من البون (قيد التحضير، جاهز): البون جاهز حين تجهز كل محطاته */
+  @Patch('kitchen/orders/:id/stations/:stationId')
+  @Permissions(PERMS.KITCHEN_DISPLAY)
+  updateStationStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('stationId') stationId: string,
+    @Body() dto: StationStatusDto,
+    @CurrentTenantId() tenantId: string,
+  ) {
+    return this.restaurant.updateStationStatus(
+      id,
+      stationId,
+      dto.status,
+      tenantId,
+    );
   }
 
   /** نقل طلب: قيد التحضير، جاهز، سُلّم (أو الرجوع خطوة) */

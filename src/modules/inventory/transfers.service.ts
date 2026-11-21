@@ -310,6 +310,8 @@ export class TransfersService {
             productId: line.productId,
             type: StockMovementType.TRANSFER_IN,
             quantity,
+            // الدفعات نفسها التي خرجت بالإرسال
+            lotsFrom: { referenceType: REFERENCE_TYPE, referenceId: id },
             note:
               quantity < line.quantity
                 ? `تحويل ${transfer.number} — استُلم ${quantity} من ${line.quantity}`
@@ -376,6 +378,7 @@ export class TransfersService {
             productId: line.productId,
             type: StockMovementType.TRANSFER_IN,
             quantity: line.quantity,
+            lotsFrom: { referenceType: REFERENCE_TYPE, referenceId: id },
             note: `إلغاء تحويل ${transfer.number}`,
           })),
           { referenceType: REFERENCE_TYPE, referenceId: id, userId },

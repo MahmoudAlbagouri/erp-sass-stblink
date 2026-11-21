@@ -79,6 +79,14 @@ export class PurchaseInvoice extends TenantOwnedEntity {
   @Column({ type: 'date', nullable: true })
   dueDate?: string | null;
 
+  /**
+   * تاريخ طلب البضاعة من المورد. الفرق بينه وبين تاريخ الفاتورة (الاستلام) =
+   * مدة التوريد الفعلية لهذا الطلب: تاريخ لا يُسترجع إن لم يُسجَّل.
+   * null = غير معروف. انظر docs/operations-research.md.
+   */
+  @Column({ type: 'date', nullable: true })
+  orderDate?: string | null;
+
   @Column({
     type: 'enum',
     enum: PurchaseInvoiceStatus,
@@ -233,6 +241,18 @@ export class PurchaseInvoiceLine {
   /** ما أُرجع من هذا السطر (بوحدة الشراء) */
   @Column({ ...quantity, default: 0 })
   returnedQuantity!: number;
+
+  // ─── الدفعة (لصنف يتتبع دفعاته؛ تُهمل لغيره) ───
+  /** رقم الدفعة كما على العبوة. فارغ = رقم الفاتورة عند الاعتماد */
+  @Column({ type: 'varchar', length: 60, nullable: true })
+  lotNumber?: string | null;
+
+  /** فارغ = يُقترح من مدة صلاحية الصنف */
+  @Column({ type: 'date', nullable: true })
+  expiryDate?: string | null;
+
+  @Column({ type: 'date', nullable: true })
+  manufactureDate?: string | null;
 }
 
 /** فرق مبالغ مخزّنة: التقريب لأقصى دقة مدعومة يزيل ضجيج الفاصلة العائمة فقط */

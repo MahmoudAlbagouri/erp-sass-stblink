@@ -58,7 +58,20 @@ export enum SystemAccount {
   DELIVERY_EXPENSE = 'delivery_expense',
   CASH_OVER_SHORT = 'cash_over_short',
   COURIER_DIFFERENCES = 'courier_differences',
+  /** الإنتاج تحت التشغيل: خامات صُرفت ووقت حُمّل ولم يصر ناتجاً بعد */
+  WORK_IN_PROGRESS = 'work_in_progress',
+  /** تكاليف إنتاج محمّلة (عمالة وتشغيل): مقابل الوقت الذي دخل تكلفة المنتج */
+  PRODUCTION_ABSORBED = 'production_absorbed',
+  /** فروقات الإنتاج: ما لم يحمله ناتج (دفعة فاشلة، تقريب) */
+  PRODUCTION_VARIANCE = 'production_variance',
 }
+
+/** حسابات نظام أُضيفت بعد إطلاق الشجرة: تُنشأ تلقائياً للشركات القديمة */
+export const LATE_SYSTEM_ACCOUNTS: readonly SystemAccount[] = [
+  SystemAccount.WORK_IN_PROGRESS,
+  SystemAccount.PRODUCTION_ABSORBED,
+  SystemAccount.PRODUCTION_VARIANCE,
+];
 
 /** من أين جاء القيد */
 export enum JournalSource {
@@ -84,6 +97,7 @@ export enum JournalSource {
   SUPPLIER_OPENING = 'supplier_opening',
   EXPENSE_VOUCHER = 'expense_voucher',
   YEAR_CLOSING = 'year_closing',
+  PRODUCTION = 'production',
 }
 
 export const JOURNAL_SOURCE_LABEL: Record<JournalSource, string> = {
@@ -109,6 +123,7 @@ export const JOURNAL_SOURCE_LABEL: Record<JournalSource, string> = {
   [JournalSource.SUPPLIER_OPENING]: 'رصيد افتتاحي لمورد',
   [JournalSource.EXPENSE_VOUCHER]: 'سند صرف',
   [JournalSource.YEAR_CLOSING]: 'إقفال السنة المالية',
+  [JournalSource.PRODUCTION]: 'إنتاج (أمر تصنيع)',
 };
 
 /** الطرف في سطر القيد (الدفتر المساعد) */
@@ -147,6 +162,7 @@ export const SUBLEDGER_ACCOUNTS: readonly SystemAccount[] = [
   SystemAccount.RECEIVABLES,
   SystemAccount.PAYABLES,
   SystemAccount.INVENTORY,
+  SystemAccount.WORK_IN_PROGRESS,
   SystemAccount.COURIER_RECEIVABLE,
   SystemAccount.EMPLOYEE_ADVANCES,
   SystemAccount.EMPLOYEE_LOANS,

@@ -37,6 +37,14 @@ export class Supplier extends TenantOwnedEntity {
   @Column({ type: 'int', default: 0 })
   paymentTermsDays!: number;
 
+  /**
+   * مدة التوريد المعتادة بالأيام: من طلب البضاعة حتى وصولها. null = غير معروفة.
+   * أساس "متى أطلب؟" (حد إعادة الطلب) — والمدة الفعلية لكل طلب تُقاس من
+   * orderDate في فاتورة الشراء. انظر docs/operations-research.md.
+   */
+  @Column({ type: 'int', nullable: true })
+  leadTimeDays?: number | null;
+
   /** ما كان مستحقاً للمورد قبل بدء استخدام النظام */
   @Column({
     type: 'numeric',
