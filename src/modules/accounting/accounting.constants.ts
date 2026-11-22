@@ -64,6 +64,10 @@ export enum SystemAccount {
   PRODUCTION_ABSORBED = 'production_absorbed',
   /** فروقات الإنتاج: ما لم يحمله ناتج (دفعة فاشلة، تقريب) */
   PRODUCTION_VARIANCE = 'production_variance',
+  /** تكاليف الإنتاج الزراعي: مدخلات صُرفت للمزرعة (سماد، مبيد، بذور) */
+  FARM_COSTS = 'farm_costs',
+  /** الإنتاج الزراعي المحمّل: قيمة الحصاد الذي دخل المخزن (مقابل تكاليفه) */
+  FARM_ABSORBED = 'farm_absorbed',
 }
 
 /** حسابات نظام أُضيفت بعد إطلاق الشجرة: تُنشأ تلقائياً للشركات القديمة */
@@ -71,6 +75,8 @@ export const LATE_SYSTEM_ACCOUNTS: readonly SystemAccount[] = [
   SystemAccount.WORK_IN_PROGRESS,
   SystemAccount.PRODUCTION_ABSORBED,
   SystemAccount.PRODUCTION_VARIANCE,
+  SystemAccount.FARM_COSTS,
+  SystemAccount.FARM_ABSORBED,
 ];
 
 /** من أين جاء القيد */
@@ -98,6 +104,7 @@ export enum JournalSource {
   EXPENSE_VOUCHER = 'expense_voucher',
   YEAR_CLOSING = 'year_closing',
   PRODUCTION = 'production',
+  FARM = 'farm',
 }
 
 export const JOURNAL_SOURCE_LABEL: Record<JournalSource, string> = {
@@ -124,6 +131,7 @@ export const JOURNAL_SOURCE_LABEL: Record<JournalSource, string> = {
   [JournalSource.EXPENSE_VOUCHER]: 'سند صرف',
   [JournalSource.YEAR_CLOSING]: 'إقفال السنة المالية',
   [JournalSource.PRODUCTION]: 'إنتاج (أمر تصنيع)',
+  [JournalSource.FARM]: 'مزرعة (مدخلات وحصاد)',
 };
 
 /** الطرف في سطر القيد (الدفتر المساعد) */

@@ -35,6 +35,8 @@ const quantity = {
 export enum StockLotSource {
   PURCHASE = 'purchase',
   PRODUCTION = 'production',
+  /** حصاد من المزرعة: رقمها كود المزرعة وتاريخ الجني */
+  HARVEST = 'harvest',
   ADJUSTMENT = 'adjustment',
   OPENING = 'opening',
   OTHER = 'other',

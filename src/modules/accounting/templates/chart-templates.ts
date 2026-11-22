@@ -390,6 +390,16 @@ export function buildChartTemplate(
     parent: '51',
     key: SystemAccount.PRODUCTION_VARIANCE,
   });
+  add('5106', 'تكاليف الإنتاج الزراعي', 'Farm production costs', {
+    parent: '51',
+    key: SystemAccount.FARM_COSTS,
+  });
+  add(
+    '5107',
+    'الإنتاج الزراعي المحمّل (قيمة الحصاد)',
+    'Harvested produce absorbed',
+    { parent: '51', key: SystemAccount.FARM_ABSORBED },
+  );
 
   group(
     '52',

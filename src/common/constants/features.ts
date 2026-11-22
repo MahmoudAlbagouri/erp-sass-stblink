@@ -91,6 +91,11 @@ export const FEATURES = {
     name: 'lot_tracking',
     labelAr: 'تتبع الدفعات وتواريخ الانتهاء (الصرف بالأقرب انتهاءً)',
   },
+  FARMS_MODULE: {
+    name: 'farms_module',
+    labelAr:
+      'إدارة المزارع: الأراضي وقطاعاتها على الخريطة، النخيل والأشجار والمحاصيل، العمليات الزراعية والحصاد، الآفات، وتكلفة الإنتاج',
+  },
   ACCOUNTING_MODULE: {
     name: 'accounting_module',
     labelAr: 'المحاسبة (شجرة الحسابات والقيود والقوائم المالية)',

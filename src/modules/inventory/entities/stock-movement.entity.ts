@@ -32,6 +32,10 @@ export enum StockMovementType {
   CONSUMPTION = 'consumption',
   /** تعيين رصيد غير معيّن لدفعة: كمية الحركة صفر، والأثر في توزيع الدفعات */
   LOT_ASSIGNMENT = 'lot_assignment',
+  /** صرف مدخلات زراعية (سماد، مبيد، بذور) لعملية في المزرعة، وموجبة = ردّها */
+  FARM_INPUT = 'farm_input',
+  /** حصاد يدخل المخزن من المزرعة، وسالبة = إلغاؤه */
+  HARVEST = 'harvest',
 }
 
 /**

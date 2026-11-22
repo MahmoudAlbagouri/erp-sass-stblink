@@ -70,6 +70,10 @@ import {
   ProductionTransactionType,
 } from '../manufacturing/entities/production-order.entity';
 import {
+  FarmTransaction,
+  FarmTransactionKind,
+} from '../farms/entities/farm-work.entity';
+import {
   Account,
   AccountingSettings,
   PostingError,
@@ -157,6 +161,7 @@ export class PostingService {
       this.customerOpenings(),
       this.supplierOpenings(),
       this.production(),
+      this.farms(),
     ];
   }
 
@@ -811,6 +816,63 @@ export class PostingService {
           date: dateOnly(tx.occurredAt, ctx.timezone),
           description: `${label} — أمر إنتاج ${order?.number ?? ''}`,
           lines: e.lines(SystemAccount.WORK_IN_PROGRESS),
+        };
+      },
+    };
+  }
+
+  /**
+   * المزارع: صرف المدخلات (سماد، مبيد، بذور) من المخزون إلى تكاليف الإنتاج
+   * الزراعي، ودخول الحصاد للمخزون مقابل "الإنتاج الزراعي المحمّل" بقيمته.
+   * الإبطال يعكس كلاً منهما بتاريخه.
+   */
+  private farms(): SourceHandler {
+    const type = JournalSource.FARM;
+    return {
+      type,
+      candidates: (ctx) =>
+        this.pick(ctx, FarmTransaction, 't', type, 'apply', (qb) =>
+          qb
+            .andWhere('t.occurredAt >= :activatedAt')
+            .orderBy('t.occurredAt', 'ASC'),
+        ),
+      build: async (manager, ctx, { id }) => {
+        const tx = await manager.findOneOrFail(FarmTransaction, {
+          where: { id, tenantId: ctx.tenantId },
+          withDeleted: true,
+        });
+        const value = new Decimal(tx.value);
+        const branchId = this.branchOf(ctx, tx.warehouseId);
+        const e = new EntryLines(ctx);
+        const [debit, credit, label] = {
+          [FarmTransactionKind.INPUT]: [
+            SystemAccount.FARM_COSTS,
+            SystemAccount.INVENTORY,
+            'صرف مدخلات زراعية',
+          ],
+          [FarmTransactionKind.INPUT_REVERSAL]: [
+            SystemAccount.INVENTORY,
+            SystemAccount.FARM_COSTS,
+            'إبطال عملية زراعية',
+          ],
+          [FarmTransactionKind.HARVEST]: [
+            SystemAccount.INVENTORY,
+            SystemAccount.FARM_ABSORBED,
+            'حصاد',
+          ],
+          [FarmTransactionKind.HARVEST_REVERSAL]: [
+            SystemAccount.FARM_ABSORBED,
+            SystemAccount.INVENTORY,
+            'إلغاء حصاد',
+          ],
+        }[tx.kind] as [SystemAccount, SystemAccount, string];
+        e.add(debit, value, { branchId });
+        e.add(credit, value.neg(), { branchId });
+        return {
+          ...base(ctx, type, id, 'apply', tx.reference ?? null),
+          date: dateOnly(tx.occurredAt, ctx.timezone),
+          description: `${label} ${tx.reference ?? ''}`.trim(),
+          lines: e.lines(credit),
         };
       },
     };
